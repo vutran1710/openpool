@@ -13,7 +13,7 @@ export default function Hero() {
           <div className="code-block inline-flex items-center gap-2 px-5 py-3 text-sm">
             <span className="prompt">$</span>
             <span className="command">
-              go install github.com/vutran1710/dating-dev/cmd/dating@latest
+              curl -sSL https://dating.dev/install.sh | sh
             </span>
           </div>
         </div>
@@ -22,13 +22,13 @@ export default function Hero() {
             href="https://github.com/vutran1710/dating-dev/releases"
             className="gradient-bg rounded-lg px-5 py-2.5 font-medium text-white transition-opacity hover:opacity-90"
           >
-            Download
+            Download Binary
           </a>
           <a
-            href="https://github.com/vutran1710/dating-dev"
+            href="/docs"
             className="rounded-lg border border-violet-200 bg-white px-5 py-2.5 font-medium text-violet-700 transition-colors hover:bg-violet-50"
           >
-            View on GitHub
+            Read the Docs
           </a>
         </div>
       </div>

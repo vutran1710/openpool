@@ -6,17 +6,11 @@ export default function Nav() {
           <span className="gradient-text">♥ dating</span>
         </a>
         <div className="flex items-center gap-6 text-sm font-medium text-gray-600">
-          <a href="#install" className="hover:text-violet-600 transition-colors">
-            Install
-          </a>
-          <a href="#pools" className="hover:text-violet-600 transition-colors">
+          <a href="/pools" className="hover:text-violet-600 transition-colors">
             Pools
           </a>
-          <a href="#commands" className="hover:text-violet-600 transition-colors">
-            Commands
-          </a>
-          <a href="#concepts" className="hover:text-violet-600 transition-colors">
-            Concepts
+          <a href="/docs" className="hover:text-violet-600 transition-colors">
+            Docs
           </a>
           <a
             href="https://github.com/vutran1710/dating-dev"

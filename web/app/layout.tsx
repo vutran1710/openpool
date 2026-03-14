@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Dating CLI — Terminal-native dating",
+  title: "dating.dev — Terminal-native dating",
   description:
-    "A developer-native dating platform that lives in your terminal. Discover, match, and chat — all from the command line.",
+    "Decentralized, terminal-native dating. No servers — just GitHub repos, Pull Requests, and the command line.",
 };
 
 export default function RootLayout({
