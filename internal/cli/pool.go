@@ -1,9 +1,14 @@
 package cli
 
 import (
+	"bufio"
+	"crypto/ed25519"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -11,6 +16,17 @@ import (
 	"github.com/vutran1710/dating-dev/internal/crypto"
 	gh "github.com/vutran1710/dating-dev/internal/github"
 )
+
+func parseCSV(s string) []string {
+	var result []string
+	for _, item := range strings.Split(s, ",") {
+		trimmed := strings.TrimSpace(item)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
 
 const defaultRegistry = "vutran1710/dating-pool-registry"
 
@@ -150,21 +166,19 @@ func newPoolJoinCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "join <name>",
-		Short: "Join a pool from the registry",
+		Short: "Join a pool: authenticate, create profile, submit registration",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {
 				return err
 			}
-			if !cfg.IsRegistered() {
-				printWarning("Register first: dating auth register")
-				return nil
-			}
 
 			name := args[0]
-			reg := gh.NewPublicRegistry(registry)
+			printHeader()
+			fmt.Printf("  Joining pool: %s\n\n", bold.Render(name))
 
+			reg := gh.NewPublicRegistry(registry)
 			if !reg.IsPoolRegistered(name) {
 				printError("Pool not found or not yet approved: " + name)
 				return nil
@@ -181,21 +195,111 @@ func newPoolJoinCmd() *cobra.Command {
 				return fmt.Errorf("fetching pool tokens: %w", err)
 			}
 
-			poolClient := gh.NewClient(entry.Repo, tokens.GHToken)
-			templateBody, err := fillPRTemplate(poolClient, "join")
+			fmt.Println("  Step 1/4: Authenticate")
+			fmt.Println("  1. GitHub")
+			fmt.Println("  2. Google")
+			reader := bufio.NewReader(os.Stdin)
+			choice := prompt(reader, "  Choose (1/2): ")
+
+			var provider string
+			switch choice {
+			case "1", "github":
+				provider = "github"
+			case "2", "google":
+				provider = "google"
+			default:
+				printError("Invalid choice")
+				return nil
+			}
+
+			oauthResult, err := doOAuth(provider)
+			if err != nil {
+				return fmt.Errorf("authentication failed: %w", err)
+			}
+			printSuccess(fmt.Sprintf("Authenticated as %s", oauthResult.DisplayName))
+
+			fmt.Println("\n  Step 2/4: Generate keys")
+			needKeys := !cfg.IsRegistered()
+			var pub ed25519.PublicKey
+			var priv ed25519.PrivateKey
+			if needKeys {
+				pub, priv, err = crypto.GenerateKeyPair(config.KeysDir())
+				if err != nil {
+					return fmt.Errorf("generating keys: %w", err)
+				}
+				printSuccess("Keys generated")
+			} else {
+				pub, priv, err = crypto.LoadKeyPair(config.KeysDir())
+				if err != nil {
+					return fmt.Errorf("loading keys: %w", err)
+				}
+				printSuccess("Keys loaded")
+			}
+
+			fmt.Println("\n  Step 3/4: Create profile")
+			displayName := oauthResult.DisplayName
+			bio := prompt(reader, "  Bio: ")
+			city := prompt(reader, "  City: ")
+			interests := prompt(reader, "  Interests (comma-separated): ")
+
+			interestList := parseCSV(interests)
+
+			profileData := map[string]any{
+				"display_name": displayName,
+				"bio":          bio,
+				"city":         city,
+				"interests":    interestList,
+				"public_key":   hex.EncodeToString(pub),
+				"status":       "open",
+			}
+			plaintext, _ := json.Marshal(profileData)
+			bin, err := crypto.PackUserBin(pub, plaintext)
+			if err != nil {
+				return fmt.Errorf("packing profile: %w", err)
+			}
+
+			fmt.Println("\n  Step 4/4: Submit registration")
+			userHash := crypto.UserHash(entry.Repo, oauthResult.Provider, oauthResult.ProviderUserID)
+
+			identityProof, err := crypto.EncryptIdentityProof(
+				entry.OperatorPubKey,
+				oauthResult.Provider,
+				oauthResult.ProviderUserID,
+			)
+			if err != nil {
+				return fmt.Errorf("encrypting identity proof: %w", err)
+			}
+
+			payload, _ := json.Marshal(map[string]string{
+				"action":    "register",
+				"user_hash": userHash,
+			})
+			signature := crypto.Sign(priv, payload)
+
+			poolGH := gh.NewPool(entry.Repo, tokens.GHToken)
+			templateBody, err := fillPRTemplate(poolGH.Client(), "join")
 			if err != nil {
 				return err
 			}
-			_ = templateBody
+
+			prNumber, err := poolGH.RegisterUser(userHash, bin, signature, identityProof, templateBody)
+			if err != nil {
+				return fmt.Errorf("submitting registration: %w", err)
+			}
 
 			pool := config.PoolConfig{
 				Name:           entry.Name,
 				Repo:           entry.Repo,
 				Token:          tokens.GHToken,
 				OperatorPubKey: entry.OperatorPubKey,
+				RelayURL:       entry.RelayURL,
 				Status:         gh.PoolStatusPending,
 			}
 
+			cfg.User.PublicID = userHash[:12]
+			cfg.User.DisplayName = displayName
+			cfg.User.Provider = oauthResult.Provider
+			cfg.User.ProviderUserID = oauthResult.ProviderUserID
 			cfg.AddPool(pool)
 			if cfg.Active == "" {
 				cfg.Active = pool.Name
@@ -204,10 +308,10 @@ func newPoolJoinCmd() *cobra.Command {
 				return err
 			}
 
-			printSuccess(fmt.Sprintf("Joined \"%s\" — status: pending (awaiting pool operator approval)", pool.Name))
-			if cfg.Active == pool.Name {
-				printDim("  Set as active pool")
-			}
+			fmt.Println()
+			printSuccess(fmt.Sprintf("Registration PR #%d created for \"%s\"", prNumber, name))
+			printDim("  Waiting for pool operator approval...")
+			fmt.Println()
 			return nil
 		},
 	}

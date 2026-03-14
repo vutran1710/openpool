@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bufio"
 	"fmt"
+	"strings"
 
 	"github.com/vutran1710/dating-dev/internal/cli/config"
 	"github.com/vutran1710/dating-dev/internal/github"
@@ -24,4 +26,10 @@ func requirePool(cfg *config.Config) (*config.PoolConfig, error) {
 
 func poolClient(pool *config.PoolConfig) *github.Pool {
 	return github.NewPool(pool.Repo, pool.Token)
+}
+
+func prompt(reader *bufio.Reader, label string) string {
+	fmt.Print(label)
+	input, _ := reader.ReadString('\n')
+	return strings.TrimSpace(input)
 }

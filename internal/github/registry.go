@@ -19,6 +19,7 @@ type PoolEntry struct {
 	Repo           string `json:"repo"`
 	Description    string `json:"description"`
 	OperatorPubKey string `json:"operator_public_key"`
+	RelayURL       string `json:"relay_url,omitempty"`
 	CreatedAt      string `json:"created_at"`
 }
 
