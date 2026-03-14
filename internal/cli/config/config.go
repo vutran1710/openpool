@@ -15,8 +15,10 @@ type Config struct {
 }
 
 type UserConfig struct {
-	PublicID    string `toml:"public_id"`
-	DisplayName string `toml:"display_name"`
+	PublicID       string `toml:"public_id"`
+	DisplayName    string `toml:"display_name"`
+	Provider       string `toml:"provider"`
+	ProviderUserID string `toml:"provider_user_id"`
 }
 
 type PoolConfig struct {
@@ -24,6 +26,8 @@ type PoolConfig struct {
 	Repo     string `toml:"repo"`
 	Token    string `toml:"token"`
 	BotToken string `toml:"bot_token"`
+	Secret   string `toml:"secret"`
+	RelayURL string `toml:"relay_url,omitempty"`
 	URL      string `toml:"url,omitempty"`
 	Status   string `toml:"status,omitempty"`
 }

@@ -77,7 +77,7 @@ func newProfileEditCmd() *cobra.Command {
 				return fmt.Errorf("packing profile: %w", err)
 			}
 
-			userHash := crypto.UserHash(hex.EncodeToString(pub))
+			userHash := crypto.UserHash(pool.Secret, cfg.User.Provider, cfg.User.ProviderUserID)
 
 			payload, _ := json.Marshal(map[string]string{
 				"action":    "register",
@@ -120,12 +120,12 @@ func newProfileShowCmd() *cobra.Command {
 				return nil
 			}
 
-			pub, priv, err := crypto.LoadKeyPair(config.KeysDir())
+			_, priv, err := crypto.LoadKeyPair(config.KeysDir())
 			if err != nil {
 				return fmt.Errorf("loading keys: %w", err)
 			}
 
-			userHash := crypto.UserHash(hex.EncodeToString(pub))
+			userHash := crypto.UserHash(pool.Secret, cfg.User.Provider, cfg.User.ProviderUserID)
 			client := poolClient(pool)
 			bin, err := client.GetUserBlob(userHash)
 			if err != nil {

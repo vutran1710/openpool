@@ -48,6 +48,30 @@ func newRegisterCmd() *cobra.Command {
 			}
 
 			fmt.Println()
+			fmt.Println("  How do you sign in?")
+			fmt.Println("  1. GitHub")
+			fmt.Println("  2. Google")
+			providerChoice := prompt(reader, "  Choose (1/2): ")
+
+			var provider, providerUserID string
+			switch providerChoice {
+			case "1", "github":
+				provider = "github"
+				providerUserID = prompt(reader, "  GitHub username: ")
+			case "2", "google":
+				provider = "google"
+				providerUserID = prompt(reader, "  Google email: ")
+			default:
+				printError("Invalid choice")
+				return nil
+			}
+
+			if providerUserID == "" {
+				printError("Provider ID is required")
+				return nil
+			}
+
+			fmt.Println()
 			fmt.Println("  Generating your keys...")
 			pub, _, err := crypto.GenerateKeyPair(config.KeysDir())
 			if err != nil {
@@ -58,6 +82,8 @@ func newRegisterCmd() *cobra.Command {
 
 			cfg.User.PublicID = publicID
 			cfg.User.DisplayName = name
+			cfg.User.Provider = provider
+			cfg.User.ProviderUserID = providerUserID
 			if err := cfg.Save(); err != nil {
 				return err
 			}
