@@ -34,6 +34,10 @@ func NewPublicRegistry(repo string) *Registry {
 	return &Registry{client: NewClient(repo, "")}
 }
 
+func (r *Registry) Client() *Client {
+	return r.client
+}
+
 func (r *Registry) ListPools() ([]PoolEntry, error) {
 	names, err := r.client.ListDir("pools")
 	if err != nil {
@@ -77,13 +81,18 @@ func (r *Registry) GetPoolTokens(name string) (*PoolTokens, error) {
 	return tokens, nil
 }
 
-func (r *Registry) RegisterPool(entry PoolEntry, tokens PoolTokens) (int, error) {
+func (r *Registry) RegisterPool(entry PoolEntry, tokens PoolTokens, templateBody string) (int, error) {
 	entryJSON, _ := json.MarshalIndent(entry, "", "  ")
 	tokensBin := SerializeTokens(tokens)
 
+	body := fmt.Sprintf("Register new pool **%s**\n\nRepo: %s\nDescription: %s", entry.Name, entry.Repo, entry.Description)
+	if templateBody != "" {
+		body = templateBody + "\n\n---\n\n" + body
+	}
+
 	pr := PRRequest{
 		Title:  fmt.Sprintf("Register pool: %s", entry.Name),
-		Body:   fmt.Sprintf("Register new pool **%s**\n\nRepo: %s\nDescription: %s", entry.Name, entry.Repo, entry.Description),
+		Body:   body,
 		Branch: fmt.Sprintf("register-pool/%s", entry.Name),
 		Files: []PRFile{
 			{Path: fmt.Sprintf("pools/%s/pool.json", entry.Name), Content: entryJSON},

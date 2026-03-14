@@ -56,6 +56,11 @@ func newPoolCreateCmd() *cobra.Command {
 
 			reg := gh.NewRegistry(registry, regToken)
 
+			templateBody, err := fillPRTemplate(reg.Client(), "register-pool")
+			if err != nil {
+				return err
+			}
+
 			entry := gh.PoolEntry{
 				Name:        name,
 				Repo:        repo,
@@ -67,7 +72,7 @@ func newPoolCreateCmd() *cobra.Command {
 				BotToken: botToken,
 			}
 
-			prNumber, err := reg.RegisterPool(entry, tokens)
+			prNumber, err := reg.RegisterPool(entry, tokens, templateBody)
 			if err != nil {
 				return fmt.Errorf("registering pool: %w", err)
 			}
@@ -160,6 +165,13 @@ func newPoolJoinCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("fetching pool tokens: %w", err)
 			}
+
+			poolClient := gh.NewClient(entry.Repo, tokens.GHToken)
+			templateBody, err := fillPRTemplate(poolClient, "join")
+			if err != nil {
+				return err
+			}
+			_ = templateBody
 
 			pool := config.PoolConfig{
 				Name:     entry.Name,

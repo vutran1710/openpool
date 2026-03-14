@@ -72,13 +72,22 @@ func (p *Pool) DiscoverRandom(exclude string) (*UserProfile, error) {
 	return p.GetProfile(pick)
 }
 
-func (p *Pool) RegisterProfile(profile UserProfile, signature string) (int, error) {
+func (p *Pool) Client() *Client {
+	return p.client
+}
+
+func (p *Pool) RegisterProfile(profile UserProfile, signature, templateBody string) (int, error) {
 	profileJSON, _ := json.MarshalIndent(profile, "", "  ")
 	symlinkContent := []byte(fmt.Sprintf("../../users/%s/public.json", profile.PublicID))
 
+	body := fmt.Sprintf("New member **%s** wants to join.\n\nSignature: %s", profile.DisplayName, signature)
+	if templateBody != "" {
+		body = templateBody + "\n\n---\n\n" + body
+	}
+
 	pr := PRRequest{
 		Title:  fmt.Sprintf("Join: %s (%s)", profile.DisplayName, profile.PublicID),
-		Body:   fmt.Sprintf("New member **%s** wants to join.\n\nSignature: %s", profile.DisplayName, signature),
+		Body:   body,
 		Branch: fmt.Sprintf("join/%s", profile.PublicID),
 		Files: []PRFile{
 			{Path: fmt.Sprintf("users/%s/public.json", profile.PublicID), Content: profileJSON},

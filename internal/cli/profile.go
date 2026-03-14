@@ -78,7 +78,13 @@ func newProfileEditCmd() *cobra.Command {
 			signature := crypto.Sign(priv, payload)
 
 			client := poolClient(pool)
-			prNumber, err := client.RegisterProfile(profile, signature)
+
+			templateBody, err := fillPRTemplate(client.Client(), "join")
+			if err != nil {
+				return err
+			}
+
+			prNumber, err := client.RegisterProfile(profile, signature, templateBody)
 			if err != nil {
 				return fmt.Errorf("publishing profile: %w", err)
 			}
