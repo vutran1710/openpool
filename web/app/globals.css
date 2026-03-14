@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+:root {
+  --violet-50: #f5f3ff;
+  --violet-100: #ede9fe;
+  --violet-200: #ddd6fe;
+  --violet-300: #c4b5fd;
+  --violet-400: #a78bfa;
+  --violet-500: #8b5cf6;
+  --violet-600: #7c3aed;
+  --violet-700: #6d28d9;
+  --violet-800: #5b21b6;
+  --violet-900: #4c1d95;
+}
+
+body {
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  background: #fafafa;
+  color: #1a1a2e;
+}
+
+pre, code {
+  font-family: "JetBrains Mono", "Fira Code", "SF Mono", monospace;
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, #7c3aed, #a78bfa, #c084fc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-bg {
+  background: linear-gradient(135deg, #7c3aed 0%, #a78bfa 50%, #c084fc 100%);
+}
+
+.gradient-border {
+  border-image: linear-gradient(135deg, #7c3aed, #a78bfa, #c084fc) 1;
+}
+
+.hero-gradient {
+  background: linear-gradient(180deg, #f5f3ff 0%, #fafafa 100%);
+}
+
+.code-block {
+  background: #1e1b2e;
+  color: #e2e0f0;
+  border-radius: 12px;
+  overflow-x: auto;
+}
+
+.code-block .prompt {
+  color: #a78bfa;
+}
+
+.code-block .command {
+  color: #c4b5fd;
+}
+
+.code-block .output {
+  color: #9ca3af;
+}
+
+.code-block .success {
+  color: #7cdb8a;
+}
+
+.code-block .brand {
+  color: #c084fc;
+}
