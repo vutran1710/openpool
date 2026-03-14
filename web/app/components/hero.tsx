@@ -6,8 +6,8 @@ export default function Hero() {
           <span className="gradient-text">Dating CLI</span>
         </h1>
         <p className="mx-auto mb-8 max-w-lg text-lg text-gray-600">
-          A terminal-native dating platform. Discover, match, and chat — all
-          from the command line.
+          Decentralized, terminal-native dating. No servers — just GitHub repos,
+          Pull Requests, and the command line.
         </p>
         <div className="flex items-center justify-center gap-4">
           <div className="code-block inline-flex items-center gap-2 px-5 py-3 text-sm">

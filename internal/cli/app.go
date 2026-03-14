@@ -1,7 +1,11 @@
 package cli
 
 import (
+	"os"
+
 	"github.com/spf13/cobra"
+	"github.com/vutran1710/dating-dev/internal/cli/config"
+	"github.com/vutran1710/dating-dev/internal/cli/tui"
 )
 
 func NewRootCmd() *cobra.Command {
@@ -10,6 +14,13 @@ func NewRootCmd() *cobra.Command {
 		Short: "A terminal-native dating platform",
 		Long:  "Dating CLI — find meaningful connections from your terminal.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isInteractive() {
+				cfg, _ := config.Load()
+				registered := cfg != nil && cfg.IsRegistered()
+				poolActive := cfg != nil && cfg.ActivePool() != nil
+				tui.RunOrFallback(registered, poolActive)
+				return nil
+			}
 			printHeader()
 			return cmd.Help()
 		},
@@ -25,9 +36,18 @@ func NewRootCmd() *cobra.Command {
 		newAcceptCmd(),
 		newMatchesCmd(),
 		newChatCmd(),
+		newCommitCmd(),
 		newStatusCmd(),
 		newProfileCmd(),
 	)
 
 	return root
+}
+
+func isInteractive() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
 }

@@ -9,6 +9,9 @@ export default function Nav() {
           <a href="#install" className="hover:text-violet-600 transition-colors">
             Install
           </a>
+          <a href="#pools" className="hover:text-violet-600 transition-colors">
+            Pools
+          </a>
           <a href="#commands" className="hover:text-violet-600 transition-colors">
             Commands
           </a>

@@ -10,32 +10,6 @@ export default function Install() {
         <div className="grid gap-6 md:grid-cols-2">
           <div className="rounded-xl border border-violet-100 bg-white p-6">
             <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-violet-600">
-              From source
-            </h3>
-            <div className="code-block px-5 py-4 text-sm">
-              <div>
-                <span className="prompt">$</span>{" "}
-                <span className="command">
-                  git clone https://github.com/vutran1710/dating-dev
-                </span>
-              </div>
-              <div>
-                <span className="prompt">$</span>{" "}
-                <span className="command">cd dating-dev</span>
-              </div>
-              <div>
-                <span className="prompt">$</span>{" "}
-                <span className="command">make cli</span>
-              </div>
-              <div>
-                <span className="prompt">$</span>{" "}
-                <span className="command">./bin/dating</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-violet-100 bg-white p-6">
-            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-violet-600">
               Go install
             </h3>
             <div className="code-block px-5 py-4 text-sm">
@@ -47,7 +21,29 @@ export default function Install() {
               </div>
               <div>
                 <span className="prompt">$</span>{" "}
-                <span className="command">dating</span>
+                <span className="command">dating auth register</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-violet-100 bg-white p-6">
+            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-violet-600">
+              From source
+            </h3>
+            <div className="code-block px-5 py-4 text-sm">
+              <div>
+                <span className="prompt">$</span>{" "}
+                <span className="command">
+                  git clone https://github.com/vutran1710/dating-dev
+                </span>
+              </div>
+              <div>
+                <span className="prompt">$</span>{" "}
+                <span className="command">cd dating-dev && make cli</span>
+              </div>
+              <div>
+                <span className="prompt">$</span>{" "}
+                <span className="command">./bin/dating auth register</span>
               </div>
             </div>
           </div>

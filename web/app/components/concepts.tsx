@@ -1,38 +1,50 @@
 const concepts = [
   {
-    title: "Pseudonymous Identity",
+    title: "Pools = GitHub Repos",
     description:
-      "You interact using a short public ID like 8ac21. Real identities stay private until you choose to share them.",
-    icon: "🎭",
+      "Each dating pool is a GitHub repository — like a Discord server anyone can create. No central server; the repos ARE the platform.",
+    icon: "🏊",
   },
   {
-    title: "Client-side Encryption",
+    title: "Registry",
     description:
-      "Sensitive profile data is encrypted locally before leaving your machine. Only you hold the keys.",
-    icon: "🔐",
+      "Pools register themselves in a public registry repo (default: vutran1710/dating-pool-registry). Users browse and join pools from there.",
+    icon: "📋",
   },
   {
-    title: "Public Artifacts on GitHub",
+    title: "PR-based Matching",
     description:
-      "Public profiles are stored in a Git repository — transparent, auditable, and portable.",
-    icon: "📦",
+      "Likes are Pull Requests. When someone accepts your interest, the PR merges — that merge is your match. Fully auditable on GitHub.",
+    icon: "🔀",
   },
   {
-    title: "Stream-based Chat",
+    title: "Local ed25519 Identity",
     description:
-      "Conversations behave like log streams. Messages append in real-time, just like tailing a log.",
-    icon: "📡",
+      "Your identity is a locally generated ed25519 key pair. No OAuth, no accounts — just cryptographic keys you control.",
+    icon: "🔑",
   },
   {
-    title: "Developer & Non-dev Friendly",
+    title: "Telegram Chat Transport",
     description:
-      "Sign up with GitHub (developers) or Google (everyone). The CLI is designed to feel natural for all users.",
-    icon: "👥",
+      "Matched users chat through a Telegram bot managed by the pool operator. The transport is invisible — you just use the CLI.",
+    icon: "💬",
+  },
+  {
+    title: "PR Templates for Monetization",
+    description:
+      "Pool operators customize PR templates to set admission requirements. This enables monetization, gating, and community curation.",
+    icon: "📝",
+  },
+  {
+    title: "GitHub Actions Automation",
+    description:
+      "Webhooks and GitHub Actions fire on PR merge, enabling automated match notifications, onboarding flows, and custom workflows.",
+    icon: "⚡",
   },
   {
     title: "Commitment System",
     description:
-      "Formalize relationships with a mutual commitment — a proposal/accept flow that creates a signed artifact.",
+      "Formalize relationships with a mutual commitment — a proposal/accept flow that creates a signed artifact in the pool repo.",
     icon: "💜",
   },
 ];
@@ -43,7 +55,7 @@ export default function Concepts() {
       <div className="mx-auto max-w-5xl">
         <h2 className="mb-2 text-3xl font-bold">Core Concepts</h2>
         <p className="mb-10 text-gray-600">
-          The principles behind Dating CLI.
+          A fully decentralized architecture built on GitHub.
         </p>
 
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">

@@ -1,64 +1,93 @@
 const commandGroups = [
   {
     title: "Authentication",
-    description: "Create an account and manage your session.",
+    description: "Create and manage your local identity.",
     commands: [
       {
         cmd: "dating auth register",
-        desc: "Create a new account via GitHub or Google OAuth",
-        flags: ["-p, --provider  Auth provider (github or google)"],
-      },
-      {
-        cmd: "dating auth login",
-        desc: "Sign in to an existing account",
-        flags: ["-p, --provider  Auth provider (github or google)"],
-      },
-      {
-        cmd: "dating auth logout",
-        desc: "Sign out and clear local credentials",
+        desc: "Create a new identity (generates ed25519 key pair)",
       },
       {
         cmd: "dating auth whoami",
-        desc: "Display your current user info",
+        desc: "Show your current identity",
+      },
+    ],
+  },
+  {
+    title: "Pools",
+    description: "Browse, create, and join dating pools (GitHub repos).",
+    commands: [
+      {
+        cmd: "dating pool browse",
+        desc: "Browse available pools from a registry",
+      },
+      {
+        cmd: "dating pool create <name>",
+        desc: "Create and register a new pool",
+        flags: [
+          "--repo        GitHub repo for the pool",
+          "--gh-token    Fine-grained GitHub PAT",
+          "--bot-token   Telegram bot token",
+          "--registry-token  Token for registry repo",
+        ],
+      },
+      {
+        cmd: "dating pool join <name>",
+        desc: "Join a pool (creates a PR, pending operator approval)",
+      },
+      {
+        cmd: "dating pool leave <name>",
+        desc: "Leave a pool",
+      },
+      {
+        cmd: "dating pool list",
+        desc: "List joined pools with status (pending/active)",
+      },
+      {
+        cmd: "dating pool switch <name>",
+        desc: "Set the active pool",
       },
     ],
   },
   {
     title: "Discovery",
-    description: "Find and explore profiles.",
+    description: "Find and explore profiles in your active pool.",
     commands: [
       {
         cmd: "dating fetch",
-        desc: "Discover a random profile",
-        flags: ["--city     Filter by city", "--interest  Filter by interest"],
+        desc: "Discover random profiles in the active pool",
       },
       {
         cmd: "dating view <public_id>",
-        desc: "View someone's public profile",
+        desc: "View someone's profile",
       },
     ],
   },
   {
     title: "Matching",
-    description: "Express interest and see your matches.",
+    description: "Likes are Pull Requests. Matches are merged PRs.",
     commands: [
       {
         cmd: "dating like <public_id>",
-        desc: "Like someone — if they like you back, it's a match",
+        desc: "Express interest (creates a PR)",
       },
       {
-        cmd: "dating matches",
-        desc: "List all your current matches",
+        cmd: "dating inbox",
+        desc: "View incoming interests (open PRs targeting you)",
+      },
+      {
+        cmd: "dating accept <pr_number>",
+        desc: "Accept an interest (merges the PR = match)",
       },
     ],
   },
   {
     title: "Chat",
-    description: "Real-time messaging with your matches.",
+    description: "Message your matches via Telegram bot transport.",
     commands: [
       {
         cmd: "dating chat <public_id>",
-        desc: "Open a live chat session with a match",
+        desc: "Chat with a match (via Telegram bot, invisible to users)",
       },
     ],
   },
@@ -67,8 +96,8 @@ const commandGroups = [
     description: "Formalize a relationship.",
     commands: [
       {
-        cmd: "dating commit <match_id>",
-        desc: "Propose a commitment to a match",
+        cmd: "dating commit <public_id>",
+        desc: "Propose commitment to a match",
       },
       {
         cmd: "dating status",
@@ -82,11 +111,11 @@ const commandGroups = [
     commands: [
       {
         cmd: "dating profile edit",
-        desc: "Interactively edit your bio, city, interests",
+        desc: "Edit and publish your profile to the active pool",
       },
       {
-        cmd: "dating profile sync",
-        desc: "Sync your profile to the public GitHub repository",
+        cmd: "dating profile show",
+        desc: "Show your current profile",
       },
     ],
   },
