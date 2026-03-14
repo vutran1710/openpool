@@ -9,6 +9,9 @@ export default function Nav() {
           </span>
         </a>
         <div className="flex items-center gap-5 text-xs font-medium uppercase tracking-widest text-[var(--text-dim)]">
+          <a href="/how-it-works" className="transition-colors hover:text-[var(--pink)]">
+            How it works
+          </a>
           <a href="/pools" className="transition-colors hover:text-[var(--pink)]">
             Pools
           </a>
