@@ -27,6 +27,12 @@ export default function Nav() {
             </svg>
             <span className="normal-case tracking-normal">Star</span>
           </a>
+          <a
+            href="/signin"
+            className="rounded bg-[var(--pink)] px-4 py-1.5 text-xs font-semibold normal-case tracking-normal text-[var(--bg)] transition-all hover:shadow-[0_0_15px_var(--pink-dim)]"
+          >
+            Sign in
+          </a>
         </div>
       </div>
     </nav>
