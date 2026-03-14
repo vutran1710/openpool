@@ -5,29 +5,28 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/bubbles/textinput"
 )
 
-func Run(registered, poolActive bool) error {
+func inputInit() tea.Cmd {
+	return textinput.Blink
+}
+
+func Run(user, pool string) error {
 	p := tea.NewProgram(
-		initialModel(registered, poolActive),
+		newApp(user, pool),
 		tea.WithAltScreen(),
 	)
 
-	finalModel, err := p.Run()
+	_, err := p.Run()
 	if err != nil {
 		return fmt.Errorf("running TUI: %w", err)
 	}
-
-	m := finalModel.(model)
-	if m.quitting {
-		return nil
-	}
-
 	return nil
 }
 
-func RunOrFallback(registered, poolActive bool) {
-	if err := Run(registered, poolActive); err != nil {
+func RunOrFallback(user, pool string) {
+	if err := Run(user, pool); err != nil {
 		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
 		os.Exit(1)
 	}

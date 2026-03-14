@@ -16,9 +16,15 @@ func NewRootCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isInteractive() {
 				cfg, _ := config.Load()
-				registered := cfg != nil && cfg.IsRegistered()
-				poolActive := cfg != nil && cfg.ActivePool() != nil
-				tui.RunOrFallback(registered, poolActive)
+				user := ""
+				pool := ""
+				if cfg != nil && cfg.IsRegistered() {
+					user = cfg.User.PublicID
+				}
+				if cfg != nil && cfg.ActivePool() != nil {
+					pool = cfg.ActivePool().Name
+				}
+				tui.RunOrFallback(user, pool)
 				return nil
 			}
 			printHeader()
