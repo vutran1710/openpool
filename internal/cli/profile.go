@@ -72,9 +72,9 @@ func newProfileEditCmd() *cobra.Command {
 			}
 
 			plaintext, _ := json.Marshal(profileData)
-			encrypted, err := crypto.Encrypt(pub, plaintext)
+			bin, err := crypto.PackUserBin(pub, plaintext)
 			if err != nil {
-				return fmt.Errorf("encrypting profile: %w", err)
+				return fmt.Errorf("packing profile: %w", err)
 			}
 
 			userHash := crypto.UserHash(hex.EncodeToString(pub))
@@ -91,7 +91,7 @@ func newProfileEditCmd() *cobra.Command {
 				return err
 			}
 
-			prNumber, err := client.RegisterUser(userHash, encrypted, signature, templateBody)
+			prNumber, err := client.RegisterUser(userHash, bin, signature, templateBody)
 			if err != nil {
 				return fmt.Errorf("publishing profile: %w", err)
 			}
@@ -127,13 +127,13 @@ func newProfileShowCmd() *cobra.Command {
 
 			userHash := crypto.UserHash(hex.EncodeToString(pub))
 			client := poolClient(pool)
-			blob, err := client.GetUserBlob(userHash)
+			bin, err := client.GetUserBlob(userHash)
 			if err != nil {
 				printDim("  No profile found in this pool. Run: dating profile edit")
 				return nil
 			}
 
-			plaintext, err := crypto.Decrypt(priv, blob)
+			plaintext, err := crypto.UnpackUserBin(priv, bin)
 			if err != nil {
 				return fmt.Errorf("decrypting profile: %w", err)
 			}

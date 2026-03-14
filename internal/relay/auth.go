@@ -6,13 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 )
 
-func DeriveUserHash(pubKeyHex string) string {
-	h := sha256.Sum256([]byte(pubKeyHex))
-	return hex.EncodeToString(h[:])
-}
+const PubKeySize = ed25519.PublicKeySize
 
 func GenerateNonce() ([]byte, error) {
 	nonce := make([]byte, 32)
@@ -22,45 +20,51 @@ func GenerateNonce() ([]byte, error) {
 	return nonce, nil
 }
 
-func VerifySignature(pubKeyHex string, nonce []byte, signatureHex string) (bool, error) {
-	pubBytes, err := hex.DecodeString(pubKeyHex)
-	if err != nil {
-		return false, fmt.Errorf("decoding public key: %w", err)
-	}
-	if len(pubBytes) != ed25519.PublicKeySize {
-		return false, fmt.Errorf("invalid public key length")
-	}
-
+func VerifySignature(pubKey ed25519.PublicKey, nonce []byte, signatureHex string) bool {
 	sig, err := hex.DecodeString(signatureHex)
 	if err != nil {
-		return false, fmt.Errorf("decoding signature: %w", err)
+		return false
 	}
-
-	return ed25519.Verify(ed25519.PublicKey(pubBytes), nonce, sig), nil
+	return ed25519.Verify(pubKey, nonce, sig)
 }
 
-func UserExistsInPool(poolRepo, poolToken, userHash string) bool {
+func FetchUserBin(poolRepo, poolToken, userHash string) ([]byte, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/contents/users/%s.bin", poolRepo, userHash)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return false
+		return nil, err
 	}
 	if poolToken != "" {
 		req.Header.Set("Authorization", "Bearer "+poolToken)
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Accept", "application/vnd.github.raw+json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return false
+		return nil, fmt.Errorf("fetching user bin: %w", err)
 	}
-	resp.Body.Close()
-	return resp.StatusCode == 200
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 404 {
+		return nil, fmt.Errorf("user not found")
+	}
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+
+	return io.ReadAll(resp.Body)
 }
 
-func MatchExists(poolRepo, poolToken, hashA, hashB string) bool {
-	ph := PairHash(hashA, hashB)
+func ExtractPubKey(bin []byte) (ed25519.PublicKey, error) {
+	if len(bin) < PubKeySize {
+		return nil, fmt.Errorf("bin too short")
+	}
+	return ed25519.PublicKey(bin[:PubKeySize]), nil
+}
+
+func MatchExists(poolRepo, poolToken, rootA, rootB string) bool {
+	ph := PairHash(rootA, rootB)
 	url := fmt.Sprintf("https://api.github.com/repos/%s/contents/matches/%s", poolRepo, ph)
 
 	req, err := http.NewRequest("GET", url, nil)

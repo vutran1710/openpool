@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
 	"log"
@@ -21,7 +22,7 @@ type Client struct {
 	hub       *Hub
 	send      chan []byte
 	UserHash  string
-	PublicKey string
+	pubKey    ed25519.PublicKey
 	PoolRepo  string
 	PoolToken string
 	authed    bool
@@ -105,15 +106,20 @@ func (c *Client) handleFrame(f InboundFrame) {
 }
 
 func (c *Client) handleAuth(f InboundFrame) {
-	if f.PublicKey == "" || f.PoolRepo == "" {
-		c.sendError("missing public_key or pool_repo")
+	if f.UserHash == "" || f.PoolRepo == "" {
+		c.sendError("missing user_hash or pool_repo")
 		return
 	}
 
-	userHash := DeriveUserHash(f.PublicKey)
-
-	if !UserExistsInPool(f.PoolRepo, c.PoolToken, userHash) {
+	bin, err := FetchUserBin(f.PoolRepo, c.PoolToken, f.UserHash)
+	if err != nil {
 		c.sendError("user not registered in pool")
+		return
+	}
+
+	pubKey, err := ExtractPubKey(bin)
+	if err != nil {
+		c.sendError("invalid user data")
 		return
 	}
 
@@ -123,8 +129,8 @@ func (c *Client) handleAuth(f InboundFrame) {
 		return
 	}
 
-	c.UserHash = userHash
-	c.PublicKey = f.PublicKey
+	c.UserHash = f.UserHash
+	c.pubKey = pubKey
 	c.PoolRepo = f.PoolRepo
 	c.nonce = nonce
 
@@ -135,7 +141,7 @@ func (c *Client) handleAuth(f InboundFrame) {
 }
 
 func (c *Client) handleAuthResponse(f InboundFrame) {
-	if c.nonce == nil || c.PublicKey == "" {
+	if c.nonce == nil || c.pubKey == nil {
 		c.sendError("no pending challenge")
 		return
 	}
@@ -145,8 +151,7 @@ func (c *Client) handleAuthResponse(f InboundFrame) {
 		return
 	}
 
-	valid, err := VerifySignature(c.PublicKey, c.nonce, f.Signature)
-	if err != nil || !valid {
+	if !VerifySignature(c.pubKey, c.nonce, f.Signature) {
 		c.sendError("authentication failed")
 		return
 	}
