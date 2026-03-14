@@ -6,8 +6,10 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -18,21 +20,47 @@ type OAuthResult struct {
 	Email          string
 }
 
+type OAuthConfig struct {
+	ClientID     string
+	ClientSecret string
+}
+
+var (
+	githubOAuth = OAuthConfig{
+		ClientID:     getEnvOrDefault("GITHUB_CLIENT_ID", "PLACEHOLDER"),
+		ClientSecret: getEnvOrDefault("GITHUB_CLIENT_SECRET", "PLACEHOLDER"),
+	}
+	googleOAuth = OAuthConfig{
+		ClientID:     getEnvOrDefault("GOOGLE_CLIENT_ID", "PLACEHOLDER"),
+		ClientSecret: getEnvOrDefault("GOOGLE_CLIENT_SECRET", "PLACEHOLDER"),
+	}
+)
+
+func getEnvOrDefault(key, fallback string) string {
+	if v := getEnv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func getEnv(key string) string {
+	// avoid importing os just for this; already imported via exec
+	val, _ := exec.Command("sh", "-c", "echo $"+key).Output()
+	return strings.TrimSpace(string(val))
+}
+
 func doOAuth(provider string) (*OAuthResult, error) {
 	switch provider {
 	case "github":
-		return doGitHubDeviceFlow()
+		return doGitHubOAuth()
 	case "google":
-		return doGoogleLocalFlow()
+		return doGoogleOAuth()
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", provider)
 	}
 }
 
-func doGitHubDeviceFlow() (*OAuthResult, error) {
-	printDim("  Opening browser for GitHub authentication...")
-	printDim("  If browser doesn't open, visit: https://github.com/login/device")
-
+func doGitHubOAuth() (*OAuthResult, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("starting local server: %w", err)
@@ -44,16 +72,24 @@ func doGitHubDeviceFlow() (*OAuthResult, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		token := r.URL.Query().Get("access_token")
-		if token == "" {
-			errCh <- fmt.Errorf("no token received")
-			fmt.Fprintf(w, "<html><body><h1>Authentication failed</h1></body></html>")
+		code := r.URL.Query().Get("code")
+		if code == "" {
+			http.Error(w, "missing code", http.StatusBadRequest)
+			errCh <- fmt.Errorf("no authorization code received")
+			return
+		}
+
+		token, err := exchangeGitHubCode(code, port)
+		if err != nil {
+			http.Error(w, "authentication failed", http.StatusUnauthorized)
+			errCh <- fmt.Errorf("code exchange failed: %w", err)
 			return
 		}
 
 		user, err := fetchGitHubUser(token)
 		if err != nil {
-			errCh <- err
+			http.Error(w, "failed to verify identity", http.StatusUnauthorized)
+			errCh <- fmt.Errorf("identity verification failed: %w", err)
 			return
 		}
 
@@ -65,7 +101,16 @@ func doGitHubDeviceFlow() (*OAuthResult, error) {
 	go srv.Serve(listener)
 	defer srv.Close()
 
-	openBrowser(fmt.Sprintf("https://github.com/login/oauth/authorize?client_id=PLACEHOLDER&redirect_uri=http://127.0.0.1:%d/callback&scope=read:user", port))
+	authURL := fmt.Sprintf(
+		"https://github.com/login/oauth/authorize?client_id=%s&redirect_uri=%s&scope=read:user",
+		githubOAuth.ClientID,
+		url.QueryEscape(fmt.Sprintf("http://127.0.0.1:%d/callback", port)),
+	)
+
+	printDim(fmt.Sprintf("  Sign in at:\n  %s", authURL))
+	fmt.Println()
+	openBrowser(authURL)
+	printDim("  Waiting for authentication...")
 
 	select {
 	case result := <-resultCh:
@@ -75,6 +120,41 @@ func doGitHubDeviceFlow() (*OAuthResult, error) {
 	case <-time.After(2 * time.Minute):
 		return nil, fmt.Errorf("authentication timed out")
 	}
+}
+
+func exchangeGitHubCode(code string, port int) (string, error) {
+	data := url.Values{
+		"client_id":     {githubOAuth.ClientID},
+		"client_secret": {githubOAuth.ClientSecret},
+		"code":          {code},
+		"redirect_uri":  {fmt.Sprintf("http://127.0.0.1:%d/callback", port)},
+	}
+
+	req, _ := http.NewRequest("POST", "https://github.com/login/oauth/access_token", strings.NewReader(data.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		AccessToken string `json:"access_token"`
+		Error       string `json:"error"`
+		ErrorDesc   string `json:"error_description"`
+	}
+	json.NewDecoder(resp.Body).Decode(&result)
+
+	if result.Error != "" {
+		return "", fmt.Errorf("%s: %s", result.Error, result.ErrorDesc)
+	}
+	if result.AccessToken == "" {
+		return "", fmt.Errorf("no access token in response")
+	}
+
+	return result.AccessToken, nil
 }
 
 func fetchGitHubUser(token string) (*OAuthResult, error) {
@@ -87,6 +167,10 @@ func fetchGitHubUser(token string) (*OAuthResult, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
+	}
+
 	body, _ := io.ReadAll(resp.Body)
 	var data struct {
 		ID    int    `json:"id"`
@@ -94,7 +178,9 @@ func fetchGitHubUser(token string) (*OAuthResult, error) {
 		Name  string `json:"name"`
 		Email string `json:"email"`
 	}
-	json.Unmarshal(body, &data)
+	if err := json.Unmarshal(body, &data); err != nil {
+		return nil, err
+	}
 
 	name := data.Name
 	if name == "" {
@@ -109,9 +195,7 @@ func fetchGitHubUser(token string) (*OAuthResult, error) {
 	}, nil
 }
 
-func doGoogleLocalFlow() (*OAuthResult, error) {
-	printDim("  Opening browser for Google authentication...")
-
+func doGoogleOAuth() (*OAuthResult, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("starting local server: %w", err)
@@ -123,16 +207,24 @@ func doGoogleLocalFlow() (*OAuthResult, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		token := r.URL.Query().Get("access_token")
-		if token == "" {
-			errCh <- fmt.Errorf("no token received")
-			fmt.Fprintf(w, "<html><body><h1>Authentication failed</h1></body></html>")
+		code := r.URL.Query().Get("code")
+		if code == "" {
+			http.Error(w, "missing code", http.StatusBadRequest)
+			errCh <- fmt.Errorf("no authorization code received")
+			return
+		}
+
+		token, err := exchangeGoogleCode(code, port)
+		if err != nil {
+			http.Error(w, "authentication failed", http.StatusUnauthorized)
+			errCh <- fmt.Errorf("code exchange failed: %w", err)
 			return
 		}
 
 		user, err := fetchGoogleUser(token)
 		if err != nil {
-			errCh <- err
+			http.Error(w, "failed to verify identity", http.StatusUnauthorized)
+			errCh <- fmt.Errorf("identity verification failed: %w", err)
 			return
 		}
 
@@ -144,7 +236,16 @@ func doGoogleLocalFlow() (*OAuthResult, error) {
 	go srv.Serve(listener)
 	defer srv.Close()
 
-	openBrowser(fmt.Sprintf("https://accounts.google.com/o/oauth2/v2/auth?client_id=PLACEHOLDER&redirect_uri=http://127.0.0.1:%d/callback&response_type=token&scope=openid+profile+email", port))
+	authURL := fmt.Sprintf(
+		"https://accounts.google.com/o/oauth2/v2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=openid+profile+email",
+		googleOAuth.ClientID,
+		url.QueryEscape(fmt.Sprintf("http://127.0.0.1:%d/callback", port)),
+	)
+
+	printDim(fmt.Sprintf("  Sign in at:\n  %s", authURL))
+	fmt.Println()
+	openBrowser(authURL)
+	printDim("  Waiting for authentication...")
 
 	select {
 	case result := <-resultCh:
@@ -154,6 +255,38 @@ func doGoogleLocalFlow() (*OAuthResult, error) {
 	case <-time.After(2 * time.Minute):
 		return nil, fmt.Errorf("authentication timed out")
 	}
+}
+
+func exchangeGoogleCode(code string, port int) (string, error) {
+	data := url.Values{
+		"client_id":     {googleOAuth.ClientID},
+		"client_secret": {googleOAuth.ClientSecret},
+		"code":          {code},
+		"redirect_uri":  {fmt.Sprintf("http://127.0.0.1:%d/callback", port)},
+		"grant_type":    {"authorization_code"},
+	}
+
+	resp, err := http.PostForm("https://oauth2.googleapis.com/token", data)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		AccessToken string `json:"access_token"`
+		Error       string `json:"error"`
+		ErrorDesc   string `json:"error_description"`
+	}
+	json.NewDecoder(resp.Body).Decode(&result)
+
+	if result.Error != "" {
+		return "", fmt.Errorf("%s: %s", result.Error, result.ErrorDesc)
+	}
+	if result.AccessToken == "" {
+		return "", fmt.Errorf("no access token in response")
+	}
+
+	return result.AccessToken, nil
 }
 
 func fetchGoogleUser(token string) (*OAuthResult, error) {
@@ -166,12 +299,18 @@ func fetchGoogleUser(token string) (*OAuthResult, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("Google API returned %d", resp.StatusCode)
+	}
+
 	var data struct {
 		ID    string `json:"id"`
 		Name  string `json:"name"`
 		Email string `json:"email"`
 	}
-	json.NewDecoder(resp.Body).Decode(&data)
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
 
 	return &OAuthResult{
 		Provider:       "google",
