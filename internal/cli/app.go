@@ -17,12 +17,14 @@ func NewRootCmd() *cobra.Command {
 
 	root.AddCommand(
 		newAuthCmd(),
+		newPoolCmd(),
 		newFetchCmd(),
 		newViewCmd(),
 		newLikeCmd(),
+		newInboxCmd(),
+		newAcceptCmd(),
 		newMatchesCmd(),
 		newChatCmd(),
-		newCommitCmd(),
 		newStatusCmd(),
 		newProfileCmd(),
 	)

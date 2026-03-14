@@ -9,13 +9,9 @@ import (
 )
 
 type Config struct {
-	Auth    AuthConfig    `toml:"auth"`
-	User    UserConfig    `toml:"user"`
-	Server  ServerConfig  `toml:"server"`
-}
-
-type AuthConfig struct {
-	Token string `toml:"token"`
+	User   UserConfig   `toml:"user"`
+	Pools  []PoolConfig `toml:"pools"`
+	Active string       `toml:"active_pool"`
 }
 
 type UserConfig struct {
@@ -23,15 +19,21 @@ type UserConfig struct {
 	DisplayName string `toml:"display_name"`
 }
 
-type ServerConfig struct {
-	BackendURL   string `toml:"backend_url"`
-	SupabaseURL  string `toml:"supabase_url"`
-	SupabaseKey  string `toml:"supabase_anon_key"`
+type PoolConfig struct {
+	Name     string `toml:"name"`
+	Repo     string `toml:"repo"`
+	Token    string `toml:"token"`
+	BotToken string `toml:"bot_token"`
+	URL      string `toml:"url,omitempty"`
 }
 
 func Dir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".dating")
+}
+
+func KeysDir() string {
+	return filepath.Join(Dir(), "keys")
 }
 
 func Path() string {
@@ -42,7 +44,7 @@ func Load() (*Config, error) {
 	data, err := os.ReadFile(Path())
 	if err != nil {
 		if os.IsNotExist(err) {
-			return defaultConfig(), nil
+			return &Config{}, nil
 		}
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
@@ -51,8 +53,6 @@ func Load() (*Config, error) {
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
-
-	cfg.applyDefaults()
 	return &cfg, nil
 }
 
@@ -65,28 +65,41 @@ func (c *Config) Save() error {
 	if err != nil {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
-
 	return os.WriteFile(Path(), data, 0600)
 }
 
-func (c *Config) IsLoggedIn() bool {
-	return c.Auth.Token != ""
+func (c *Config) IsRegistered() bool {
+	return c.User.PublicID != ""
 }
 
-func (c *Config) Clear() error {
-	c.Auth = AuthConfig{}
-	c.User = UserConfig{}
-	return c.Save()
-}
-
-func defaultConfig() *Config {
-	cfg := &Config{}
-	cfg.applyDefaults()
-	return cfg
-}
-
-func (c *Config) applyDefaults() {
-	if c.Server.BackendURL == "" {
-		c.Server.BackendURL = "http://localhost:8080"
+func (c *Config) ActivePool() *PoolConfig {
+	for i := range c.Pools {
+		if c.Pools[i].Name == c.Active {
+			return &c.Pools[i]
+		}
 	}
+	return nil
+}
+
+func (c *Config) AddPool(pool PoolConfig) {
+	for i, p := range c.Pools {
+		if p.Name == pool.Name {
+			c.Pools[i] = pool
+			return
+		}
+	}
+	c.Pools = append(c.Pools, pool)
+}
+
+func (c *Config) RemovePool(name string) bool {
+	for i, p := range c.Pools {
+		if p.Name == name {
+			c.Pools = append(c.Pools[:i], c.Pools[i+1:]...)
+			if c.Active == name {
+				c.Active = ""
+			}
+			return true
+		}
+	}
+	return false
 }

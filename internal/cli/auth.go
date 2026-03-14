@@ -1,16 +1,15 @@
 package cli
 
 import (
+	"bufio"
+	"encoding/hex"
 	"fmt"
-	"net"
-	"net/http"
-	"os/exec"
-	"runtime"
-	"time"
+	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
-	"github.com/vutran1710/dating-dev/pkg/api"
+	"github.com/vutran1710/dating-dev/internal/crypto"
 )
 
 func newAuthCmd() *cobra.Command {
@@ -18,84 +17,58 @@ func newAuthCmd() *cobra.Command {
 		Use:   "auth",
 		Short: "Authentication commands",
 	}
-
-	cmd.AddCommand(
-		newRegisterCmd(),
-		newLoginCmd(),
-		newLogoutCmd(),
-		newWhoamiCmd(),
-	)
-
+	cmd.AddCommand(newRegisterCmd(), newWhoamiCmd())
 	return cmd
 }
 
 func newRegisterCmd() *cobra.Command {
-	var provider string
-
-	cmd := &cobra.Command{
-		Use:   "register",
-		Short: "Create a new account",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
-			if err != nil {
-				return err
-			}
-
-			if cfg.IsLoggedIn() {
-				printWarning("Already logged in as " + cfg.User.DisplayName)
-				return nil
-			}
-
-			printHeader()
-			fmt.Println("  Creating your account...")
-			fmt.Println()
-			return doOAuthFlow(cfg, provider)
-		},
-	}
-
-	cmd.Flags().StringVarP(&provider, "provider", "p", "github", "Auth provider (github or google)")
-	return cmd
-}
-
-func newLoginCmd() *cobra.Command {
-	var provider string
-
-	cmd := &cobra.Command{
-		Use:   "login",
-		Short: "Sign in to an existing account",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
-			if err != nil {
-				return err
-			}
-
-			if cfg.IsLoggedIn() {
-				printWarning("Already logged in as " + cfg.User.DisplayName)
-				return nil
-			}
-
-			printHeader()
-			return doOAuthFlow(cfg, provider)
-		},
-	}
-
-	cmd.Flags().StringVarP(&provider, "provider", "p", "github", "Auth provider (github or google)")
-	return cmd
-}
-
-func newLogoutCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "logout",
-		Short: "Sign out",
+		Use:   "register",
+		Short: "Create a new identity",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {
 				return err
 			}
-			if err := cfg.Clear(); err != nil {
+
+			if cfg.IsRegistered() {
+				printWarning("Already registered as " + cfg.User.DisplayName + " (" + cfg.User.PublicID + ")")
+				return nil
+			}
+
+			printHeader()
+			fmt.Println("  Let's create your identity.")
+			fmt.Println()
+
+			reader := bufio.NewReader(os.Stdin)
+			name := prompt(reader, "  Display name: ")
+			if name == "" {
+				printError("Display name is required")
+				return nil
+			}
+
+			fmt.Println()
+			fmt.Println("  Generating your keys...")
+			pub, _, err := crypto.GenerateKeyPair(config.KeysDir())
+			if err != nil {
+				return fmt.Errorf("generating keys: %w", err)
+			}
+
+			publicID := crypto.PublicIDFromKey(pub)
+
+			cfg.User.PublicID = publicID
+			cfg.User.DisplayName = name
+			if err := cfg.Save(); err != nil {
 				return err
 			}
-			printSuccess("Logged out")
+
+			printSuccess("Identity created")
+			fmt.Printf("  %s  %s\n", bold.Render(name), dim.Render("("+publicID+")"))
+			fmt.Printf("  %s  %s\n", dim.Render("public key:"), hex.EncodeToString(pub)[:16]+"...")
+			fmt.Printf("  %s  %s\n", dim.Render("keys stored:"), config.KeysDir())
+			fmt.Println()
+			printDim("  Next: join a pool with  dating pool join <url>")
+			fmt.Println()
 			return nil
 		},
 	}
@@ -104,109 +77,41 @@ func newLogoutCmd() *cobra.Command {
 func newWhoamiCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "whoami",
-		Short: "Show current user",
+		Short: "Show current identity",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {
 				return err
 			}
-			if !cfg.IsLoggedIn() {
-				printWarning("Not logged in. Run: dating auth login")
+			if !cfg.IsRegistered() {
+				printWarning("Not registered. Run: dating auth register")
 				return nil
 			}
 
-			client := NewAPIClient(cfg)
-			resp, err := client.Get("/api/whoami")
-			if err != nil {
-				return err
-			}
-
-			whoami, err := DecodeResponse[api.WhoamiResponse](resp)
+			pub, _, err := crypto.LoadKeyPair(config.KeysDir())
 			if err != nil {
 				return err
 			}
 
 			fmt.Println()
-			fmt.Printf("  %s  %s\n", bold.Render(whoami.DisplayName), dim.Render("("+whoami.PublicID+")"))
-			fmt.Printf("  %s  %s\n", dim.Render("provider:"), whoami.Provider)
-			fmt.Printf("  %s  %s\n", dim.Render("status:"), whoami.Status)
+			fmt.Printf("  %s  %s\n", bold.Render(cfg.User.DisplayName), dim.Render("("+cfg.User.PublicID+")"))
+			fmt.Printf("  %s  %s\n", dim.Render("public key:"), hex.EncodeToString(pub)[:16]+"...")
+
+			if cfg.Active != "" {
+				fmt.Printf("  %s  %s\n", dim.Render("active pool:"), cfg.Active)
+			}
+			pool := cfg.ActivePool()
+			if pool != nil && pool.BotToken != "" {
+				fmt.Printf("  %s  %s\n", dim.Render("chat:"), "telegram (via pool)")
+			}
 			fmt.Println()
 			return nil
 		},
 	}
 }
 
-func doOAuthFlow(cfg *config.Config, provider string) error {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return fmt.Errorf("starting local server: %w", err)
-	}
-	port := listener.Addr().(*net.TCPAddr).Port
-
-	tokenCh := make(chan string, 1)
-	errCh := make(chan error, 1)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		token := r.URL.Query().Get("token")
-		if token == "" {
-			errCh <- fmt.Errorf("no token received")
-			fmt.Fprintf(w, "<html><body><h1>Authentication failed</h1></body></html>")
-			return
-		}
-		tokenCh <- token
-		fmt.Fprintf(w, "<html><body><h1>Authenticated! You can close this tab.</h1></body></html>")
-	})
-
-	srv := &http.Server{Handler: mux}
-	go srv.Serve(listener)
-	defer srv.Close()
-
-	authURL := fmt.Sprintf("%s/auth/%s?redirect_port=%d", cfg.Server.BackendURL, provider, port)
-	fmt.Printf("  Opening browser for %s authentication...\n", provider)
-	openBrowser(authURL)
-	printDim(fmt.Sprintf("  If browser didn't open, visit: %s", authURL))
-
-	select {
-	case token := <-tokenCh:
-		cfg.Auth.Token = token
-		client := NewAPIClient(cfg)
-		resp, err := client.Get("/api/whoami")
-		if err != nil {
-			return fmt.Errorf("fetching user info: %w", err)
-		}
-
-		whoami, err := DecodeResponse[api.WhoamiResponse](resp)
-		if err != nil {
-			return fmt.Errorf("decoding user info: %w", err)
-		}
-
-		cfg.User.PublicID = whoami.PublicID
-		cfg.User.DisplayName = whoami.DisplayName
-		if err := cfg.Save(); err != nil {
-			return fmt.Errorf("saving config: %w", err)
-		}
-
-		printSuccess(fmt.Sprintf("Logged in as %s (%s)", whoami.DisplayName, whoami.PublicID))
-		return nil
-
-	case err := <-errCh:
-		return err
-
-	case <-time.After(2 * time.Minute):
-		return fmt.Errorf("login timed out after 2 minutes")
-	}
-}
-
-func openBrowser(url string) {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "linux":
-		cmd = exec.Command("xdg-open", url)
-	default:
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	}
-	cmd.Start()
+func prompt(reader *bufio.Reader, label string) string {
+	fmt.Print(label)
+	input, _ := reader.ReadString('\n')
+	return strings.TrimSpace(input)
 }

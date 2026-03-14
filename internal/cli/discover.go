@@ -6,14 +6,11 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
-	"github.com/vutran1710/dating-dev/pkg/api"
-	"github.com/vutran1710/dating-dev/pkg/models"
+	"github.com/vutran1710/dating-dev/internal/github"
 )
 
 func newFetchCmd() *cobra.Command {
-	var city, interest string
-
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "fetch",
 		Short: "Discover new profiles",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -21,69 +18,21 @@ func newFetchCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if !cfg.IsLoggedIn() {
-				printWarning("Not logged in. Run: dating auth login")
+
+			pool, err := requirePool(cfg)
+			if err != nil {
 				return nil
 			}
 
-			client := NewAPIClient(cfg)
-			path := "/api/discover?limit=1"
-			if city != "" {
-				path += "&city=" + city
-			}
-			if interest != "" {
-				path += "&interest=" + interest
-			}
-
-			resp, err := client.Get(path)
+			client := poolClient(pool)
+			profile, err := client.DiscoverRandom(cfg.User.PublicID)
 			if err != nil {
-				return err
+				return fmt.Errorf("discovering profiles: %w", err)
 			}
 
-			result, err := DecodeResponse[api.DiscoverResponse](resp)
-			if err != nil {
-				return err
-			}
-
-			if len(result.Profiles) == 0 {
-				printDim("  No profiles found. Try different filters or check back later.")
+			if profile == nil {
+				printDim("  No profiles found. Check back later.")
 				return nil
-			}
-
-			renderProfile(result.Profiles[0])
-			return nil
-		},
-	}
-
-	cmd.Flags().StringVar(&city, "city", "", "Filter by city")
-	cmd.Flags().StringVar(&interest, "interest", "", "Filter by interest")
-	return cmd
-}
-
-func newViewCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "view [public_id]",
-		Short: "View a user's profile",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
-			if err != nil {
-				return err
-			}
-			if !cfg.IsLoggedIn() {
-				printWarning("Not logged in. Run: dating auth login")
-				return nil
-			}
-
-			client := NewAPIClient(cfg)
-			resp, err := client.Get("/api/profiles/" + args[0])
-			if err != nil {
-				return err
-			}
-
-			profile, err := DecodeResponse[models.ProfileIndex](resp)
-			if err != nil {
-				return err
 			}
 
 			renderProfile(*profile)
@@ -92,7 +41,36 @@ func newViewCmd() *cobra.Command {
 	}
 }
 
-func renderProfile(p models.ProfileIndex) {
+func newViewCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "view <public_id>",
+		Short: "View a user's profile",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+
+			pool, err := requirePool(cfg)
+			if err != nil {
+				return nil
+			}
+
+			client := poolClient(pool)
+			profile, err := client.GetProfile(args[0])
+			if err != nil {
+				printError("Profile not found: " + args[0])
+				return nil
+			}
+
+			renderProfile(*profile)
+			return nil
+		},
+	}
+}
+
+func renderProfile(p github.UserProfile) {
 	interests := strings.Join(p.Interests, ", ")
 	if interests == "" {
 		interests = "none listed"
@@ -104,16 +82,15 @@ func renderProfile(p models.ProfileIndex) {
 	}
 
 	content := fmt.Sprintf(
-		"%s  %s\n\n%s\n\n%s %s\n%s %s\n%s %s",
+		"%s  %s  %s\n\n%s\n\n%s %s\n%s %s",
 		bold.Render(p.PublicID),
 		dim.Render(p.City),
+		dim.Render(p.Status),
 		p.Bio,
 		dim.Render("interests:"),
 		interests,
 		dim.Render("looking for:"),
 		lookingFor,
-		dim.Render(""),
-		dim.Render("[l]ike  [s]kip  [v]iew more"),
 	)
 
 	fmt.Println()

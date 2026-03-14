@@ -5,12 +5,11 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
-	"github.com/vutran1710/dating-dev/pkg/api"
 )
 
 func newCommitCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "commit [match_id]",
+		Use:   "commit <public_id>",
 		Short: "Propose a commitment to a match",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -18,21 +17,14 @@ func newCommitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if !cfg.IsLoggedIn() {
-				printWarning("Not logged in. Run: dating auth login")
+
+			_, err = requirePool(cfg)
+			if err != nil {
 				return nil
 			}
 
-			printWarning("This will propose a commitment. Are you sure? (y/n)")
-			var confirm string
-			fmt.Scanln(&confirm)
-			if confirm != "y" && confirm != "yes" {
-				printDim("  Cancelled")
-				return nil
-			}
-
-			// TODO: parse match_id properly once UX flow is refined
-			printSuccess("Commitment proposed")
+			// TODO: implement via GitHub workflow
+			printWarning("Commitment flow coming soon")
 			return nil
 		},
 	}
@@ -47,25 +39,15 @@ func newStatusCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if !cfg.IsLoggedIn() {
-				printWarning("Not logged in. Run: dating auth login")
+
+			_, err = requirePool(cfg)
+			if err != nil {
 				return nil
 			}
 
-			client := NewAPIClient(cfg)
-			resp, err := client.Get("/api/commitments/status")
-			if err != nil {
-				return err
-			}
-
-			result, err := DecodeResponse[api.CommitmentResponse](resp)
-			if err != nil {
-				printDim("  Status: single")
-				return nil
-			}
-
+			// TODO: check commitments dir in repo
 			fmt.Println()
-			fmt.Printf("  %s %s\n", dim.Render("status:"), brand.Render(result.Commitment.Status))
+			fmt.Printf("  %s %s\n", dim.Render("status:"), "single")
 			fmt.Println()
 			return nil
 		},

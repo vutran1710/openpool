@@ -5,7 +5,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
-	"github.com/vutran1710/dating-dev/pkg/api"
 )
 
 func newMatchesCmd() *cobra.Command {
@@ -17,34 +16,27 @@ func newMatchesCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if !cfg.IsLoggedIn() {
-				printWarning("Not logged in. Run: dating auth login")
+
+			pool, err := requirePool(cfg)
+			if err != nil {
 				return nil
 			}
 
-			client := NewAPIClient(cfg)
-			resp, err := client.Get("/api/matches")
+			client := poolClient(pool)
+			matchDirs, err := client.ListMatches(cfg.User.PublicID)
 			if err != nil {
-				return err
+				return fmt.Errorf("fetching matches: %w", err)
 			}
 
-			result, err := DecodeResponse[api.MatchesResponse](resp)
-			if err != nil {
-				return err
-			}
-
-			if len(result.Matches) == 0 {
+			if len(matchDirs) == 0 {
 				printDim("  No matches yet. Try: dating fetch")
 				return nil
 			}
 
 			fmt.Println()
 			fmt.Printf("  %s\n\n", bold.Render("Your Matches"))
-			for _, m := range result.Matches {
-				fmt.Printf("  %s  %s\n",
-					brand.Render(m.WithUser.PublicID),
-					m.WithUser.DisplayName,
-				)
+			for _, m := range matchDirs {
+				fmt.Printf("  %s  %s\n", brand.Render("♥"), m)
 			}
 			fmt.Println()
 			printDim("  Start a conversation: dating chat <public_id>")
