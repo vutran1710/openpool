@@ -78,11 +78,12 @@ func newProfileEditCmd() *cobra.Command {
 			signature := crypto.Sign(priv, payload)
 
 			client := poolClient(pool)
-			if err := client.RegisterProfile(profile, signature); err != nil {
+			prNumber, err := client.RegisterProfile(profile, signature)
+			if err != nil {
 				return fmt.Errorf("publishing profile: %w", err)
 			}
 
-			printSuccess("Profile published to " + pool.Name)
+			printSuccess(fmt.Sprintf("Profile PR #%d created for %s — pending pool operator approval", prNumber, pool.Name))
 			return nil
 		},
 	}

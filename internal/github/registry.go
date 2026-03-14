@@ -7,6 +7,9 @@ import (
 	"strings"
 )
 
+const PoolStatusPending = "pending"
+const PoolStatusActive = "active"
+
 type Registry struct {
 	client *Client
 }
@@ -74,18 +77,25 @@ func (r *Registry) GetPoolTokens(name string) (*PoolTokens, error) {
 	return tokens, nil
 }
 
-func (r *Registry) RegisterPool(entry PoolEntry, tokens PoolTokens) error {
+func (r *Registry) RegisterPool(entry PoolEntry, tokens PoolTokens) (int, error) {
 	entryJSON, _ := json.MarshalIndent(entry, "", "  ")
 	tokensBin := SerializeTokens(tokens)
 
-	inputs := map[string]string{
-		"pool_name":   entry.Name,
-		"pool_json":   string(entryJSON),
-		"tokens_bin":  base64.StdEncoding.EncodeToString(tokensBin),
-		"description": entry.Description,
+	pr := PRRequest{
+		Title:  fmt.Sprintf("Register pool: %s", entry.Name),
+		Body:   fmt.Sprintf("Register new pool **%s**\n\nRepo: %s\nDescription: %s", entry.Name, entry.Repo, entry.Description),
+		Branch: fmt.Sprintf("register-pool/%s", entry.Name),
+		Files: []PRFile{
+			{Path: fmt.Sprintf("pools/%s/pool.json", entry.Name), Content: entryJSON},
+			{Path: fmt.Sprintf("pools/%s/tokens.bin", entry.Name), Content: tokensBin},
+		},
 	}
 
-	return r.client.TriggerWorkflow("register-pool.yml", inputs)
+	return r.client.CreatePullRequest(pr)
+}
+
+func (r *Registry) IsPoolRegistered(name string) bool {
+	return r.client.FileExists(fmt.Sprintf("pools/%s/pool.json", name))
 }
 
 func SerializeTokens(tokens PoolTokens) []byte {

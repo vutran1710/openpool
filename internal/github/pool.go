@@ -1,6 +1,8 @@
 package github
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -70,25 +72,59 @@ func (p *Pool) DiscoverRandom(exclude string) (*UserProfile, error) {
 	return p.GetProfile(pick)
 }
 
-func (p *Pool) RegisterProfile(profile UserProfile, signature string) error {
-	return p.client.TriggerWorkflow("register.yml", map[string]string{
-		"public_id":    profile.PublicID,
-		"display_name": profile.DisplayName,
-		"bio":          profile.Bio,
-		"city":         profile.City,
-		"public_key":   profile.PublicKey,
-		"looking_for":  profile.LookingFor,
-		"status":       profile.Status,
-		"signature":    signature,
-	})
+func (p *Pool) RegisterProfile(profile UserProfile, signature string) (int, error) {
+	profileJSON, _ := json.MarshalIndent(profile, "", "  ")
+	symlinkContent := []byte(fmt.Sprintf("../../users/%s/public.json", profile.PublicID))
+
+	pr := PRRequest{
+		Title:  fmt.Sprintf("Join: %s (%s)", profile.DisplayName, profile.PublicID),
+		Body:   fmt.Sprintf("New member **%s** wants to join.\n\nSignature: %s", profile.DisplayName, signature),
+		Branch: fmt.Sprintf("join/%s", profile.PublicID),
+		Files: []PRFile{
+			{Path: fmt.Sprintf("users/%s/public.json", profile.PublicID), Content: profileJSON},
+			{Path: fmt.Sprintf("index/by-status/open/%s", profile.PublicID), Content: symlinkContent},
+		},
+	}
+
+	return p.client.CreatePullRequest(pr)
 }
 
-func (p *Pool) CreateLikePR(likerID, likedID, signature string) error {
-	return p.client.TriggerWorkflow("like.yml", map[string]string{
-		"liker_id":  likerID,
-		"liked_id":  likedID,
-		"signature": signature,
-	})
+func (p *Pool) CreateLikePR(likerID, likedID, signature string) (int, error) {
+	hash := matchHash(likerID, likedID)
+
+	likerProfile, err := p.GetProfile(likerID)
+	if err != nil {
+		return 0, fmt.Errorf("fetching liker profile: %w", err)
+	}
+	likedProfile, err := p.GetProfile(likedID)
+	if err != nil {
+		return 0, fmt.Errorf("fetching liked profile: %w", err)
+	}
+
+	likerJSON, _ := json.MarshalIndent(likerProfile, "", "  ")
+	likedJSON, _ := json.MarshalIndent(likedProfile, "", "  ")
+
+	pr := PRRequest{
+		Title:  fmt.Sprintf("Like: %s -> %s", likerID, likedID),
+		Body:   fmt.Sprintf("**%s** likes **%s**\n\nSignature: %s", likerID, likedID, signature),
+		Branch: fmt.Sprintf("like/%s", hash),
+		Labels: []string{fmt.Sprintf("like:%s", likedID)},
+		Files: []PRFile{
+			{Path: fmt.Sprintf("matches/%s/%s.json", hash, likerID), Content: likerJSON},
+			{Path: fmt.Sprintf("matches/%s/%s.json", hash, likedID), Content: likedJSON},
+		},
+	}
+
+	return p.client.CreatePullRequest(pr)
+}
+
+func matchHash(idA, idB string) string {
+	combined := idA + ":" + idB
+	if idA > idB {
+		combined = idB + ":" + idA
+	}
+	h := sha256.Sum256([]byte(combined))
+	return hex.EncodeToString(h[:])[:12]
 }
 
 func (p *Pool) ListIncomingLikes(publicID string) ([]PullRequest, error) {
@@ -109,12 +145,12 @@ func (p *Pool) ListIncomingLikes(publicID string) ([]PullRequest, error) {
 	return incoming, nil
 }
 
-func (p *Pool) AcceptLike(prNumber int, publicID, signature string) error {
-	return p.client.TriggerWorkflow("accept.yml", map[string]string{
-		"pr_number": fmt.Sprintf("%d", prNumber),
-		"public_id": publicID,
-		"signature": signature,
-	})
+func (p *Pool) AcceptLike(prNumber int) error {
+	return p.client.MergePullRequest(prNumber)
+}
+
+func (p *Pool) IsProfileRegistered(publicID string) bool {
+	return p.client.FileExists(fmt.Sprintf("users/%s/public.json", publicID))
 }
 
 func (p *Pool) ListMatches(publicID string) ([]string, error) {

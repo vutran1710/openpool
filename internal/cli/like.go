@@ -38,11 +38,12 @@ func newLikeCmd() *cobra.Command {
 			signature := crypto.Sign(priv, payload)
 
 			client := poolClient(pool)
-			if err := client.CreateLikePR(cfg.User.PublicID, args[0], signature); err != nil {
+			prNumber, err := client.CreateLikePR(cfg.User.PublicID, args[0], signature)
+			if err != nil {
 				return fmt.Errorf("sending like: %w", err)
 			}
 
-			printSuccess(fmt.Sprintf("Interest sent to %s", args[0]))
+			printSuccess(fmt.Sprintf("Interest sent to %s (PR #%d)", args[0], prNumber))
 			return nil
 		},
 	}
@@ -107,23 +108,11 @@ func newAcceptCmd() *cobra.Command {
 				return nil
 			}
 
-			_, priv, err := crypto.LoadKeyPair(config.KeysDir())
-			if err != nil {
-				return fmt.Errorf("loading keys: %w", err)
-			}
-
-			payload, _ := json.Marshal(map[string]string{
-				"action":    "accept",
-				"public_id": cfg.User.PublicID,
-				"pr_number": args[0],
-			})
-			signature := crypto.Sign(priv, payload)
-
 			var prNumber int
 			fmt.Sscanf(args[0], "%d", &prNumber)
 
 			client := poolClient(pool)
-			if err := client.AcceptLike(prNumber, cfg.User.PublicID, signature); err != nil {
+			if err := client.AcceptLike(prNumber); err != nil {
 				return fmt.Errorf("accepting: %w", err)
 			}
 

@@ -67,11 +67,12 @@ func newPoolCreateCmd() *cobra.Command {
 				BotToken: botToken,
 			}
 
-			if err := reg.RegisterPool(entry, tokens); err != nil {
+			prNumber, err := reg.RegisterPool(entry, tokens)
+			if err != nil {
 				return fmt.Errorf("registering pool: %w", err)
 			}
 
-			printSuccess(fmt.Sprintf("Pool \"%s\" registered", name))
+			printSuccess(fmt.Sprintf("Pool \"%s\" PR #%d created — pending registry maintainer approval", name, prNumber))
 			return nil
 		},
 	}
@@ -144,6 +145,11 @@ func newPoolJoinCmd() *cobra.Command {
 			name := args[0]
 			reg := gh.NewPublicRegistry(registry)
 
+			if !reg.IsPoolRegistered(name) {
+				printError("Pool not found or not yet approved: " + name)
+				return nil
+			}
+
 			entry, err := reg.GetPoolEntry(name)
 			if err != nil {
 				printError("Pool not found: " + name)
@@ -160,6 +166,7 @@ func newPoolJoinCmd() *cobra.Command {
 				Repo:     entry.Repo,
 				Token:    tokens.GHToken,
 				BotToken: tokens.BotToken,
+				Status:   gh.PoolStatusPending,
 			}
 
 			cfg.AddPool(pool)
@@ -170,7 +177,7 @@ func newPoolJoinCmd() *cobra.Command {
 				return err
 			}
 
-			printSuccess(fmt.Sprintf("Joined \"%s\"", pool.Name))
+			printSuccess(fmt.Sprintf("Joined \"%s\" — status: pending (awaiting pool operator approval)", pool.Name))
 			if cfg.Active == pool.Name {
 				printDim("  Set as active pool")
 			}
@@ -222,22 +229,44 @@ func newPoolListCmd() *cobra.Command {
 				return nil
 			}
 
+			updated := false
 			fmt.Println()
-			for _, p := range cfg.Pools {
+			for i, p := range cfg.Pools {
+				if p.Status == gh.PoolStatusPending {
+					pool := gh.NewPool(p.Repo, p.Token)
+					if pool.IsProfileRegistered(cfg.User.PublicID) {
+						cfg.Pools[i].Status = gh.PoolStatusActive
+						updated = true
+						p.Status = gh.PoolStatusActive
+					}
+				}
+
 				marker := "  "
 				if p.Name == cfg.Active {
 					marker = brand.Render("* ")
 				}
+				status := dim.Render("  [" + poolDisplayStatus(p.Status) + "]")
 				chat := ""
 				if p.BotToken != "" {
 					chat = dim.Render("  [chat]")
 				}
-				fmt.Printf("  %s%s%s\n", marker, p.Name, chat)
+				fmt.Printf("  %s%s%s%s\n", marker, p.Name, status, chat)
 			}
 			fmt.Println()
+
+			if updated {
+				cfg.Save()
+			}
 			return nil
 		},
 	}
+}
+
+func poolDisplayStatus(status string) string {
+	if status == "" || status == gh.PoolStatusActive {
+		return "active"
+	}
+	return status
 }
 
 func newPoolSwitchCmd() *cobra.Command {

@@ -25,6 +25,7 @@ type PoolConfig struct {
 	Token    string `toml:"token"`
 	BotToken string `toml:"bot_token"`
 	URL      string `toml:"url,omitempty"`
+	Status   string `toml:"status,omitempty"`
 }
 
 func Dir() string {
