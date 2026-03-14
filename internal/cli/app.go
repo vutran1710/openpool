@@ -43,7 +43,6 @@ func NewRootCmd() *cobra.Command {
 		newMatchesCmd(),
 		newChatCmd(),
 		newCommitCmd(),
-		newStatusCmd(),
 		newProfileCmd(),
 	)
 
