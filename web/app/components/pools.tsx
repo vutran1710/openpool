@@ -1,62 +1,59 @@
+import { Users, ArrowRight, Heart } from "lucide-react";
+
+const steps = [
+  {
+    Icon: Users,
+    title: "Create a pool",
+    cmd: "dating pool create ...",
+    strokeWidth: 1.3,
+  },
+  {
+    Icon: ArrowRight,
+    title: "People join",
+    cmd: "dating pool join",
+    strokeWidth: 2,
+  },
+  {
+    Icon: Heart,
+    title: "Matches happen",
+    cmd: "dating like abc12",
+    strokeWidth: 1.5,
+  },
+];
+
 export default function Pools() {
   return (
-    <section id="pools" className="px-6 py-20">
+    <section id="pools" className="border-t border-[var(--border)] px-6 py-24">
       <div className="mx-auto max-w-5xl">
-        <h2 className="mb-2 text-3xl font-bold">Pools</h2>
-        <p className="mb-8 text-gray-600">
-          Pools are GitHub repos that act as dating communities — like Discord
-          servers, but fully decentralized. Anyone can create one.
-        </p>
-
-        <div className="grid gap-6 md:grid-cols-3">
-          <div className="rounded-xl border border-violet-100 bg-white p-6">
-            <h3 className="mb-2 font-semibold text-violet-800">Create</h3>
-            <p className="mb-4 text-sm leading-relaxed text-gray-600">
-              Spin up a GitHub repo, attach a fine-grained PAT and a Telegram
-              bot token, then register it in the pool registry.
-            </p>
-            <div className="code-block px-4 py-3 text-xs">
-              <span className="prompt">$</span>{" "}
-              <span className="command">dating pool create my-pool ...</span>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-violet-100 bg-white p-6">
-            <h3 className="mb-2 font-semibold text-violet-800">Join</h3>
-            <p className="mb-4 text-sm leading-relaxed text-gray-600">
-              Browse the registry, pick a pool, and join. This opens a PR that
-              the pool operator reviews and approves.
-            </p>
-            <div className="code-block px-4 py-3 text-xs">
-              <span className="prompt">$</span>{" "}
-              <span className="command">dating pool join my-pool</span>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-violet-100 bg-white p-6">
-            <h3 className="mb-2 font-semibold text-violet-800">Match</h3>
-            <p className="mb-4 text-sm leading-relaxed text-gray-600">
-              Inside a pool, likes are Pull Requests. When someone accepts your
-              interest, the PR merges and you are matched.
-            </p>
-            <div className="code-block px-4 py-3 text-xs">
-              <span className="prompt">$</span>{" "}
-              <span className="command">dating like abc12</span>
-            </div>
-          </div>
+        <div className="mb-12 text-center">
+          <p className="font-handwritten text-3xl text-[var(--pink)]">
+            how it works
+          </p>
         </div>
 
-        <p className="mt-6 text-sm text-gray-500">
-          Default registry:{" "}
-          <a
-            href="https://github.com/vutran1710/dating-pool-registry"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-violet-600 underline hover:text-violet-800"
-          >
-            vutran1710/dating-pool-registry
-          </a>
-        </p>
+        <div className="flex flex-col items-center gap-4 md:flex-row md:gap-0">
+          {steps.map((step, i) => (
+            <div key={step.title} className="flex w-full flex-1 flex-col items-center md:flex-row">
+              <div className="hover-lift flex w-full flex-col items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-6 text-center">
+                <step.Icon
+                  className="h-7 w-7 text-[var(--violet-400)]"
+                  strokeWidth={step.strokeWidth}
+                />
+                <span className="text-sm font-semibold text-[var(--text)]">
+                  {step.title}
+                </span>
+                <code className="text-xs text-[var(--text-dim)]">
+                  {step.cmd}
+                </code>
+              </div>
+              {i < steps.length - 1 && (
+                <div className="hidden text-[var(--border)] md:block md:px-4">
+                  <ArrowRight className="h-5 w-5" strokeWidth={1} />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </section>
   );

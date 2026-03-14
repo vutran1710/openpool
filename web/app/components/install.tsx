@@ -1,51 +1,21 @@
 export default function Install() {
   return (
-    <section id="install" className="px-6 py-20">
-      <div className="mx-auto max-w-5xl">
-        <h2 className="mb-2 text-3xl font-bold">Install</h2>
-        <p className="mb-8 text-gray-600">
-          Get started in seconds. Requires Go 1.22+.
+    <section id="install" className="relative border-t border-[var(--border)] px-6 py-24">
+      <div className="mx-auto max-w-4xl text-center">
+        <p className="font-handwritten mb-8 text-3xl text-[var(--pink)]">
+          one command away
         </p>
-
-        <div className="grid gap-6 md:grid-cols-2">
-          <div className="rounded-xl border border-violet-100 bg-white p-6">
-            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-violet-600">
-              Go install
-            </h3>
-            <div className="code-block px-5 py-4 text-sm">
-              <div>
-                <span className="prompt">$</span>{" "}
-                <span className="command">
-                  go install github.com/vutran1710/dating-dev/cmd/dating@latest
-                </span>
-              </div>
-              <div>
-                <span className="prompt">$</span>{" "}
-                <span className="command">dating auth register</span>
-              </div>
-            </div>
+        <div className="terminal-border mx-auto max-w-lg">
+          <div className="terminal-header">
+            <div className="terminal-dot bg-[#ff5f57]" />
+            <div className="terminal-dot bg-[#febc2e]" />
+            <div className="terminal-dot bg-[#28c840]" />
           </div>
-
-          <div className="rounded-xl border border-violet-100 bg-white p-6">
-            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-violet-600">
-              From source
-            </h3>
-            <div className="code-block px-5 py-4 text-sm">
-              <div>
-                <span className="prompt">$</span>{" "}
-                <span className="command">
-                  git clone https://github.com/vutran1710/dating-dev
-                </span>
-              </div>
-              <div>
-                <span className="prompt">$</span>{" "}
-                <span className="command">cd dating-dev && make cli</span>
-              </div>
-              <div>
-                <span className="prompt">$</span>{" "}
-                <span className="command">./bin/dating auth register</span>
-              </div>
-            </div>
+          <div className="px-5 py-4 text-sm">
+            <span className="text-[var(--pink)]">$</span>{" "}
+            <span className="text-[var(--violet-300)]">
+              curl -sSL https://dating.dev/install.sh | sh
+            </span>
           </div>
         </div>
       </div>

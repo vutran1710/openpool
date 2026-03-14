@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Lock } from "lucide-react";
 
 export default function LoginPage() {
   const [password, setPassword] = useState("");
@@ -30,37 +31,39 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-violet-50 to-white">
-      <div className="w-full max-w-sm px-6">
+    <div className="noise relative flex min-h-screen items-center justify-center">
+      <div className="gradient-mesh absolute inset-0" />
+      <div className="relative w-full max-w-sm px-6">
         <div className="mb-8 text-center">
-          <h1 className="mb-2 text-3xl font-bold">
-            <span className="gradient-text">♥ dating.dev</span>
+          <Lock className="mx-auto mb-4 h-6 w-6 text-[var(--violet-400)]" strokeWidth={1.5} />
+          <h1 className="mb-2 text-2xl font-bold">
+            <span className="text-[var(--pink)]">♥</span>{" "}
+            <span className="text-[var(--text)]">dating</span>
+            <span className="text-[var(--text-dim)]">.dev</span>
           </h1>
-          <p className="text-sm text-gray-500">
-            Private project. Requires login to view.
+          <p className="text-xs uppercase tracking-widest text-[var(--text-dim)]">
+            Private project — login required
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password"
-              className="w-full rounded-lg border border-violet-200 px-4 py-3 text-sm outline-none transition-colors focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
-              autoFocus
-            />
-          </div>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Password"
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-4 py-3 text-sm text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-dim)] focus:border-[var(--violet-500)]"
+            autoFocus
+          />
 
           {error && (
-            <p className="text-center text-sm text-red-500">{error}</p>
+            <p className="text-center text-xs text-[var(--pink)]">{error}</p>
           )}
 
           <button
             type="submit"
             disabled={loading || !password}
-            className="gradient-bg w-full rounded-lg px-4 py-3 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="w-full rounded-lg bg-[var(--pink)] px-4 py-3 text-sm font-semibold text-[var(--bg)] transition-all hover:shadow-[0_0_20px_var(--pink-dim)] disabled:opacity-40"
           >
             {loading ? "..." : "Enter"}
           </button>
