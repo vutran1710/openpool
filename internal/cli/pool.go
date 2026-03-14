@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"encoding/hex"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
+	"github.com/vutran1710/dating-dev/internal/crypto"
 	gh "github.com/vutran1710/dating-dev/internal/github"
 )
 
@@ -32,8 +35,8 @@ func newPoolCreateCmd() *cobra.Command {
 	var (
 		repo        string
 		ghToken     string
-		botToken    string
 		description string
+		relayURL    string
 		registry    string
 		regToken    string
 	)
@@ -54,6 +57,13 @@ func newPoolCreateCmd() *cobra.Command {
 				return nil
 			}
 
+			fmt.Println("  Generating operator key pair...")
+			pub, _, err := crypto.GenerateKeyPair(filepath.Join(config.Dir(), "pools", name))
+			if err != nil {
+				return fmt.Errorf("generating operator keys: %w", err)
+			}
+			operatorPubHex := hex.EncodeToString(pub)
+
 			reg := gh.NewRegistry(registry, regToken)
 
 			templateBody, err := fillPRTemplate(reg.Client(), "register-pool")
@@ -62,14 +72,14 @@ func newPoolCreateCmd() *cobra.Command {
 			}
 
 			entry := gh.PoolEntry{
-				Name:        name,
-				Repo:        repo,
-				Description: description,
-				CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+				Name:           name,
+				Repo:           repo,
+				Description:    description,
+				OperatorPubKey: operatorPubHex,
+				CreatedAt:      time.Now().UTC().Format(time.RFC3339),
 			}
 			tokens := gh.PoolTokens{
-				GHToken:  ghToken,
-				BotToken: botToken,
+				GHToken: ghToken,
 			}
 
 			prNumber, err := reg.RegisterPool(entry, tokens, templateBody)
@@ -78,14 +88,19 @@ func newPoolCreateCmd() *cobra.Command {
 			}
 
 			printSuccess(fmt.Sprintf("Pool \"%s\" PR #%d created — pending registry maintainer approval", name, prNumber))
+			printDim(fmt.Sprintf("  Operator keys saved to: %s", filepath.Join(config.Dir(), "pools", name)))
+			printDim(fmt.Sprintf("  Operator public key: %s...", operatorPubHex[:16]))
+			if relayURL != "" {
+				printDim(fmt.Sprintf("  Relay: %s", relayURL))
+			}
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&repo, "repo", "", "GitHub repo for the pool (owner/name)")
 	cmd.Flags().StringVar(&ghToken, "gh-token", "", "Fine-grained PAT for the pool repo")
-	cmd.Flags().StringVar(&botToken, "bot-token", "", "Telegram bot token for chat")
 	cmd.Flags().StringVar(&description, "desc", "", "Pool description")
+	cmd.Flags().StringVar(&relayURL, "relay-url", "", "WebSocket relay server URL")
 	cmd.Flags().StringVar(&registry, "registry", defaultRegistry, "Registry repo")
 	cmd.Flags().StringVar(&regToken, "registry-token", "", "PAT for the registry repo")
 	return cmd
@@ -174,11 +189,11 @@ func newPoolJoinCmd() *cobra.Command {
 			_ = templateBody
 
 			pool := config.PoolConfig{
-				Name:     entry.Name,
-				Repo:     entry.Repo,
-				Token:    tokens.GHToken,
-				BotToken: tokens.BotToken,
-				Status:   gh.PoolStatusPending,
+				Name:           entry.Name,
+				Repo:           entry.Repo,
+				Token:          tokens.GHToken,
+				OperatorPubKey: entry.OperatorPubKey,
+				Status:         gh.PoolStatusPending,
 			}
 
 			cfg.AddPool(pool)
@@ -259,8 +274,8 @@ func newPoolListCmd() *cobra.Command {
 				}
 				status := dim.Render("  [" + poolDisplayStatus(p.Status) + "]")
 				chat := ""
-				if p.BotToken != "" {
-					chat = dim.Render("  [chat]")
+				if p.RelayURL != "" {
+					chat = dim.Render("  [relay]")
 				}
 				fmt.Printf("  %s%s%s%s\n", marker, p.Name, status, chat)
 			}

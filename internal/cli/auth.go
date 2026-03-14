@@ -127,8 +127,8 @@ func newWhoamiCmd() *cobra.Command {
 				fmt.Printf("  %s  %s\n", dim.Render("active pool:"), cfg.Active)
 			}
 			pool := cfg.ActivePool()
-			if pool != nil && pool.BotToken != "" {
-				fmt.Printf("  %s  %s\n", dim.Render("chat:"), "telegram (via pool)")
+			if pool != nil && pool.RelayURL != "" {
+				fmt.Printf("  %s  %s\n", dim.Render("relay:"), pool.RelayURL)
 			}
 			fmt.Println()
 			return nil

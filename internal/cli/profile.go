@@ -77,7 +77,16 @@ func newProfileEditCmd() *cobra.Command {
 				return fmt.Errorf("packing profile: %w", err)
 			}
 
-			userHash := crypto.UserHash(pool.Secret, cfg.User.Provider, cfg.User.ProviderUserID)
+			userHash := crypto.UserHash(pool.Repo, cfg.User.Provider, cfg.User.ProviderUserID)
+
+			identityProof, err := crypto.EncryptIdentityProof(
+				pool.OperatorPubKey,
+				cfg.User.Provider,
+				cfg.User.ProviderUserID,
+			)
+			if err != nil {
+				return fmt.Errorf("encrypting identity proof: %w", err)
+			}
 
 			payload, _ := json.Marshal(map[string]string{
 				"action":    "register",
@@ -91,7 +100,7 @@ func newProfileEditCmd() *cobra.Command {
 				return err
 			}
 
-			prNumber, err := client.RegisterUser(userHash, bin, signature, templateBody)
+			prNumber, err := client.RegisterUser(userHash, bin, signature, identityProof, templateBody)
 			if err != nil {
 				return fmt.Errorf("publishing profile: %w", err)
 			}
@@ -125,7 +134,7 @@ func newProfileShowCmd() *cobra.Command {
 				return fmt.Errorf("loading keys: %w", err)
 			}
 
-			userHash := crypto.UserHash(pool.Secret, cfg.User.Provider, cfg.User.ProviderUserID)
+			userHash := crypto.UserHash(pool.Repo, cfg.User.Provider, cfg.User.ProviderUserID)
 			client := poolClient(pool)
 			bin, err := client.GetUserBlob(userHash)
 			if err != nil {

@@ -77,8 +77,11 @@ func (p *Pool) IsUserRegistered(userHash string) bool {
 	return p.client.FileExists("users/" + userHash + ".bin")
 }
 
-func (p *Pool) RegisterUser(userHash string, encryptedBlob []byte, signature, templateBody string) (int, error) {
-	body := fmt.Sprintf("New member `%s` wants to join.\n\nSignature: `%s`", userHash[:12], signature)
+func (p *Pool) RegisterUser(userHash string, encryptedBlob []byte, signature, identityProof, templateBody string) (int, error) {
+	body := fmt.Sprintf(
+		"New member `%s` wants to join.\n\nSignature: `%s`\n\n**Identity proof** (encrypted for operator):\n```\n%s\n```",
+		userHash[:12], signature, identityProof,
+	)
 	if templateBody != "" {
 		body = templateBody + "\n\n---\n\n" + body
 	}

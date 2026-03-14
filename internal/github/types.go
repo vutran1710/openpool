@@ -26,11 +26,12 @@ type Branch struct {
 }
 
 type PoolManifest struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Version     int    `json:"version"`
-	CreatedAt   string `json:"created_at"`
-	RelayURL    string `json:"relay_url,omitempty"`
+	Name             string `json:"name"`
+	Description      string `json:"description"`
+	Version          int    `json:"version"`
+	CreatedAt        string `json:"created_at"`
+	OperatorPubKey   string `json:"operator_public_key"`
+	RelayURL         string `json:"relay_url,omitempty"`
 }
 
 func decodeBase64(encoded string) ([]byte, error) {

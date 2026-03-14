@@ -15,15 +15,15 @@ type Registry struct {
 }
 
 type PoolEntry struct {
-	Name        string `json:"name"`
-	Repo        string `json:"repo"`
-	Description string `json:"description"`
-	CreatedAt   string `json:"created_at"`
+	Name           string `json:"name"`
+	Repo           string `json:"repo"`
+	Description    string `json:"description"`
+	OperatorPubKey string `json:"operator_public_key"`
+	CreatedAt      string `json:"created_at"`
 }
 
 type PoolTokens struct {
-	GHToken  string `json:"gh_token"`
-	BotToken string `json:"bot_token"`
+	GHToken string `json:"gh_token"`
 }
 
 func NewRegistry(repo, token string) *Registry {
