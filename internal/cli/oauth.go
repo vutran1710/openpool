@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os/exec"
 	"runtime"
-	"strings"
 	"time"
 )
 
@@ -20,52 +19,28 @@ type OAuthResult struct {
 	Email          string
 }
 
-type OAuthConfig struct {
-	ClientID     string
-	ClientSecret string
-}
-
-var (
-	githubOAuth = OAuthConfig{
-		ClientID:     getEnvOrDefault("GITHUB_CLIENT_ID", "PLACEHOLDER"),
-		ClientSecret: getEnvOrDefault("GITHUB_CLIENT_SECRET", "PLACEHOLDER"),
+func doOAuth(provider, clientID string) (*OAuthResult, error) {
+	if clientID == "" {
+		return nil, fmt.Errorf("this pool has no %s OAuth configured", provider)
 	}
-	googleOAuth = OAuthConfig{
-		ClientID:     getEnvOrDefault("GOOGLE_CLIENT_ID", "PLACEHOLDER"),
-		ClientSecret: getEnvOrDefault("GOOGLE_CLIENT_SECRET", "PLACEHOLDER"),
-	}
-)
 
-func getEnvOrDefault(key, fallback string) string {
-	if v := getEnv(key); v != "" {
-		return v
-	}
-	return fallback
-}
-
-func getEnv(key string) string {
-	// avoid importing os just for this; already imported via exec
-	val, _ := exec.Command("sh", "-c", "echo $"+key).Output()
-	return strings.TrimSpace(string(val))
-}
-
-func doOAuth(provider string) (*OAuthResult, error) {
 	switch provider {
 	case "github":
-		return doGitHubOAuth()
+		return doGitHubOAuth(clientID)
 	case "google":
-		return doGoogleOAuth()
+		return doGoogleOAuth(clientID)
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", provider)
 	}
 }
 
-func doGitHubOAuth() (*OAuthResult, error) {
+func doGitHubOAuth(clientID string) (*OAuthResult, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("starting local server: %w", err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
+	redirectURI := fmt.Sprintf("http://127.0.0.1:%d/callback", port)
 
 	resultCh := make(chan *OAuthResult, 1)
 	errCh := make(chan error, 1)
@@ -79,7 +54,7 @@ func doGitHubOAuth() (*OAuthResult, error) {
 			return
 		}
 
-		token, err := exchangeGitHubCode(code, port)
+		token, err := exchangeGitHubCode(clientID, code, redirectURI)
 		if err != nil {
 			http.Error(w, "authentication failed", http.StatusUnauthorized)
 			errCh <- fmt.Errorf("code exchange failed: %w", err)
@@ -103,8 +78,8 @@ func doGitHubOAuth() (*OAuthResult, error) {
 
 	authURL := fmt.Sprintf(
 		"https://github.com/login/oauth/authorize?client_id=%s&redirect_uri=%s&scope=read:user",
-		githubOAuth.ClientID,
-		url.QueryEscape(fmt.Sprintf("http://127.0.0.1:%d/callback", port)),
+		clientID,
+		url.QueryEscape(redirectURI),
 	)
 
 	printDim(fmt.Sprintf("  Sign in at:\n  %s", authURL))
@@ -122,16 +97,15 @@ func doGitHubOAuth() (*OAuthResult, error) {
 	}
 }
 
-func exchangeGitHubCode(code string, port int) (string, error) {
+func exchangeGitHubCode(clientID, code, redirectURI string) (string, error) {
 	data := url.Values{
-		"client_id":     {githubOAuth.ClientID},
-		"client_secret": {githubOAuth.ClientSecret},
-		"code":          {code},
-		"redirect_uri":  {fmt.Sprintf("http://127.0.0.1:%d/callback", port)},
+		"client_id":    {clientID},
+		"code":         {code},
+		"redirect_uri": {redirectURI},
 	}
 
-	req, _ := http.NewRequest("POST", "https://github.com/login/oauth/access_token", strings.NewReader(data.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req, _ := http.NewRequest("POST", "https://github.com/login/oauth/access_token", nil)
+	req.URL.RawQuery = data.Encode()
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -195,12 +169,13 @@ func fetchGitHubUser(token string) (*OAuthResult, error) {
 	}, nil
 }
 
-func doGoogleOAuth() (*OAuthResult, error) {
+func doGoogleOAuth(clientID string) (*OAuthResult, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("starting local server: %w", err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
+	redirectURI := fmt.Sprintf("http://127.0.0.1:%d/callback", port)
 
 	resultCh := make(chan *OAuthResult, 1)
 	errCh := make(chan error, 1)
@@ -214,7 +189,7 @@ func doGoogleOAuth() (*OAuthResult, error) {
 			return
 		}
 
-		token, err := exchangeGoogleCode(code, port)
+		token, err := exchangeGoogleCode(clientID, code, redirectURI)
 		if err != nil {
 			http.Error(w, "authentication failed", http.StatusUnauthorized)
 			errCh <- fmt.Errorf("code exchange failed: %w", err)
@@ -238,8 +213,8 @@ func doGoogleOAuth() (*OAuthResult, error) {
 
 	authURL := fmt.Sprintf(
 		"https://accounts.google.com/o/oauth2/v2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=openid+profile+email",
-		googleOAuth.ClientID,
-		url.QueryEscape(fmt.Sprintf("http://127.0.0.1:%d/callback", port)),
+		clientID,
+		url.QueryEscape(redirectURI),
 	)
 
 	printDim(fmt.Sprintf("  Sign in at:\n  %s", authURL))
@@ -257,13 +232,12 @@ func doGoogleOAuth() (*OAuthResult, error) {
 	}
 }
 
-func exchangeGoogleCode(code string, port int) (string, error) {
+func exchangeGoogleCode(clientID, code, redirectURI string) (string, error) {
 	data := url.Values{
-		"client_id":     {googleOAuth.ClientID},
-		"client_secret": {googleOAuth.ClientSecret},
-		"code":          {code},
-		"redirect_uri":  {fmt.Sprintf("http://127.0.0.1:%d/callback", port)},
-		"grant_type":    {"authorization_code"},
+		"client_id":    {clientID},
+		"code":         {code},
+		"redirect_uri": {redirectURI},
+		"grant_type":   {"authorization_code"},
 	}
 
 	resp, err := http.PostForm("https://oauth2.googleapis.com/token", data)

@@ -49,12 +49,14 @@ func newPoolCmd() *cobra.Command {
 
 func newPoolCreateCmd() *cobra.Command {
 	var (
-		repo        string
-		ghToken     string
-		description string
-		relayURL    string
-		registry    string
-		regToken    string
+		repo           string
+		ghToken        string
+		description    string
+		relayURL       string
+		githubClientID string
+		googleClientID string
+		registry       string
+		regToken       string
 	)
 
 	cmd := &cobra.Command{
@@ -92,6 +94,9 @@ func newPoolCreateCmd() *cobra.Command {
 				Repo:           repo,
 				Description:    description,
 				OperatorPubKey: operatorPubHex,
+				GitHubClientID: githubClientID,
+				GoogleClientID: googleClientID,
+				RelayURL:       relayURL,
 				CreatedAt:      time.Now().UTC().Format(time.RFC3339),
 			}
 			tokens := gh.PoolTokens{
@@ -117,6 +122,8 @@ func newPoolCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&ghToken, "gh-token", "", "Fine-grained PAT for the pool repo")
 	cmd.Flags().StringVar(&description, "desc", "", "Pool description")
 	cmd.Flags().StringVar(&relayURL, "relay-url", "", "WebSocket relay server URL")
+	cmd.Flags().StringVar(&githubClientID, "github-client-id", "", "GitHub OAuth app client ID")
+	cmd.Flags().StringVar(&googleClientID, "google-client-id", "", "Google OAuth client ID")
 	cmd.Flags().StringVar(&registry, "registry", defaultRegistry, "Registry repo")
 	cmd.Flags().StringVar(&regToken, "registry-token", "", "PAT for the registry repo")
 	return cmd
@@ -196,23 +203,36 @@ func newPoolJoinCmd() *cobra.Command {
 			}
 
 			fmt.Println("  Step 1/4: Authenticate")
-			fmt.Println("  1. GitHub")
-			fmt.Println("  2. Google")
 			reader := bufio.NewReader(os.Stdin)
-			choice := prompt(reader, "  Choose (1/2): ")
 
-			var provider string
-			switch choice {
-			case "1", "github":
-				provider = "github"
-			case "2", "google":
-				provider = "google"
-			default:
-				printError("Invalid choice")
+			hasGitHub := entry.GitHubClientID != ""
+			hasGoogle := entry.GoogleClientID != ""
+			if !hasGitHub && !hasGoogle {
+				printError("This pool has no OAuth configured")
 				return nil
 			}
 
-			oauthResult, err := doOAuth(provider)
+			var provider, clientID string
+			if hasGitHub && hasGoogle {
+				fmt.Println("  1. GitHub")
+				fmt.Println("  2. Google")
+				choice := prompt(reader, "  Choose (1/2): ")
+				switch choice {
+				case "1", "github":
+					provider, clientID = "github", entry.GitHubClientID
+				case "2", "google":
+					provider, clientID = "google", entry.GoogleClientID
+				default:
+					printError("Invalid choice")
+					return nil
+				}
+			} else if hasGitHub {
+				provider, clientID = "github", entry.GitHubClientID
+			} else {
+				provider, clientID = "google", entry.GoogleClientID
+			}
+
+			oauthResult, err := doOAuth(provider, clientID)
 			if err != nil {
 				return fmt.Errorf("authentication failed: %w", err)
 			}
