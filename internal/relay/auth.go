@@ -9,6 +9,11 @@ import (
 	"net/http"
 )
 
+func DeriveUserHash(pubKeyHex string) string {
+	h := sha256.Sum256([]byte(pubKeyHex))
+	return hex.EncodeToString(h[:])
+}
+
 func GenerateNonce() ([]byte, error) {
 	nonce := make([]byte, 32)
 	if _, err := rand.Read(nonce); err != nil {

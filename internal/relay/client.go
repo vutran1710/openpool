@@ -105,13 +105,15 @@ func (c *Client) handleFrame(f InboundFrame) {
 }
 
 func (c *Client) handleAuth(f InboundFrame) {
-	if f.UserHash == "" || f.PoolRepo == "" {
-		c.sendError("missing user_hash or pool_repo")
+	if f.PublicKey == "" || f.PoolRepo == "" {
+		c.sendError("missing public_key or pool_repo")
 		return
 	}
 
-	if !UserExistsInPool(f.PoolRepo, c.PoolToken, f.UserHash) {
-		c.sendError("user not found in pool")
+	userHash := DeriveUserHash(f.PublicKey)
+
+	if !UserExistsInPool(f.PoolRepo, c.PoolToken, userHash) {
+		c.sendError("user not registered in pool")
 		return
 	}
 
@@ -121,7 +123,8 @@ func (c *Client) handleAuth(f InboundFrame) {
 		return
 	}
 
-	c.UserHash = f.UserHash
+	c.UserHash = userHash
+	c.PublicKey = f.PublicKey
 	c.PoolRepo = f.PoolRepo
 	c.nonce = nonce
 
@@ -132,23 +135,22 @@ func (c *Client) handleAuth(f InboundFrame) {
 }
 
 func (c *Client) handleAuthResponse(f InboundFrame) {
-	if c.nonce == nil {
+	if c.nonce == nil || c.PublicKey == "" {
 		c.sendError("no pending challenge")
 		return
 	}
 
-	if f.PublicKey == "" || f.Signature == "" {
-		c.sendError("missing public_key or signature")
+	if f.Signature == "" {
+		c.sendError("missing signature")
 		return
 	}
 
-	valid, err := VerifySignature(f.PublicKey, c.nonce, f.Signature)
+	valid, err := VerifySignature(c.PublicKey, c.nonce, f.Signature)
 	if err != nil || !valid {
 		c.sendError("authentication failed")
 		return
 	}
 
-	c.PublicKey = f.PublicKey
 	c.authed = true
 	c.nonce = nil
 	c.hub.Register(c)
