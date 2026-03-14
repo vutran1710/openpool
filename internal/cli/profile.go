@@ -7,12 +7,10 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
 	"github.com/vutran1710/dating-dev/internal/crypto"
-	"github.com/vutran1710/dating-dev/internal/github"
 )
 
 func newProfileCmd() *cobra.Command {
@@ -49,6 +47,7 @@ func newProfileEditCmd() *cobra.Command {
 			fmt.Println(bold.Render("  Edit your profile"))
 			fmt.Println()
 
+			name := prompt(reader, "  Display name: ")
 			bio := prompt(reader, "  Bio: ")
 			city := prompt(reader, "  City: ")
 			interests := prompt(reader, "  Interests (comma-separated): ")
@@ -62,34 +61,45 @@ func newProfileEditCmd() *cobra.Command {
 				}
 			}
 
-			profile := github.UserProfile{
-				PublicID:    cfg.User.PublicID,
-				DisplayName: cfg.User.DisplayName,
-				Bio:         bio,
-				City:        city,
-				Interests:   interestList,
-				LookingFor:  lookingFor,
-				PublicKey:   hex.EncodeToString(pub),
-				Status:      "open",
-				JoinedAt:    time.Now().UTC().Format(time.RFC3339),
+			profileData := map[string]any{
+				"display_name": name,
+				"bio":          bio,
+				"city":         city,
+				"interests":    interestList,
+				"looking_for":  lookingFor,
+				"public_key":   hex.EncodeToString(pub),
+				"status":       "open",
 			}
 
-			payload, _ := json.Marshal(profile)
+			plaintext, _ := json.Marshal(profileData)
+			encrypted, err := crypto.Encrypt(pub, plaintext)
+			if err != nil {
+				return fmt.Errorf("encrypting profile: %w", err)
+			}
+
+			userHash := crypto.UserHash(hex.EncodeToString(pub))
+
+			payload, _ := json.Marshal(map[string]string{
+				"action":    "register",
+				"user_hash": userHash,
+			})
 			signature := crypto.Sign(priv, payload)
 
 			client := poolClient(pool)
-
 			templateBody, err := fillPRTemplate(client.Client(), "join")
 			if err != nil {
 				return err
 			}
 
-			prNumber, err := client.RegisterProfile(profile, signature, templateBody)
+			prNumber, err := client.RegisterUser(userHash, encrypted, signature, templateBody)
 			if err != nil {
 				return fmt.Errorf("publishing profile: %w", err)
 			}
 
-			printSuccess(fmt.Sprintf("Profile PR #%d created for %s — pending pool operator approval", prNumber, pool.Name))
+			cfg.User.PublicID = userHash[:12]
+			cfg.Save()
+
+			printSuccess(fmt.Sprintf("Profile PR #%d created — pending pool operator approval", prNumber))
 			return nil
 		},
 	}
@@ -98,7 +108,7 @@ func newProfileEditCmd() *cobra.Command {
 func newProfileShowCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "show",
-		Short: "Show your current profile",
+		Short: "Show your current profile (decrypted locally)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {
@@ -110,14 +120,32 @@ func newProfileShowCmd() *cobra.Command {
 				return nil
 			}
 
+			pub, priv, err := crypto.LoadKeyPair(config.KeysDir())
+			if err != nil {
+				return fmt.Errorf("loading keys: %w", err)
+			}
+
+			userHash := crypto.UserHash(hex.EncodeToString(pub))
 			client := poolClient(pool)
-			profile, err := client.GetProfile(cfg.User.PublicID)
+			blob, err := client.GetUserBlob(userHash)
 			if err != nil {
 				printDim("  No profile found in this pool. Run: dating profile edit")
 				return nil
 			}
 
-			renderProfile(*profile)
+			plaintext, err := crypto.Decrypt(priv, blob)
+			if err != nil {
+				return fmt.Errorf("decrypting profile: %w", err)
+			}
+
+			var profile map[string]any
+			json.Unmarshal(plaintext, &profile)
+
+			fmt.Println()
+			for k, v := range profile {
+				fmt.Printf("  %s  %v\n", dim.Render(k+":"), v)
+			}
+			fmt.Println()
 			return nil
 		},
 	}

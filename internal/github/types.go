@@ -2,6 +2,7 @@ package github
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"time"
 )
@@ -29,21 +30,14 @@ type PoolManifest struct {
 	Description string `json:"description"`
 	Version     int    `json:"version"`
 	CreatedAt   string `json:"created_at"`
-}
-
-type UserProfile struct {
-	PublicID    string   `json:"public_id"`
-	DisplayName string  `json:"display_name"`
-	Bio         string  `json:"bio,omitempty"`
-	City        string  `json:"city,omitempty"`
-	Interests   []string `json:"interests,omitempty"`
-	LookingFor  string  `json:"looking_for,omitempty"`
-	PublicKey   string  `json:"public_key"`
-	Status      string  `json:"status"`
-	JoinedAt    string  `json:"joined_at"`
+	RelayURL    string `json:"relay_url,omitempty"`
 }
 
 func decodeBase64(encoded string) ([]byte, error) {
 	cleaned := strings.ReplaceAll(encoded, "\n", "")
 	return base64.StdEncoding.DecodeString(cleaned)
+}
+
+func decodeJSON(data []byte, v any) error {
+	return json.Unmarshal(data, v)
 }

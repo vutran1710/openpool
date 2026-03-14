@@ -246,7 +246,7 @@ func newPoolListCmd() *cobra.Command {
 			for i, p := range cfg.Pools {
 				if p.Status == gh.PoolStatusPending {
 					pool := gh.NewPool(p.Repo, p.Token)
-					if pool.IsProfileRegistered(cfg.User.PublicID) {
+					if pool.IsUserRegistered(cfg.User.PublicID) {
 						cfg.Pools[i].Status = gh.PoolStatusActive
 						updated = true
 						p.Status = gh.PoolStatusActive

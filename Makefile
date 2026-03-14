@@ -1,7 +1,12 @@
-.PHONY: build test clean lint
+.PHONY: build cli relay test clean lint
 
-build:
+build: cli relay
+
+cli:
 	go build -o bin/dating ./cmd/dating
+
+relay:
+	go build -o bin/relay ./cmd/relay
 
 test:
 	go test ./...
@@ -11,6 +16,3 @@ clean:
 
 lint:
 	golangci-lint run ./...
-
-run:
-	go run ./cmd/dating

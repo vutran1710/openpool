@@ -23,7 +23,7 @@ func newMatchesCmd() *cobra.Command {
 			}
 
 			client := poolClient(pool)
-			matchDirs, err := client.ListMatches(cfg.User.PublicID)
+			matchDirs, err := client.ListMatches()
 			if err != nil {
 				return fmt.Errorf("fetching matches: %w", err)
 			}

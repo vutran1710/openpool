@@ -3,9 +3,9 @@ package github
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"math/rand"
+	"strings"
 )
 
 type Pool struct {
@@ -27,154 +27,134 @@ func (p *Pool) GetManifest() (*PoolManifest, error) {
 	}
 
 	var manifest PoolManifest
-	if err := json.Unmarshal(data, &manifest); err != nil {
+	if err := decodeJSON(data, &manifest); err != nil {
 		return nil, fmt.Errorf("parsing pool manifest: %w", err)
 	}
 	return &manifest, nil
 }
 
-func (p *Pool) GetProfile(publicID string) (*UserProfile, error) {
-	data, err := p.client.GetFile("users/" + publicID + "/public.json")
-	if err != nil {
-		return nil, fmt.Errorf("reading profile: %w", err)
-	}
-
-	var profile UserProfile
-	if err := json.Unmarshal(data, &profile); err != nil {
-		return nil, fmt.Errorf("parsing profile: %w", err)
-	}
-	return &profile, nil
+func (p *Pool) GetUserBlob(userHash string) ([]byte, error) {
+	return p.client.GetFile("users/" + userHash + ".bin")
 }
 
 func (p *Pool) ListUsers() ([]string, error) {
-	return p.client.ListDir("users")
-}
-
-func (p *Pool) DiscoverRandom(exclude string) (*UserProfile, error) {
-	ids, err := p.ListUsers()
+	entries, err := p.client.ListDir("users")
 	if err != nil {
 		return nil, err
 	}
 
+	var hashes []string
+	for _, name := range entries {
+		hash := strings.TrimSuffix(name, ".bin")
+		if hash != name {
+			hashes = append(hashes, hash)
+		}
+	}
+	return hashes, nil
+}
+
+func (p *Pool) DiscoverRandom(excludeHash string) (string, error) {
+	hashes, err := p.ListUsers()
+	if err != nil {
+		return "", err
+	}
+
 	var candidates []string
-	for _, id := range ids {
-		if id != exclude {
-			candidates = append(candidates, id)
+	for _, h := range hashes {
+		if h != excludeHash {
+			candidates = append(candidates, h)
 		}
 	}
 
 	if len(candidates) == 0 {
-		return nil, nil
+		return "", nil
 	}
 
-	pick := candidates[rand.Intn(len(candidates))]
-	return p.GetProfile(pick)
+	return candidates[rand.Intn(len(candidates))], nil
 }
 
-func (p *Pool) IsProfileRegistered(publicID string) bool {
-	return p.client.FileExists(fmt.Sprintf("users/%s/public.json", publicID))
+func (p *Pool) IsUserRegistered(userHash string) bool {
+	return p.client.FileExists("users/" + userHash + ".bin")
 }
 
-func (p *Pool) RegisterProfile(profile UserProfile, signature, templateBody string) (int, error) {
-	profileJSON, _ := json.MarshalIndent(profile, "", "  ")
-
-	body := fmt.Sprintf("New member **%s** wants to join.\n\nSignature: %s", profile.DisplayName, signature)
+func (p *Pool) RegisterUser(userHash string, encryptedBlob []byte, signature, templateBody string) (int, error) {
+	body := fmt.Sprintf("New member `%s` wants to join.\n\nSignature: `%s`", userHash[:12], signature)
 	if templateBody != "" {
 		body = templateBody + "\n\n---\n\n" + body
 	}
 
 	pr := PRRequest{
-		Title:  fmt.Sprintf("Join: %s (%s)", profile.DisplayName, profile.PublicID),
+		Title:  fmt.Sprintf("Join: %s", userHash[:12]),
 		Body:   body,
-		Branch: fmt.Sprintf("join/%s", profile.PublicID),
+		Branch: fmt.Sprintf("join/%s", userHash[:12]),
 		Files: []PRFile{
-			{Path: fmt.Sprintf("users/%s/public.json", profile.PublicID), Content: profileJSON},
+			{Path: fmt.Sprintf("users/%s.bin", userHash), Content: encryptedBlob},
 		},
 	}
 
 	return p.client.CreatePullRequest(pr)
 }
 
-func (p *Pool) CreateLikePR(likerID, likedID, signature string) (int, error) {
-	hash := pairHash(likerID, likedID)
+func (p *Pool) CreateLikePR(likerHash, likedHash, signature string) (int, error) {
+	ph := pairHash(likerHash, likedHash)
 
-	likerProfile, err := p.GetProfile(likerID)
+	likerBlob, err := p.GetUserBlob(likerHash)
 	if err != nil {
-		return 0, fmt.Errorf("fetching liker profile: %w", err)
+		return 0, fmt.Errorf("fetching liker: %w", err)
 	}
-	likedProfile, err := p.GetProfile(likedID)
+	likedBlob, err := p.GetUserBlob(likedHash)
 	if err != nil {
-		return 0, fmt.Errorf("fetching liked profile: %w", err)
+		return 0, fmt.Errorf("fetching liked: %w", err)
 	}
-
-	likerJSON, _ := json.MarshalIndent(likerProfile, "", "  ")
-	likedJSON, _ := json.MarshalIndent(likedProfile, "", "  ")
 
 	pr := PRRequest{
-		Title:  fmt.Sprintf("Like: %s -> %s", likerID, likedID),
-		Body:   fmt.Sprintf("**%s** likes **%s**\n\nSignature: %s", likerID, likedID, signature),
-		Branch: fmt.Sprintf("like/%s", hash),
-		Labels: []string{fmt.Sprintf("like:%s", likedID)},
+		Title:  fmt.Sprintf("Like: %s -> %s", likerHash[:8], likedHash[:8]),
+		Body:   fmt.Sprintf("`%s` likes `%s`\n\nSignature: `%s`", likerHash[:8], likedHash[:8], signature),
+		Branch: fmt.Sprintf("like/%s", ph),
+		Labels: []string{fmt.Sprintf("like:%s", likedHash[:12])},
 		Files: []PRFile{
-			{Path: fmt.Sprintf("matches/%s/%s.json", hash, likerID), Content: likerJSON},
-			{Path: fmt.Sprintf("matches/%s/%s.json", hash, likedID), Content: likedJSON},
+			{Path: fmt.Sprintf("matches/%s/%s.bin", ph, likerHash), Content: likerBlob},
+			{Path: fmt.Sprintf("matches/%s/%s.bin", ph, likedHash), Content: likedBlob},
 		},
 	}
 
 	return p.client.CreatePullRequest(pr)
 }
 
-func (p *Pool) ListIncomingLikes(publicID string) ([]PullRequest, error) {
-	return p.listPRsByLabel("like:" + publicID)
+func (p *Pool) ListIncomingLikes(userHash string) ([]PullRequest, error) {
+	return p.listPRsByLabel("like:" + userHash[:12])
 }
 
 func (p *Pool) AcceptLike(prNumber int) error {
 	return p.client.MergePullRequest(prNumber)
 }
 
-func (p *Pool) ListMatches(publicID string) ([]string, error) {
+func (p *Pool) ListMatches() ([]string, error) {
 	return p.client.ListDir("matches")
 }
 
-func (p *Pool) CreateProposePR(proposerID, targetID, signature string) (int, error) {
-	hash := pairHash(proposerID, targetID)
+func (p *Pool) CreateProposePR(proposerHash, targetHash, signature string) (int, error) {
+	ph := pairHash(proposerHash, targetHash)
 
-	proposerProfile, err := p.GetProfile(proposerID)
-	if err != nil {
-		return 0, fmt.Errorf("fetching proposer profile: %w", err)
-	}
-	targetProfile, err := p.GetProfile(targetID)
-	if err != nil {
-		return 0, fmt.Errorf("fetching target profile: %w", err)
-	}
-
-	proposerJSON, _ := json.MarshalIndent(proposerProfile, "", "  ")
-	targetJSON, _ := json.MarshalIndent(targetProfile, "", "  ")
-
-	meta, _ := json.MarshalIndent(map[string]string{
-		"proposer":    proposerID,
-		"target":      targetID,
-		"pair_hash":   hash,
-		"signature":   signature,
-	}, "", "  ")
+	proposerBlob, _ := p.GetUserBlob(proposerHash)
+	targetBlob, _ := p.GetUserBlob(targetHash)
 
 	pr := PRRequest{
-		Title:  fmt.Sprintf("Propose: %s -> %s", proposerID, targetID),
-		Body:   fmt.Sprintf("**%s** proposes a relationship with **%s**\n\nSignature: %s", proposerID, targetID, signature),
-		Branch: fmt.Sprintf("propose/%s", hash),
-		Labels: []string{fmt.Sprintf("propose:%s", targetID)},
+		Title:  fmt.Sprintf("Propose: %s -> %s", proposerHash[:8], targetHash[:8]),
+		Body:   fmt.Sprintf("`%s` proposes to `%s`\n\nSignature: `%s`", proposerHash[:8], targetHash[:8], signature),
+		Branch: fmt.Sprintf("propose/%s", ph),
+		Labels: []string{fmt.Sprintf("propose:%s", targetHash[:12])},
 		Files: []PRFile{
-			{Path: fmt.Sprintf("relationships/%s/%s.json", hash, proposerID), Content: proposerJSON},
-			{Path: fmt.Sprintf("relationships/%s/%s.json", hash, targetID), Content: targetJSON},
-			{Path: fmt.Sprintf("relationships/%s/meta.json", hash), Content: meta},
+			{Path: fmt.Sprintf("relationships/%s/%s.bin", ph, proposerHash), Content: proposerBlob},
+			{Path: fmt.Sprintf("relationships/%s/%s.bin", ph, targetHash), Content: targetBlob},
 		},
 	}
 
 	return p.client.CreatePullRequest(pr)
 }
 
-func (p *Pool) ListIncomingProposals(publicID string) ([]PullRequest, error) {
-	return p.listPRsByLabel("propose:" + publicID)
+func (p *Pool) ListIncomingProposals(userHash string) ([]PullRequest, error) {
+	return p.listPRsByLabel("propose:" + userHash[:12])
 }
 
 func (p *Pool) AcceptPropose(prNumber int) error {
@@ -203,10 +183,10 @@ func (p *Pool) listPRsByLabel(label string) ([]PullRequest, error) {
 	return filtered, nil
 }
 
-func pairHash(idA, idB string) string {
-	combined := idA + ":" + idB
-	if idA > idB {
-		combined = idB + ":" + idA
+func pairHash(a, b string) string {
+	combined := a + ":" + b
+	if a > b {
+		combined = b + ":" + a
 	}
 	h := sha256.Sum256([]byte(combined))
 	return hex.EncodeToString(h[:])[:12]
