@@ -1,6 +1,8 @@
 package relay
 
 import (
+	"crypto/ed25519"
+	"encoding/hex"
 	"log"
 	"net/http"
 	"os"
@@ -9,19 +11,33 @@ import (
 )
 
 type Server struct {
-	hub       *Hub
-	poolToken string
-	upgrader  websocket.Upgrader
+	hub            *Hub
+	poolToken      string
+	operatorPrivKey ed25519.PrivateKey
+	upgrader       websocket.Upgrader
 }
 
 func NewServer() *Server {
-	return &Server{
+	s := &Server{
 		hub:       NewHub(),
 		poolToken: os.Getenv("POOL_TOKEN"),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
 	}
+
+	// Load operator private key for discovery re-encryption
+	if keyHex := os.Getenv("OPERATOR_PRIVATE_KEY"); keyHex != "" {
+		keyBytes, err := hex.DecodeString(keyHex)
+		if err != nil {
+			log.Printf("warning: invalid OPERATOR_PRIVATE_KEY: %v", err)
+		} else {
+			s.operatorPrivKey = ed25519.PrivateKey(keyBytes)
+			log.Printf("operator key loaded for discovery")
+		}
+	}
+
+	return s
 }
 
 func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {

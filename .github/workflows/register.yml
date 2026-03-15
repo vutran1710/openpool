@@ -1,0 +1,60 @@
+name: Process Registration
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  register:
+    if: contains(github.event.issue.body, '<!-- registration-request -->')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse and commit registration
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Extract fields from issue body (between ``` fences after each header)
+          USER_HASH=$(echo "$ISSUE_BODY" | sed -n '/\*\*User Hash:\*\*/,/```/{/```/!p}' | grep -v '^\*\*' | tr -d '[:space:]')
+          PUB_KEY=$(echo "$ISSUE_BODY" | sed -n '/\*\*Public Key:\*\*/,/```/{/```/!p}' | grep -v '^\*\*' | tr -d '[:space:]')
+          BLOB_HEX=$(echo "$ISSUE_BODY" | sed -n '/\*\*Profile Blob:\*\*/,/```/{/```/!p}' | grep -v '^\*\*' | tr -d '[:space:]')
+
+          if [ -z "$USER_HASH" ] || [ -z "$PUB_KEY" ] || [ -z "$BLOB_HEX" ]; then
+            echo "::error::Missing required fields in issue body"
+            exit 1
+          fi
+
+          # Check if user already registered
+          if [ -f "users/${USER_HASH}.bin" ]; then
+            echo "::warning::User already registered: ${USER_HASH:0:12}"
+            gh issue comment "$ISSUE_NUMBER" --body "Registration rejected: user already registered."
+            gh issue close "$ISSUE_NUMBER" --reason "not planned"
+            exit 0
+          fi
+
+          # Convert hex blob to binary and write .bin file
+          mkdir -p users
+          echo "$BLOB_HEX" | xxd -r -p > "users/${USER_HASH}.bin"
+
+          # Commit and push
+          git config user.name "dating-bot"
+          git config user.email "bot@dating-pool.dev"
+          git add "users/${USER_HASH}.bin"
+          git commit -m "Register user ${USER_HASH:0:12}"
+          git push
+
+      - name: Close issue
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue close "$ISSUE_NUMBER" --reason completed
+          gh issue comment "$ISSUE_NUMBER" --body "Registration processed successfully."

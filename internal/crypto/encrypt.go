@@ -9,24 +9,37 @@ import (
 	"golang.org/x/crypto/nacl/box"
 )
 
-func PackUserBin(pub ed25519.PublicKey, plaintext []byte) ([]byte, error) {
-	encrypted, err := Encrypt(pub, plaintext)
+// PackUserBin packs a user profile: [user_pubkey_32][profile_encrypted_to_operator].
+// The profile is encrypted to the operator's pubkey so only the operator/relay can read it.
+func PackUserBin(userPub ed25519.PublicKey, operatorPub ed25519.PublicKey, plaintext []byte) ([]byte, error) {
+	encrypted, err := Encrypt(operatorPub, plaintext)
 	if err != nil {
 		return nil, err
 	}
 
 	bin := make([]byte, 0, ed25519.PublicKeySize+len(encrypted))
-	bin = append(bin, pub...)
+	bin = append(bin, userPub...)
 	bin = append(bin, encrypted...)
 	return bin, nil
 }
 
-func UnpackUserBin(priv ed25519.PrivateKey, bin []byte) ([]byte, error) {
+// UnpackUserBin extracts the user pubkey and decrypts the profile using the operator's private key.
+func UnpackUserBin(operatorPriv ed25519.PrivateKey, bin []byte) ([]byte, error) {
 	if len(bin) < ed25519.PublicKeySize {
 		return nil, fmt.Errorf("bin too short")
 	}
 	encrypted := bin[ed25519.PublicKeySize:]
-	return Decrypt(priv, encrypted)
+	return Decrypt(operatorPriv, encrypted)
+}
+
+// ReEncryptForRecipient decrypts a .bin with the operator key and re-encrypts the profile
+// for a specific recipient's pubkey. Returns the re-encrypted profile (no pubkey prefix).
+func ReEncryptForRecipient(operatorPriv ed25519.PrivateKey, bin []byte, recipientPub ed25519.PublicKey) ([]byte, error) {
+	plaintext, err := UnpackUserBin(operatorPriv, bin)
+	if err != nil {
+		return nil, fmt.Errorf("decrypting profile: %w", err)
+	}
+	return Encrypt(recipientPub, plaintext)
 }
 
 func Encrypt(recipientPub ed25519.PublicKey, plaintext []byte) ([]byte, error) {

@@ -19,6 +19,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /ws", srv.HandleWS)
 	mux.HandleFunc("GET /health", srv.HandleHealth)
+	mux.HandleFunc("POST /discover", srv.HandleDiscover)
 
 	log.Printf("relay server listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {

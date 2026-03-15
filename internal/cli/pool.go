@@ -264,6 +264,12 @@ func newPoolJoinCmd() *cobra.Command {
 
 			interestList := parseCSV(interests)
 
+			// Decode operator pubkey for profile encryption
+			operatorPubBytes, err := hex.DecodeString(entry.OperatorPubKey)
+			if err != nil {
+				return fmt.Errorf("decoding operator public key: %w", err)
+			}
+
 			profileData := map[string]any{
 				"display_name": displayName,
 				"bio":          bio,
@@ -273,7 +279,9 @@ func newPoolJoinCmd() *cobra.Command {
 				"status":       "open",
 			}
 			plaintext, _ := json.Marshal(profileData)
-			bin, err := crypto.PackUserBin(pub, plaintext)
+
+			// Encrypt profile to operator's pubkey — only operator/relay can decrypt
+			bin, err := crypto.PackUserBin(pub, operatorPubBytes, plaintext)
 			if err != nil {
 				return fmt.Errorf("packing profile: %w", err)
 			}
@@ -296,13 +304,10 @@ func newPoolJoinCmd() *cobra.Command {
 			})
 			signature := crypto.Sign(priv, payload)
 
+			// Submit registration via GitHub issue (Action will commit the .bin file)
 			poolGH := gh.NewPool(entry.Repo, tokens.GHToken)
-			templateBody, err := fillPRTemplate(poolGH.Client(), "join")
-			if err != nil {
-				return err
-			}
-
-			prNumber, err := poolGH.RegisterUser(userHash, bin, signature, identityProof, templateBody)
+			pubKeyHex := hex.EncodeToString(pub)
+			issueNumber, err := poolGH.RegisterUserViaIssue(userHash, bin, pubKeyHex, signature, identityProof)
 			if err != nil {
 				return fmt.Errorf("submitting registration: %w", err)
 			}
@@ -329,8 +334,8 @@ func newPoolJoinCmd() *cobra.Command {
 			}
 
 			fmt.Println()
-			printSuccess(fmt.Sprintf("Registration PR #%d created for \"%s\"", prNumber, name))
-			printDim("  Waiting for pool operator approval...")
+			printSuccess(fmt.Sprintf("Registration issue #%d created for \"%s\"", issueNumber, name))
+			printDim("  A GitHub Action will process your registration...")
 			fmt.Println()
 			return nil
 		},
