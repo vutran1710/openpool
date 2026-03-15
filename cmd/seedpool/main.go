@@ -110,21 +110,39 @@ func main() {
 
 	// Create users
 	usersDir := filepath.Join(*outDir, "users")
+	keysDir := filepath.Join(*outDir, "keys")
 	os.MkdirAll(usersDir, 0755)
+	os.MkdirAll(keysDir, 0700)
+
+	type seedUser struct {
+		Hash        string   `json:"hash"`
+		DisplayName string   `json:"display_name"`
+		City        string   `json:"city"`
+		Provider    string   `json:"provider"`
+		ProviderUID string   `json:"provider_user_id"`
+		Interests   []string `json:"interests"`
+		PubKey      string   `json:"public_key"`
+		PrivKey     string   `json:"private_key"`
+	}
+
+	var seedUsers []seedUser
 
 	for _, u := range testUsers {
 		// Generate user keypair
-		userPub, _, err := ed25519.GenerateKey(rand.Reader)
+		userPub, userPriv, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
 			fatal("generating user keys: %v", err)
 		}
+
+		pubHex := hex.EncodeToString(userPub)
+		privHex := hex.EncodeToString(userPriv)
 
 		profile := map[string]any{
 			"display_name": u.DisplayName,
 			"bio":          u.Bio,
 			"city":         u.City,
 			"interests":    u.Interests,
-			"public_key":   hex.EncodeToString(userPub),
+			"public_key":   pubHex,
 			"status":       "open",
 		}
 		plaintext, _ := json.Marshal(profile)
@@ -135,12 +153,43 @@ func main() {
 		}
 
 		hash := crypto.UserHash(*poolRepo, u.Provider, u.ProviderUserID)
-		binPath := filepath.Join(usersDir, hash+".bin")
-		writeFile(binPath, bin, 0644)
-		fmt.Printf("users/%s.bin  %s (%s, %s)\n", hash[:12]+"...", u.DisplayName, u.City, u.Provider)
+
+		// Write .bin
+		writeFile(filepath.Join(usersDir, hash+".bin"), bin, 0644)
+
+		// Write keypair
+		userKeysDir := filepath.Join(keysDir, hash)
+		os.MkdirAll(userKeysDir, 0700)
+		writeFile(filepath.Join(userKeysDir, "identity.pub"), []byte(pubHex), 0644)
+		writeFile(filepath.Join(userKeysDir, "identity.key"), []byte(privHex), 0600)
+
+		seedUsers = append(seedUsers, seedUser{
+			Hash:        hash,
+			DisplayName: u.DisplayName,
+			City:        u.City,
+			Provider:    u.Provider,
+			ProviderUID: u.ProviderUserID,
+			Interests:   u.Interests,
+			PubKey:      pubHex,
+			PrivKey:     privHex,
+		})
+
+		fmt.Printf("users/%s.bin  keys/%s/  %s (%s, %s)\n", hash, hash, u.DisplayName, u.City, u.Provider)
 	}
 
+	// Write seed.json manifest
+	seedManifest := map[string]any{
+		"pool_repo":            *poolRepo,
+		"operator_public_key":  hex.EncodeToString(operatorPub),
+		"operator_private_key": hex.EncodeToString(operatorPriv),
+		"users":                seedUsers,
+	}
+	seedJSON, _ := json.MarshalIndent(seedManifest, "", "  ")
+	seedJSON = append(seedJSON, '\n')
+	writeFile(filepath.Join(*outDir, "seed.json"), seedJSON, 0600)
+
 	fmt.Printf("\nDone. %d test users seeded into %s\n", len(testUsers), *outDir)
+	fmt.Println("seed.json written (all keys + user mapping)")
 }
 
 func writeFile(path string, data []byte, perm os.FileMode) {
