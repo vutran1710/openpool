@@ -17,9 +17,33 @@ type Client struct {
 func NewClient(repo, token string) *Client {
 	return &Client{
 		token:      token,
-		repo:       repo,
+		repo:       NormalizeRepo(repo),
 		httpClient: &http.Client{},
 	}
+}
+
+// NormalizeRepo extracts "owner/repo" from various git URL formats.
+// Accepts: "owner/repo", "https://github.com/owner/repo.git", "git@github.com:owner/repo.git"
+func NormalizeRepo(input string) string {
+	s := strings.TrimSpace(input)
+	s = strings.TrimSuffix(s, ".git")
+	s = strings.TrimSuffix(s, "/")
+
+	// SSH: git@github.com:owner/repo
+	if strings.HasPrefix(s, "git@") {
+		if idx := strings.Index(s, ":"); idx != -1 {
+			return s[idx+1:]
+		}
+	}
+
+	// HTTPS: https://github.com/owner/repo
+	for _, prefix := range []string{"https://github.com/", "http://github.com/"} {
+		if strings.HasPrefix(s, prefix) {
+			return strings.TrimPrefix(s, prefix)
+		}
+	}
+
+	return s
 }
 
 func (c *Client) apiURL(path string) string {

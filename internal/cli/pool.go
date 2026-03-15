@@ -35,21 +35,34 @@ func requireRegistry(cfg *config.Config) (string, error) {
 	}
 
 	fmt.Println("  No registry configured.")
+	printDim("  Discover registries at: https://dating.dev/pools")
+	fmt.Println()
+
 	reader := bufio.NewReader(os.Stdin)
-	repo := prompt(reader, "  Enter registry repo (e.g. owner/registry): ")
-	if repo == "" {
+	input := prompt(reader, "  Enter registry (owner/repo or git URL): ")
+	if input == "" {
 		return "", fmt.Errorf("no registry provided")
 	}
 
-	cfg.AddRegistry(repo)
-	cfg.ActiveRegistry = repo
+	repoURL, err := parseRegistryInput(input)
+	if err != nil {
+		return "", err
+	}
+
+	fmt.Printf("  Validating %s ...\n", repoURL)
+	if err := validateRegistry(repoURL); err != nil {
+		return "", err
+	}
+
+	cfg.AddRegistry(repoURL)
+	cfg.ActiveRegistry = repoURL
 	if err := cfg.Save(); err != nil {
 		return "", fmt.Errorf("saving config: %w", err)
 	}
 
-	printSuccess("Registry added: " + repo)
+	printSuccess("Registry added: " + repoURL)
 	fmt.Println()
-	return repo, nil
+	return repoURL, nil
 }
 
 func newPoolCmd() *cobra.Command {
