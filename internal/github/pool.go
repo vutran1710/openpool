@@ -98,6 +98,24 @@ func (p *Pool) RegisterUser(userHash string, encryptedBlob []byte, signature, id
 	return p.client.CreatePullRequest(pr)
 }
 
+// RegisterUserViaIssue submits a registration request as a GitHub issue.
+// A GitHub Action will process the issue, commit the .bin file, and close it.
+func (p *Pool) RegisterUserViaIssue(userHash string, encryptedBlob []byte, pubKeyHex, signature, identityProof string) (int, error) {
+	blobHex := hex.EncodeToString(encryptedBlob)
+
+	body := fmt.Sprintf(
+		"<!-- registration-request -->\n\n"+
+			"**User Hash:**\n```\n%s\n```\n\n"+
+			"**Public Key:**\n```\n%s\n```\n\n"+
+			"**Profile Blob:**\n```\n%s\n```\n\n"+
+			"**Signature:**\n```\n%s\n```\n\n"+
+			"**Identity Proof:**\n```\n%s\n```",
+		userHash, pubKeyHex, blobHex, signature, identityProof,
+	)
+
+	return p.client.CreateIssue("Registration Request", body, []string{"registration"})
+}
+
 func (p *Pool) CreateLikePR(likerHash, likedHash, signature string) (int, error) {
 	ph := pairHash(likerHash, likedHash)
 

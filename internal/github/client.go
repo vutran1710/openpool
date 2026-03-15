@@ -117,6 +117,36 @@ func (c *Client) TriggerWorkflow(workflowFile string, inputs map[string]string) 
 	return nil
 }
 
+func (c *Client) CreateIssue(title, body string, labels []string) (int, error) {
+	payload := map[string]any{
+		"title": title,
+		"body":  body,
+	}
+	if len(labels) > 0 {
+		payload["labels"] = labels
+	}
+	data, _ := json.Marshal(payload)
+
+	resp, err := c.do("POST", c.apiURL("/issues"), strings.NewReader(string(data)))
+	if err != nil {
+		return 0, fmt.Errorf("creating issue: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 201 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return 0, fmt.Errorf("create issue failed (%d): %s", resp.StatusCode, respBody)
+	}
+
+	var result struct {
+		Number int `json:"number"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, err
+	}
+	return result.Number, nil
+}
+
 func (c *Client) ListPullRequests(state string) ([]PullRequest, error) {
 	url := c.apiURL("/pulls?state=" + state + "&per_page=100")
 	resp, err := c.do("GET", url, nil)

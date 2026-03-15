@@ -1,6 +1,6 @@
 # dating.dev
 
-Decentralized, terminal-native dating. No servers — just GitHub repos, Pull Requests, and the command line.
+Decentralized, terminal-native dating. GitHub repos as the database, encrypted profiles, and the command line.
 
 ## Architecture
 
@@ -8,20 +8,23 @@ Decentralized, terminal-native dating. No servers — just GitHub repos, Pull Re
 ┌──────────┐       ┌──────────────────┐       ┌─────────────┐
 │  CLI     │──────▶│  Pool Repo       │       │  Registry   │
 │  (Go)    │       │  (GitHub)        │◀─────▶│  (GitHub)   │
-│          │──────▶│  users/          │       └─────────────┘
+│          │       │  users/{h}.bin   │       └─────────────┘
 │          │       │  matches/        │
-│          │──────▶│  relationships/  │
+│          │       │  relationships/  │
 │          │       └──────────────────┘
-│          │
-│          │──────▶┌──────────────────┐
+│          │              ▲
+│          │──────▶┌──────┴───────────┐
 │          │       │  Relay Server    │
-└──────────┘       │  (WebSocket)     │
+└──────────┘       │  WS + Discovery  │
                    └──────────────────┘
 ```
 
 - **Pools** are GitHub repos — like Discord servers, but decentralized
+- **Profiles** are encrypted to the operator — only the relay can decrypt and serve them
+- **Registration** via GitHub Issues — a GitHub Action commits the `.bin` file
+- **Discovery** via relay — relay picks a random profile, re-encrypts it for you
 - **Likes** are Pull Requests — matches are merged PRs
-- **Relay** is a lightweight WebSocket server for real-time chat
+- **Relay** handles real-time chat (WebSocket) and profile discovery (HTTP)
 - **CLI** is the only user interface — TUI for non-tech, commands for power users
 - **Auth** via GitHub/Google OAuth — each pool brings its own OAuth app
 
@@ -42,10 +45,10 @@ make build    # builds bin/dating + bin/relay
 ## Quick Start
 
 ```bash
-# Join a pool (OAuth + profile creation + registration PR — all in one)
+# Join a pool (OAuth → keys → profile → registration issue)
 dating pool join berlin-singles
 
-# Discover profiles
+# Discover profiles (fetched and decrypted via relay)
 dating fetch
 
 # Like someone
@@ -65,14 +68,14 @@ dating chat abc123def
 
 ```
 dating pool browse              Browse available pools
-dating pool join <name>         Join a pool (OAuth → keys → profile → PR)
+dating pool join <name>         Join a pool (OAuth → keys → profile → issue)
 dating pool create <name>       Create and register a new pool
 dating pool list                List joined pools
 dating pool switch <name>       Set active pool
 dating pool leave <name>        Leave a pool
 
-dating fetch                    Discover profiles
-dating view <hash>              View a user's encrypted blob
+dating fetch                    Discover profiles (via relay, decrypted)
+dating view <hash>              View a user's encrypted blob size
 dating like <hash>              Express interest (creates PR)
 dating inbox                    View incoming interests
 dating accept <pr>              Accept interest (merges PR = match)
@@ -88,12 +91,39 @@ dating profile show             Show your profile (decrypted locally)
 dating auth whoami              Show current identity
 ```
 
+## How It Works
+
+### Registration
+
+1. CLI authenticates via OAuth (GitHub/Google)
+2. CLI generates ed25519 keypair locally
+3. CLI encrypts profile to **operator's pubkey** (NaCl box)
+4. CLI creates a GitHub Issue with the encrypted blob + pubkey
+5. GitHub Action commits `users/{hash}.bin` and closes the issue
+6. No fork, no PR, no shared PAT — user just needs a GitHub account to open an issue
+
+### Discovery
+
+1. CLI sends signed request to relay's `POST /discover`
+2. Relay picks a random `.bin` from the pool repo via GitHub API
+3. Relay decrypts profile with operator private key
+4. Relay re-encrypts profile to the requester's pubkey
+5. CLI decrypts and displays the profile
+
+Users can only see profiles the relay gives them — cloning the repo yields only opaque encrypted blobs.
+
+### Matching & Chat
+
+1. `dating like <hash>` creates a PR (like = open PR, match = merged PR)
+2. `dating accept <pr>` merges the PR
+3. `dating chat <hash>` connects via WebSocket relay (authenticated by nonce challenge)
+
 ## Pool Structure
 
 ```
 pool-repo/
   pool.json                    Pool metadata + operator public key
-  users/{hash}.bin             [32 bytes ed25519 pubkey][encrypted profile]
+  users/{hash}.bin             [32B ed25519 pubkey][profile encrypted to operator]
   matches/{pair_hash}/         Matched pairs (.bin files)
   relationships/{pair_hash}/   Committed pairs (.bin + meta.json)
 ```
@@ -104,11 +134,19 @@ pool-repo/
 |-------|-----------|
 | Identity | ed25519 key pairs, generated locally |
 | User hash | `SHA256(pool_repo:provider:provider_user_id)` |
-| Profile data | NaCl box encryption, only user decrypts |
-| Registration | OAuth proves identity, encrypted proof for operator |
+| Profile data | NaCl box encrypted to **operator pubkey** — only relay decrypts |
+| Discovery | Relay re-encrypts per-request — users can't browse the whole DB |
+| Registration | GitHub Issue → Action commits (no link between GitHub user and hash via timing correlation accepted) |
 | Relay auth | Pubkey extracted from `.bin`, nonce challenge-response |
-| Anonymity | PRs created via pool PAT, not user's account |
-| Anti-spam | OAuth required, PR approval by operator |
+| Anti-spam | OAuth required, GitHub's built-in issue rate limits |
+
+### Relay Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `POOL_TOKEN` | Yes | GitHub PAT for pool repo API access (avoids 60 req/hr anonymous limit) |
+| `OPERATOR_PRIVATE_KEY` | Yes | Hex-encoded ed25519 private key for profile decryption + re-encryption |
+| `PORT` | No | Server port (default: 8081) |
 
 ## Project Structure
 
