@@ -1,20 +1,32 @@
 package components
 
 import (
+	"fmt"
+	"image"
+	"image/gif"
+	"image/jpeg"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/nfnt/resize"
 	"github.com/qeesung/image2ascii/convert"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
 	"github.com/vutran1710/dating-dev/internal/gitrepo"
 )
 
+const (
+	logoMaxBytes = 1 << 20 // 1MB
+	logoSize     = 100     // resize to 100x100 before conversion
+)
+
 var logoExtensions = []string{".png", ".jpg", ".jpeg", ".gif", ".bmp"}
 
-// PoolLogoFromRepo finds a logo image in the registry clone, converts it to
-// ASCII, caches the result as logo.txt, and returns the ASCII string.
-// Falls back to the default heart logo if no image is found.
+// PoolLogoFromRepo finds a logo image in the registry clone, resizes it to
+// 100x100, converts to ASCII, caches the result as logo.txt, and returns
+// the ASCII string. Falls back to the default heart logo if no image found
+// or image exceeds 1MB.
 func PoolLogoFromRepo(registryRepo *gitrepo.Repo, poolName string) string {
 	if registryRepo == nil {
 		return PoolLogo()
@@ -42,9 +54,15 @@ func PoolLogoFromRepo(registryRepo *gitrepo.Repo, poolName string) string {
 		return PoolLogo()
 	}
 
-	// Convert image to ASCII
-	ascii := convertImageToASCII(imagePath)
-	if ascii == "" {
+	// Check file size (max 1MB)
+	info, err := os.Stat(imagePath)
+	if err != nil || info.Size() > logoMaxBytes {
+		return PoolLogo()
+	}
+
+	// Resize to 100x100 and convert to ASCII
+	ascii, err := processLogo(imagePath)
+	if err != nil {
 		return PoolLogo()
 	}
 
@@ -54,13 +72,49 @@ func PoolLogoFromRepo(registryRepo *gitrepo.Repo, poolName string) string {
 	return theme.BrandStyle.Render(ascii)
 }
 
-func convertImageToASCII(imagePath string) string {
+// processLogo loads an image, resizes to 100x100, saves the resized version,
+// and converts to ASCII art.
+func processLogo(imagePath string) (string, error) {
+	f, err := os.Open(imagePath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	img, format, err := image.Decode(f)
+	if err != nil {
+		return "", fmt.Errorf("decoding image: %w", err)
+	}
+
+	// Resize to 100x100
+	resized := resize.Resize(logoSize, logoSize, img, resize.Lanczos3)
+
+	// Overwrite the original with the resized version
+	resizedPath := imagePath
+	out, err := os.Create(resizedPath)
+	if err != nil {
+		return "", err
+	}
+	defer out.Close()
+
+	switch format {
+	case "png":
+		png.Encode(out, resized)
+	case "jpeg":
+		jpeg.Encode(out, resized, &jpeg.Options{Quality: 90})
+	case "gif":
+		gif.Encode(out, resized, nil)
+	default:
+		png.Encode(out, resized)
+	}
+
+	// Convert resized image to ASCII
 	converter := convert.NewImageConverter()
 	opts := convert.DefaultOptions
-	opts.FixedWidth = 15
-	opts.FixedHeight = 9
+	opts.FixedWidth = 20
+	opts.FixedHeight = 10
 	opts.Colored = false
 
-	result := converter.ImageFile2ASCIIString(imagePath, &opts)
-	return strings.TrimRight(result, "\n ")
+	result := converter.Image2ASCIIString(resized, &opts)
+	return strings.TrimRight(result, "\n "), nil
 }
