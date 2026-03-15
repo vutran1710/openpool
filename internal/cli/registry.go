@@ -89,8 +89,8 @@ func runRegistryAdd(input string) error {
 		return nil
 	}
 
-	regRepo, err := withSpinner("Cloning "+repoURL, func() (*gitrepo.Repo, error) {
-		return gitrepo.Clone(repoURL)
+	regRepo, err := withSpinner("Validating & cloning "+repoURL, func() (*gitrepo.Repo, error) {
+		return gitrepo.CloneRegistry(repoURL)
 	})
 	if err != nil {
 		return nil

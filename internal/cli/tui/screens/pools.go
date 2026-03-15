@@ -32,6 +32,12 @@ type poolsFetchedMsg struct {
 	err   error
 }
 
+// PoolJoinMsg is emitted when the user presses enter on a pool.
+type PoolJoinMsg struct {
+	Name   string
+	Joined bool
+}
+
 type PoolsScreen struct {
 	registry    string
 	joinedPools map[string]bool
@@ -62,7 +68,7 @@ func NewPoolsScreen(registry string, joinedPools []string) PoolsScreen {
 }
 
 func (s PoolsScreen) fetchPools() tea.Msg {
-	regRepo, err := gitrepo.Clone(gitrepo.EnsureGitURL(s.registry))
+	regRepo, err := gitrepo.CloneRegistry(gitrepo.EnsureGitURL(s.registry))
 	if err != nil {
 		return poolsFetchedMsg{err: err}
 	}
@@ -116,6 +122,13 @@ func (s PoolsScreen) Update(msg tea.Msg) (PoolsScreen, tea.Cmd) {
 		case "shift+tab", "left", "h":
 			if s.focus == focusDetail {
 				s.focus = focusList
+			}
+		case "enter":
+			if s.cursor < len(s.pools) {
+				p := s.pools[s.cursor]
+				return s, func() tea.Msg {
+					return PoolJoinMsg{Name: p.entry.Name, Joined: p.joined}
+				}
 			}
 		case "up", "k":
 			if s.focus == focusList && s.cursor > 0 {

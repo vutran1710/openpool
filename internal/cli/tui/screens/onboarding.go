@@ -486,15 +486,12 @@ func (s OnboardingScreen) generateKeys() tea.Msg {
 }
 
 func (s OnboardingScreen) cloneRegistry() tea.Msg {
-	input := s.registryURL
+	repoURL := gitrepo.EnsureGitURL(s.registryURL)
 
-	// Normalize: owner/repo → https://github.com/owner/repo.git
-	repoURL := gitrepo.EnsureGitURL(input)
-
-	// Validate by cloning
-	_, err := gitrepo.Clone(repoURL)
+	// Validated clone: checks for registry.json before full checkout
+	_, err := gitrepo.CloneRegistry(repoURL)
 	if err != nil {
-		return registryCloneResult{err: fmt.Errorf("cannot access registry: %s", repoURL)}
+		return registryCloneResult{err: err}
 	}
 
 	return registryCloneResult{repoURL: repoURL}

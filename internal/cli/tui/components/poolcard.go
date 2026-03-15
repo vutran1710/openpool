@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	figure "github.com/common-nighthawk/go-figure"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
 )
 
@@ -85,16 +84,7 @@ func RenderPoolCard(p PoolCardData, width int, focused bool) string {
 }
 
 func renderCardHeader(p PoolCardData) string {
-	// Pool name in ASCII art
-	fig := figure.NewFigure(p.Name, "small", true)
-	title := theme.BrandStyle.Render(fig.String())
-
-	statusBadge := theme.DimStyle.Render("→ join")
-	if p.Joined {
-		statusBadge = theme.GreenStyle.Render("✓ joined")
-	}
-
-	return title + statusBadge
+	return theme.BoldStyle.Render(p.Name)
 }
 
 func renderCardInfo(p PoolCardData) string {

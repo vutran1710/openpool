@@ -111,8 +111,8 @@ func processLogo(imagePath string) (string, error) {
 	// Convert resized image to ASCII
 	converter := convert.NewImageConverter()
 	opts := convert.DefaultOptions
-	opts.FixedWidth = 20
-	opts.FixedHeight = 10
+	opts.FixedWidth = 10
+	opts.FixedHeight = 5
 	opts.Colored = false
 
 	result := converter.Image2ASCIIString(resized, &opts)

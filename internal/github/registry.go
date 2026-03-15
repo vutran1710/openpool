@@ -47,9 +47,9 @@ func NewLocalRegistry(repo *gitrepo.Repo) *Registry {
 	return &Registry{repo: repo}
 }
 
-// CloneRegistry clones the registry repo and returns a read-only Registry.
+// CloneRegistry clones the registry repo (with validation) and returns a read-only Registry.
 func CloneRegistry(repoURL string) (*Registry, error) {
-	repo, err := gitrepo.Clone(gitrepo.EnsureGitURL(repoURL))
+	repo, err := gitrepo.CloneRegistry(gitrepo.EnsureGitURL(repoURL))
 	if err != nil {
 		return nil, fmt.Errorf("cloning registry: %w", err)
 	}

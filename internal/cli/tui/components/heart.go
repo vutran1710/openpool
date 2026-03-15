@@ -8,18 +8,14 @@ import (
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
 )
 
-// Square heart logo — 11 chars wide, 7 lines tall.
-// Terminal chars are ~2:1 aspect ratio, so 11w x 7h ≈ square visually.
+// Compact heart logo — 7 chars wide, 4 lines tall.
 const heartArt = "" +
-	"  ##   ##  \n" +
-	" #  # #  # \n" +
-	" #   #   # \n" +
-	"  #     #  \n" +
-	"   #   #   \n" +
-	"    # #    \n" +
-	"     #     "
+	" ## ## \n" +
+	" #   # \n" +
+	"  # #  \n" +
+	"   #   "
 
-// PoolLogo renders the heart inside a square bordered box.
+// PoolLogo renders the heart inside a small bordered box.
 func PoolLogo() string {
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).

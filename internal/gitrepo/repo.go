@@ -47,6 +47,46 @@ func Clone(repoURL string) (*Repo, error) {
 	return &Repo{URL: repoURL, LocalDir: localDir}, nil
 }
 
+// CloneRegistry clones a repo after verifying it's a valid registry.
+// Does a no-checkout clone first, checks for registry.json, then checks out.
+// Aborts and cleans up if the repo isn't a valid registry.
+func CloneRegistry(repoURL string) (*Repo, error) {
+	localDir := filepath.Join(CloneDir(), dirName(repoURL))
+
+	if isCloned(localDir) {
+		cmd := exec.Command("git", "-C", localDir, "pull", "--ff-only", "-q")
+		cmd.Run()
+		return &Repo{URL: repoURL, LocalDir: localDir}, nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(localDir), 0755); err != nil {
+		return nil, fmt.Errorf("creating repos dir: %w", err)
+	}
+
+	// Step 1: shallow clone without checking out files
+	cmd := exec.Command("git", "clone", "--depth=1", "--no-checkout", "-q", repoURL, localDir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("cloning %s: %s", repoURL, strings.TrimSpace(string(out)))
+	}
+
+	// Step 2: verify registry.json exists in the repo
+	cmd = exec.Command("git", "-C", localDir, "show", "HEAD:registry.json")
+	if _, err := cmd.Output(); err != nil {
+		// Not a valid registry — clean up
+		os.RemoveAll(localDir)
+		return nil, fmt.Errorf("not a valid registry: missing registry.json")
+	}
+
+	// Step 3: checkout files
+	cmd = exec.Command("git", "-C", localDir, "checkout", "-q", "HEAD")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		os.RemoveAll(localDir)
+		return nil, fmt.Errorf("checkout failed: %s", strings.TrimSpace(string(out)))
+	}
+
+	return &Repo{URL: repoURL, LocalDir: localDir}, nil
+}
+
 // ReadFile reads a file from the local clone.
 func (r *Repo) ReadFile(path string) ([]byte, error) {
 	fullPath := filepath.Join(r.LocalDir, path)

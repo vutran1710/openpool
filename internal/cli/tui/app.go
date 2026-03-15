@@ -126,7 +126,11 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case screens.OnboardingDoneMsg:
 		a.user = msg.Username
+		a.registry = msg.Registry
 		a.statusBar.User = msg.Username
+		a.pools = screens.NewPoolsScreen(msg.Registry, nil)
+		a.pools.Width = a.width
+		a.pools.Height = a.height
 		a.screen = screenHome
 		a.updateHelp()
 		return a, func() tea.Msg {
