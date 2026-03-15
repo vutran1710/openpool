@@ -72,8 +72,8 @@ func CloneRegistry(repoURL string) (*Repo, error) {
 		return nil, fmt.Errorf("cannot access %s: %s", repoURL, strings.TrimSpace(string(out)))
 	}
 
-	// Step 2: sparse-checkout registry.json and pools/ only
-	cmd = exec.Command("git", "-C", localDir, "sparse-checkout", "set", "registry.json", "pools")
+	// Step 2: sparse-checkout registry.json and pools/ only (--no-cone for file+dir mix)
+	cmd = exec.Command("git", "-C", localDir, "sparse-checkout", "set", "--no-cone", "/registry.json", "pools/")
 	cmd.Run()
 
 	// Step 3: validate registry.json exists and has required fields
