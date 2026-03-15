@@ -6,14 +6,31 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
+
+	"github.com/vutran1710/dating-dev/internal/gitrepo"
 )
 
 type Pool struct {
-	client *Client
+	client *Client       // for writes (issues, PRs)
+	repo   *gitrepo.Repo // for reads (local clone)
 }
 
-func NewPool(repo, token string) *Pool {
-	return &Pool{client: NewClient(repo, token)}
+func NewPool(repoURL, token string) *Pool {
+	return &Pool{client: NewClient(repoURL, token)}
+}
+
+// NewLocalPool creates a pool from a local git clone (read-only).
+func NewLocalPool(repo *gitrepo.Repo) *Pool {
+	return &Pool{repo: repo}
+}
+
+// ClonePool clones the pool repo and returns a Pool with local read access.
+func ClonePool(repoURL string) (*Pool, error) {
+	repo, err := gitrepo.Clone(gitrepo.EnsureGitURL(repoURL))
+	if err != nil {
+		return nil, fmt.Errorf("cloning pool: %w", err)
+	}
+	return &Pool{repo: repo}, nil
 }
 
 func (p *Pool) Client() *Client {
@@ -73,7 +90,38 @@ func (p *Pool) DiscoverRandom(excludeHash string) (string, error) {
 	return candidates[rand.Intn(len(candidates))], nil
 }
 
+type PoolStats struct {
+	Members       int
+	Matches       int
+	Relationships int
+}
+
+// Stats returns pool statistics from the local clone.
+func (p *Pool) Stats() PoolStats {
+	var stats PoolStats
+	if p.repo == nil {
+		return stats
+	}
+	if users, err := p.repo.ListDir("users"); err == nil {
+		for _, u := range users {
+			if strings.HasSuffix(u, ".bin") {
+				stats.Members++
+			}
+		}
+	}
+	if dirs, err := p.repo.ListDir("matches"); err == nil {
+		stats.Matches = len(dirs)
+	}
+	if dirs, err := p.repo.ListDir("relationships"); err == nil {
+		stats.Relationships = len(dirs)
+	}
+	return stats
+}
+
 func (p *Pool) IsUserRegistered(userHash string) bool {
+	if p.repo != nil {
+		return p.repo.FileExists("users/" + userHash + ".bin")
+	}
 	return p.client.FileExists("users/" + userHash + ".bin")
 }
 

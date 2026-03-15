@@ -7,34 +7,51 @@ import (
 	"fmt"
 
 	"github.com/vutran1710/dating-dev/internal/crypto"
+	"github.com/vutran1710/dating-dev/internal/gitrepo"
 )
 
 const PoolStatusPending = "pending"
 const PoolStatusActive = "active"
 
 type Registry struct {
-	client *Client
+	client *Client       // for writes (PRs)
+	repo   *gitrepo.Repo // for reads (local clone)
 }
 
 type PoolEntry struct {
-	Name           string `json:"name"`
-	Repo           string `json:"repo"`
-	Description    string `json:"description"`
-	OperatorPubKey string `json:"operator_public_key"`
-	RelayURL       string `json:"relay_url,omitempty"`
-	CreatedAt      string `json:"created_at"`
+	Name           string   `json:"name"`
+	Repo           string   `json:"repo"`
+	Description    string   `json:"description"`
+	OperatorPubKey string   `json:"operator_public_key"`
+	RelayURL       string   `json:"relay_url,omitempty"`
+	CreatedAt      string   `json:"created_at"`
+	Tags           []string `json:"tags,omitempty"`
+	Operator       string   `json:"operator,omitempty"`
 }
 
 type PoolTokens struct {
 	GHToken string `json:"gh_token"`
 }
 
-func NewRegistry(repo, token string) *Registry {
-	return &Registry{client: NewClient(repo, token)}
+// NewRegistry creates a registry with write access (for creating PRs).
+func NewRegistry(repoURL, token string) *Registry {
+	return &Registry{
+		client: NewClient(repoURL, token),
+	}
 }
 
-func NewPublicRegistry(repo string) *Registry {
-	return &Registry{client: NewClient(repo, "")}
+// NewLocalRegistry creates a registry from a local git clone (read-only).
+func NewLocalRegistry(repo *gitrepo.Repo) *Registry {
+	return &Registry{repo: repo}
+}
+
+// CloneRegistry clones the registry repo and returns a read-only Registry.
+func CloneRegistry(repoURL string) (*Registry, error) {
+	repo, err := gitrepo.Clone(gitrepo.EnsureGitURL(repoURL))
+	if err != nil {
+		return nil, fmt.Errorf("cloning registry: %w", err)
+	}
+	return &Registry{repo: repo}, nil
 }
 
 func (r *Registry) Client() *Client {
@@ -42,7 +59,11 @@ func (r *Registry) Client() *Client {
 }
 
 func (r *Registry) ListPools() ([]PoolEntry, error) {
-	names, err := r.client.ListDir("pools")
+	if r.repo == nil {
+		return nil, fmt.Errorf("no local clone available")
+	}
+
+	names, err := r.repo.ListDir("pools")
 	if err != nil {
 		return nil, fmt.Errorf("listing pools: %w", err)
 	}
@@ -59,7 +80,11 @@ func (r *Registry) ListPools() ([]PoolEntry, error) {
 }
 
 func (r *Registry) GetPoolEntry(name string) (*PoolEntry, error) {
-	data, err := r.client.GetFile("pools/" + name + "/pool.json")
+	if r.repo == nil {
+		return nil, fmt.Errorf("no local clone available")
+	}
+
+	data, err := r.repo.ReadFile("pools/" + name + "/pool.json")
 	if err != nil {
 		return nil, fmt.Errorf("reading pool entry: %w", err)
 	}
@@ -72,7 +97,11 @@ func (r *Registry) GetPoolEntry(name string) (*PoolEntry, error) {
 }
 
 func (r *Registry) GetPoolTokens(name string, operatorPrivKey ed25519.PrivateKey) (*PoolTokens, error) {
-	data, err := r.client.GetFile("pools/" + name + "/tokens.bin")
+	if r.repo == nil {
+		return nil, fmt.Errorf("no local clone available")
+	}
+
+	data, err := r.repo.ReadFile("pools/" + name + "/tokens.bin")
 	if err != nil {
 		return nil, fmt.Errorf("reading pool tokens: %w", err)
 	}
@@ -85,6 +114,10 @@ func (r *Registry) GetPoolTokens(name string, operatorPrivKey ed25519.PrivateKey
 }
 
 func (r *Registry) RegisterPool(entry PoolEntry, tokens PoolTokens, templateBody string) (int, error) {
+	if r.client == nil {
+		return 0, fmt.Errorf("no write client available")
+	}
+
 	entryJSON, _ := json.MarshalIndent(entry, "", "  ")
 	tokensBin, err := SerializeTokens(tokens, entry.OperatorPubKey)
 	if err != nil {
@@ -110,11 +143,16 @@ func (r *Registry) RegisterPool(entry PoolEntry, tokens PoolTokens, templateBody
 }
 
 func (r *Registry) IsPoolRegistered(name string) bool {
-	return r.client.FileExists(fmt.Sprintf("pools/%s/pool.json", name))
+	if r.repo != nil {
+		return r.repo.FileExists(fmt.Sprintf("pools/%s/pool.json", name))
+	}
+	if r.client != nil {
+		return r.client.FileExists(fmt.Sprintf("pools/%s/pool.json", name))
+	}
+	return false
 }
 
 // SerializeTokens encrypts the pool tokens to the operator's public key.
-// Only the operator (relay server) can decrypt them.
 func SerializeTokens(tokens PoolTokens, operatorPubKeyHex string) ([]byte, error) {
 	pubBytes, err := hex.DecodeString(operatorPubKeyHex)
 	if err != nil {

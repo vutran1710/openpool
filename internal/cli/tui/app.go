@@ -34,22 +34,24 @@ type app struct {
 	chat     screens.ChatScreen
 	pools    screens.PoolsScreen
 
-	user string
-	pool string
+	user     string
+	pool     string
+	registry string
 }
 
-func newApp(user, pool string) app {
+func newApp(user, pool, registry string, joinedPools []string) app {
 	a := app{
 		screen:    screenHome,
 		user:      user,
 		pool:      pool,
+		registry:  registry,
 		statusBar: components.NewStatusBar(),
 		input:     components.NewInput("Type / for commands..."),
 		toast:     components.NewToast(),
 		home:      screens.NewHomeScreen(),
 		discover:  screens.NewDiscoverScreen(),
 		matches:   screens.NewMatchesScreen(),
-		pools:     screens.NewPoolsScreen(),
+		pools:     screens.NewPoolsScreen(registry, joinedPools),
 	}
 	a.statusBar.User = user
 	a.statusBar.Pool = pool

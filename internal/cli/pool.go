@@ -28,7 +28,7 @@ func parseCSV(s string) []string {
 	return result
 }
 
-// requireRegistry returns the active registry, prompting the user if none is configured.
+// requireRegistry returns the active registry, prompting the user to add one if none configured.
 func requireRegistry(cfg *config.Config) (string, error) {
 	if cfg != nil && cfg.ActiveRegistry != "" {
 		return cfg.ActiveRegistry, nil
@@ -44,25 +44,21 @@ func requireRegistry(cfg *config.Config) (string, error) {
 		return "", fmt.Errorf("no registry provided")
 	}
 
-	repoURL, err := parseRegistryInput(input)
+	if err := runRegistryAdd(input); err != nil {
+		return "", err
+	}
+
+	// Reload config after registration
+	newCfg, err := config.Load()
 	if err != nil {
 		return "", err
 	}
+	*cfg = *newCfg
 
-	fmt.Printf("  Validating %s ...\n", repoURL)
-	if err := validateRegistry(repoURL); err != nil {
-		return "", err
+	if cfg.ActiveRegistry == "" {
+		return "", fmt.Errorf("registry setup incomplete")
 	}
-
-	cfg.AddRegistry(repoURL)
-	cfg.ActiveRegistry = repoURL
-	if err := cfg.Save(); err != nil {
-		return "", fmt.Errorf("saving config: %w", err)
-	}
-
-	printSuccess("Registry added: " + repoURL)
-	fmt.Println()
-	return repoURL, nil
+	return cfg.ActiveRegistry, nil
 }
 
 func newPoolCmd() *cobra.Command {
@@ -173,7 +169,10 @@ func newPoolBrowseCmd() *cobra.Command {
 				printError(err.Error())
 				return nil
 			}
-			reg := gh.NewPublicRegistry(registryRepo)
+			reg, err := gh.CloneRegistry(registryRepo)
+			if err != nil {
+				return fmt.Errorf("loading registry: %w", err)
+			}
 			pools, err := reg.ListPools()
 			if err != nil {
 				return fmt.Errorf("browsing pools: %w", err)
@@ -225,7 +224,10 @@ func newPoolJoinCmd() *cobra.Command {
 			printHeader()
 			fmt.Printf("  Joining pool: %s\n\n", bold.Render(name))
 
-			reg := gh.NewPublicRegistry(registryRepo)
+			reg, err := gh.CloneRegistry(registryRepo)
+			if err != nil {
+				return fmt.Errorf("loading registry: %w", err)
+			}
 			if !reg.IsPoolRegistered(name) {
 				printError("Pool not found or not yet approved: " + name)
 				return nil

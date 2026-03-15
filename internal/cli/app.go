@@ -16,15 +16,30 @@ func NewRootCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if isInteractive() {
 				cfg, _ := config.Load()
+				if cfg == nil {
+					cfg = &config.Config{}
+				}
+
+				// Ensure registry is configured before launching TUI
+				registry, err := requireRegistry(cfg)
+				if err != nil {
+					printError(err.Error())
+					return nil
+				}
+
 				user := ""
 				pool := ""
-				if cfg != nil && cfg.IsRegistered() {
+				var joinedPools []string
+				if cfg.IsRegistered() {
 					user = cfg.User.PublicID
 				}
-				if cfg != nil && cfg.ActivePool() != nil {
+				if cfg.ActivePool() != nil {
 					pool = cfg.ActivePool().Name
 				}
-				tui.RunOrFallback(user, pool)
+				for _, p := range cfg.Pools {
+					joinedPools = append(joinedPools, p.Name)
+				}
+				tui.RunOrFallback(user, pool, registry, joinedPools)
 				return nil
 			}
 			printHeader()
@@ -45,6 +60,7 @@ func NewRootCmd() *cobra.Command {
 		newChatCmd(),
 		newCommitCmd(),
 		newProfileCmd(),
+		newResetCmd(),
 	)
 
 	return root

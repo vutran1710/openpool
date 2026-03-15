@@ -12,9 +12,9 @@ func inputInit() tea.Cmd {
 	return textinput.Blink
 }
 
-func Run(user, pool string) error {
+func Run(user, pool, registry string, joinedPools []string) error {
 	p := tea.NewProgram(
-		newApp(user, pool),
+		newApp(user, pool, registry, joinedPools),
 		tea.WithAltScreen(),
 	)
 
@@ -25,8 +25,8 @@ func Run(user, pool string) error {
 	return nil
 }
 
-func RunOrFallback(user, pool string) {
-	if err := Run(user, pool); err != nil {
+func RunOrFallback(user, pool, registry string, joinedPools []string) {
+	if err := Run(user, pool, registry, joinedPools); err != nil {
 		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
 		os.Exit(1)
 	}
