@@ -1,35 +1,33 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/pelletier/go-toml/v2"
 )
 
 type Config struct {
-	User           UserConfig   `toml:"user"`
-	Pools          []PoolConfig `toml:"pools"`
-	Active         string       `toml:"active_pool"`
-	Registries     []string     `toml:"registries,omitempty"`
-	ActiveRegistry string       `toml:"active_registry,omitempty"`
+	User           UserConfig   `json:"user"`
+	Pools          []PoolConfig `json:"pools"`
+	Active         string       `json:"active_pool"`
+	Registries     []string     `json:"registries,omitempty"`
+	ActiveRegistry string       `json:"active_registry,omitempty"`
 }
 
 type UserConfig struct {
-	PublicID       string `toml:"public_id"`
-	DisplayName    string `toml:"display_name"`
-	Provider       string `toml:"provider"`
-	ProviderUserID string `toml:"provider_user_id"`
+	PublicID       string `json:"public_id"`
+	DisplayName    string `json:"display_name"`
+	Provider       string `json:"provider"`
+	ProviderUserID string `json:"provider_user_id"`
 }
 
 type PoolConfig struct {
-	Name             string `toml:"name"`
-	Repo             string `toml:"repo"`
-	OperatorPubKey   string `toml:"operator_public_key"`
-	RelayURL         string `toml:"relay_url,omitempty"`
-	URL              string `toml:"url,omitempty"`
-	Status           string `toml:"status,omitempty"`
+	Name           string `json:"name"`
+	Repo           string `json:"repo"`
+	OperatorPubKey string `json:"operator_public_key"`
+	RelayURL       string `json:"relay_url,omitempty"`
+	Status         string `json:"status,omitempty"`
 }
 
 func Dir() string {
@@ -42,7 +40,7 @@ func KeysDir() string {
 }
 
 func Path() string {
-	return filepath.Join(Dir(), "config.toml")
+	return filepath.Join(Dir(), "setting.json")
 }
 
 func Load() (*Config, error) {
@@ -55,7 +53,7 @@ func Load() (*Config, error) {
 	}
 
 	var cfg Config
-	if err := toml.Unmarshal(data, &cfg); err != nil {
+	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 	return &cfg, nil
@@ -66,10 +64,11 @@ func (c *Config) Save() error {
 		return fmt.Errorf("creating config dir: %w", err)
 	}
 
-	data, err := toml.Marshal(c)
+	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
+	data = append(data, '\n')
 	return os.WriteFile(Path(), data, 0600)
 }
 

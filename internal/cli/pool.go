@@ -28,17 +28,28 @@ func parseCSV(s string) []string {
 	return result
 }
 
-const defaultRegistry = "vutran1710/dating-test-registry"
-
-// resolveRegistry returns the registry to use: flag override > config active > default.
-func resolveRegistry(flagValue string, cfg *config.Config) string {
-	if flagValue != "" {
-		return flagValue
-	}
+// requireRegistry returns the active registry, prompting the user if none is configured.
+func requireRegistry(cfg *config.Config) (string, error) {
 	if cfg != nil && cfg.ActiveRegistry != "" {
-		return cfg.ActiveRegistry
+		return cfg.ActiveRegistry, nil
 	}
-	return defaultRegistry
+
+	fmt.Println("  No registry configured.")
+	reader := bufio.NewReader(os.Stdin)
+	repo := prompt(reader, "  Enter registry repo (e.g. owner/registry): ")
+	if repo == "" {
+		return "", fmt.Errorf("no registry provided")
+	}
+
+	cfg.AddRegistry(repo)
+	cfg.ActiveRegistry = repo
+	if err := cfg.Save(); err != nil {
+		return "", fmt.Errorf("saving config: %w", err)
+	}
+
+	printSuccess("Registry added: " + repo)
+	fmt.Println()
+	return repo, nil
 }
 
 func newPoolCmd() *cobra.Command {
@@ -64,7 +75,6 @@ func newPoolCreateCmd() *cobra.Command {
 		ghToken     string
 		description string
 		relayURL    string
-		registry    string
 		regToken    string
 	)
 
@@ -92,7 +102,11 @@ func newPoolCreateCmd() *cobra.Command {
 			operatorPubHex := hex.EncodeToString(pub)
 
 			cfg, _ := config.Load()
-			registryRepo := resolveRegistry(registry, cfg)
+			registryRepo, err := requireRegistry(cfg)
+			if err != nil {
+				printError(err.Error())
+				return nil
+			}
 			reg := gh.NewRegistry(registryRepo, regToken)
 
 			templateBody, err := fillPRTemplate(reg.Client(), "register-pool")
@@ -131,20 +145,21 @@ func newPoolCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&ghToken, "gh-token", "", "Fine-grained PAT for the pool repo")
 	cmd.Flags().StringVar(&description, "desc", "", "Pool description")
 	cmd.Flags().StringVar(&relayURL, "relay-url", "", "WebSocket relay server URL")
-	cmd.Flags().StringVar(&registry, "registry", "", "Registry repo (overrides active registry)")
 	cmd.Flags().StringVar(&regToken, "registry-token", "", "PAT for the registry repo")
 	return cmd
 }
 
 func newPoolBrowseCmd() *cobra.Command {
-	var registry string
-
 	cmd := &cobra.Command{
 		Use:   "browse",
-		Short: "Browse available pools from a registry",
+		Short: "Browse available pools from the active registry",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, _ := config.Load()
-			registryRepo := resolveRegistry(registry, cfg)
+			registryRepo, err := requireRegistry(cfg)
+			if err != nil {
+				printError(err.Error())
+				return nil
+			}
 			reg := gh.NewPublicRegistry(registryRepo)
 			pools, err := reg.ListPools()
 			if err != nil {
@@ -173,13 +188,10 @@ func newPoolBrowseCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&registry, "registry", "", "Registry repo (overrides active registry)")
 	return cmd
 }
 
 func newPoolJoinCmd() *cobra.Command {
-	var registry string
-
 	cmd := &cobra.Command{
 		Use:   "join <name>",
 		Short: "Join a pool: authenticate, create profile, submit registration",
@@ -190,11 +202,16 @@ func newPoolJoinCmd() *cobra.Command {
 				return err
 			}
 
+			registryRepo, err := requireRegistry(cfg)
+			if err != nil {
+				printError(err.Error())
+				return nil
+			}
+
 			name := args[0]
 			printHeader()
 			fmt.Printf("  Joining pool: %s\n\n", bold.Render(name))
 
-			registryRepo := resolveRegistry(registry, cfg)
 			reg := gh.NewPublicRegistry(registryRepo)
 			if !reg.IsPoolRegistered(name) {
 				printError("Pool not found or not yet approved: " + name)
@@ -325,7 +342,6 @@ func newPoolJoinCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&registry, "registry", "", "Registry repo (overrides active registry)")
 	return cmd
 }
 
