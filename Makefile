@@ -9,7 +9,7 @@ relay:
 	go build -o bin/relay ./cmd/relay
 
 seedpool:
-	go run ./cmd/seedpool -out ../dating-test-pool
+	go run ./cmd/seedpool -out ../dating-test-pool -registry-out ../dating-test-registry/pools/test-pool
 
 test:
 	go test ./...

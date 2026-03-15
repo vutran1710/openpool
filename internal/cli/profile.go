@@ -72,7 +72,11 @@ func newProfileEditCmd() *cobra.Command {
 			}
 
 			plaintext, _ := json.Marshal(profileData)
-			bin, err := crypto.PackUserBin(pub, plaintext)
+			operatorPubBytes, err := hex.DecodeString(pool.OperatorPubKey)
+			if err != nil {
+				return fmt.Errorf("decoding operator public key: %w", err)
+			}
+			bin, err := crypto.PackUserBin(pub, operatorPubBytes, plaintext)
 			if err != nil {
 				return fmt.Errorf("packing profile: %w", err)
 			}

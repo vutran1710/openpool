@@ -28,7 +28,7 @@ func parseCSV(s string) []string {
 	return result
 }
 
-const defaultRegistry = "vutran1710/dating-pool-registry"
+const defaultRegistry = "vutran1710/dating-test-registry"
 
 func newPoolCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -49,14 +49,12 @@ func newPoolCmd() *cobra.Command {
 
 func newPoolCreateCmd() *cobra.Command {
 	var (
-		repo           string
-		ghToken        string
-		description    string
-		relayURL       string
-		githubClientID string
-		googleClientID string
-		registry       string
-		regToken       string
+		repo        string
+		ghToken     string
+		description string
+		relayURL    string
+		registry    string
+		regToken    string
 	)
 
 	cmd := &cobra.Command{
@@ -94,8 +92,6 @@ func newPoolCreateCmd() *cobra.Command {
 				Repo:           repo,
 				Description:    description,
 				OperatorPubKey: operatorPubHex,
-				GitHubClientID: githubClientID,
-				GoogleClientID: googleClientID,
 				RelayURL:       relayURL,
 				CreatedAt:      time.Now().UTC().Format(time.RFC3339),
 			}
@@ -122,8 +118,6 @@ func newPoolCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&ghToken, "gh-token", "", "Fine-grained PAT for the pool repo")
 	cmd.Flags().StringVar(&description, "desc", "", "Pool description")
 	cmd.Flags().StringVar(&relayURL, "relay-url", "", "WebSocket relay server URL")
-	cmd.Flags().StringVar(&githubClientID, "github-client-id", "", "GitHub OAuth app client ID")
-	cmd.Flags().StringVar(&googleClientID, "google-client-id", "", "Google OAuth client ID")
 	cmd.Flags().StringVar(&registry, "registry", defaultRegistry, "Registry repo")
 	cmd.Flags().StringVar(&regToken, "registry-token", "", "PAT for the registry repo")
 	return cmd
@@ -197,46 +191,21 @@ func newPoolJoinCmd() *cobra.Command {
 				return nil
 			}
 
-			tokens, err := reg.GetPoolTokens(name)
-			if err != nil {
-				return fmt.Errorf("fetching pool tokens: %w", err)
-			}
-
-			fmt.Println("  Step 1/4: Authenticate")
+			fmt.Println("  Step 1/4: Authenticate with GitHub")
 			reader := bufio.NewReader(os.Stdin)
 
-			hasGitHub := entry.GitHubClientID != ""
-			hasGoogle := entry.GoogleClientID != ""
-			if !hasGitHub && !hasGoogle {
-				printError("This pool has no OAuth configured")
-				return nil
-			}
-
-			var provider, clientID string
-			if hasGitHub && hasGoogle {
-				fmt.Println("  1. GitHub")
-				fmt.Println("  2. Google")
-				choice := prompt(reader, "  Choose (1/2): ")
-				switch choice {
-				case "1", "github":
-					provider, clientID = "github", entry.GitHubClientID
-				case "2", "google":
-					provider, clientID = "google", entry.GoogleClientID
-				default:
-					printError("Invalid choice")
-					return nil
-				}
-			} else if hasGitHub {
-				provider, clientID = "github", entry.GitHubClientID
-			} else {
-				provider, clientID = "google", entry.GoogleClientID
-			}
-
-			oauthResult, err := doOAuth(provider, clientID)
+			ghToken, err := resolveGitHubToken(func(label string) string {
+				return prompt(reader, label)
+			})
 			if err != nil {
 				return fmt.Errorf("authentication failed: %w", err)
 			}
-			printSuccess(fmt.Sprintf("Authenticated as %s", oauthResult.DisplayName))
+
+			identity, err := fetchGitHubIdentity(ghToken)
+			if err != nil {
+				return fmt.Errorf("fetching GitHub identity: %w", err)
+			}
+			printSuccess(fmt.Sprintf("Authenticated as %s (@%s)", identity.DisplayName, identity.Username))
 
 			fmt.Println("\n  Step 2/4: Generate keys")
 			needKeys := !cfg.IsRegistered()
@@ -257,7 +226,7 @@ func newPoolJoinCmd() *cobra.Command {
 			}
 
 			fmt.Println("\n  Step 3/4: Create profile")
-			displayName := oauthResult.DisplayName
+			displayName := identity.DisplayName
 			bio := prompt(reader, "  Bio: ")
 			city := prompt(reader, "  City: ")
 			interests := prompt(reader, "  Interests (comma-separated): ")
@@ -287,12 +256,12 @@ func newPoolJoinCmd() *cobra.Command {
 			}
 
 			fmt.Println("\n  Step 4/4: Submit registration")
-			userHash := crypto.UserHash(entry.Repo, oauthResult.Provider, oauthResult.ProviderUserID)
+			userHash := crypto.UserHash(entry.Repo, "github", identity.UserID)
 
 			identityProof, err := crypto.EncryptIdentityProof(
 				entry.OperatorPubKey,
-				oauthResult.Provider,
-				oauthResult.ProviderUserID,
+				"github",
+				identity.UserID,
 			)
 			if err != nil {
 				return fmt.Errorf("encrypting identity proof: %w", err)
@@ -304,8 +273,8 @@ func newPoolJoinCmd() *cobra.Command {
 			})
 			signature := crypto.Sign(priv, payload)
 
-			// Submit registration via GitHub issue (Action will commit the .bin file)
-			poolGH := gh.NewPool(entry.Repo, tokens.GHToken)
+			// Submit registration via GitHub issue using the user's GitHub token
+			poolGH := gh.NewPool(entry.Repo, identity.Token)
 			pubKeyHex := hex.EncodeToString(pub)
 			issueNumber, err := poolGH.RegisterUserViaIssue(userHash, bin, pubKeyHex, signature, identityProof)
 			if err != nil {
@@ -315,7 +284,6 @@ func newPoolJoinCmd() *cobra.Command {
 			pool := config.PoolConfig{
 				Name:           entry.Name,
 				Repo:           entry.Repo,
-				Token:          tokens.GHToken,
 				OperatorPubKey: entry.OperatorPubKey,
 				RelayURL:       entry.RelayURL,
 				Status:         gh.PoolStatusPending,
@@ -323,8 +291,8 @@ func newPoolJoinCmd() *cobra.Command {
 
 			cfg.User.PublicID = userHash[:12]
 			cfg.User.DisplayName = displayName
-			cfg.User.Provider = oauthResult.Provider
-			cfg.User.ProviderUserID = oauthResult.ProviderUserID
+			cfg.User.Provider = "github"
+			cfg.User.ProviderUserID = identity.UserID
 			cfg.AddPool(pool)
 			if cfg.Active == "" {
 				cfg.Active = pool.Name
@@ -389,7 +357,7 @@ func newPoolListCmd() *cobra.Command {
 			fmt.Println()
 			for i, p := range cfg.Pools {
 				if p.Status == gh.PoolStatusPending {
-					pool := gh.NewPool(p.Repo, p.Token)
+					pool := gh.NewPool(p.Repo, "")
 					if pool.IsUserRegistered(cfg.User.PublicID) {
 						cfg.Pools[i].Status = gh.PoolStatusActive
 						updated = true

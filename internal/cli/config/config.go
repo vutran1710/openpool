@@ -24,7 +24,6 @@ type UserConfig struct {
 type PoolConfig struct {
 	Name             string `toml:"name"`
 	Repo             string `toml:"repo"`
-	Token            string `toml:"token"`
 	OperatorPubKey   string `toml:"operator_public_key"`
 	RelayURL         string `toml:"relay_url,omitempty"`
 	URL              string `toml:"url,omitempty"`

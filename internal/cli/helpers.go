@@ -25,7 +25,7 @@ func requirePool(cfg *config.Config) (*config.PoolConfig, error) {
 }
 
 func poolClient(pool *config.PoolConfig) *github.Pool {
-	return github.NewPool(pool.Repo, pool.Token)
+	return github.NewPool(pool.Repo, "")
 }
 
 func prompt(reader *bufio.Reader, label string) string {

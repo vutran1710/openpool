@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 
 	"github.com/vutran1710/dating-dev/internal/crypto"
+	gh "github.com/vutran1710/dating-dev/internal/github"
 )
 
 type PoolManifest struct {
@@ -80,6 +81,7 @@ var testUsers = []struct {
 
 func main() {
 	outDir := flag.String("out", ".", "output directory (the pool repo root)")
+	registryOut := flag.String("registry-out", "", "registry pool directory (writes pool.json + encrypted tokens.bin)")
 	poolRepo := flag.String("repo", "vutran1710/dating-test-pool", "pool repo identifier for user hash computation")
 	flag.Parse()
 
@@ -187,6 +189,32 @@ func main() {
 	seedJSON, _ := json.MarshalIndent(seedManifest, "", "  ")
 	seedJSON = append(seedJSON, '\n')
 	writeFile(filepath.Join(*outDir, "seed.json"), seedJSON, 0600)
+
+	// Optionally write registry entry
+	if *registryOut != "" {
+		os.MkdirAll(*registryOut, 0755)
+
+		regEntry := gh.PoolEntry{
+			Name:           "test-pool",
+			Repo:           *poolRepo,
+			Description:    "A test dating pool for development and testing",
+			OperatorPubKey: hex.EncodeToString(operatorPub),
+			RelayURL:       "ws://localhost:8081",
+			CreatedAt:      "2026-03-15T00:00:00Z",
+		}
+		regJSON, _ := json.MarshalIndent(regEntry, "", "  ")
+		regJSON = append(regJSON, '\n')
+		writeFile(filepath.Join(*registryOut, "pool.json"), regJSON, 0644)
+
+		tokens := gh.PoolTokens{GHToken: "test_token_placeholder"}
+		tokensBin, err := gh.SerializeTokens(tokens, hex.EncodeToString(operatorPub))
+		if err != nil {
+			fatal("encrypting tokens: %v", err)
+		}
+		writeFile(filepath.Join(*registryOut, "tokens.bin"), tokensBin, 0644)
+
+		fmt.Printf("registry entry written to %s\n", *registryOut)
+	}
 
 	fmt.Printf("\nDone. %d test users seeded into %s\n", len(testUsers), *outDir)
 	fmt.Println("seed.json written (all keys + user mapping)")
