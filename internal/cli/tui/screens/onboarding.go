@@ -13,6 +13,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
@@ -23,7 +24,6 @@ import (
 	"github.com/vutran1710/dating-dev/internal/gitrepo"
 )
 
-// onboardingHTTPClient is used for GitHub API calls during onboarding.
 var onboardingHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 type onboardingStep int
@@ -42,7 +42,6 @@ const (
 	stepError
 )
 
-// OnboardingDoneMsg is sent when onboarding completes successfully.
 type OnboardingDoneMsg struct {
 	DisplayName string
 	Username    string
@@ -55,41 +54,55 @@ type ghCheckResult struct {
 	token string
 	err   error
 }
-
 type tokenValidResult struct {
-	userID      string
-	username    string
-	displayName string
-	err         error
+	userID, username, displayName string
+	err                          error
 }
-
 type keysResult struct {
 	pub ed25519.PublicKey
 	err error
 }
-
 type registryCloneResult struct {
 	repoURL string
 	err     error
 }
-
 type poolsFetchResult struct {
 	pools []gh.PoolEntry
 	err   error
 }
-
 type saveResult struct {
 	err error
+}
+
+// timeline step states
+type stepState int
+
+const (
+	statePending stepState = iota
+	stateActive
+	stateDone
+	stateFailed
+)
+
+type timelineStep struct {
+	label string
+	state stepState
+	info  string // result text shown after completion
 }
 
 type OnboardingScreen struct {
 	step     onboardingStep
 	spinner  spinner.Model
 	input    textinput.Model
+	viewport viewport.Model
 	Width    int
 	Height   int
 	errMsg   string
-	errRetry onboardingStep // which step to retry on error
+	errRetry onboardingStep
+
+	// timeline
+	timeline []timelineStep
+	log      []string // accumulated log lines
 
 	// collected data
 	token       string
@@ -115,10 +128,32 @@ func NewOnboardingScreen() OnboardingScreen {
 	ti.EchoCharacter = '•'
 	ti.CharLimit = 256
 
+	vp := viewport.New(80, 20)
+
 	return OnboardingScreen{
-		step:    stepWelcome,
-		spinner: sp,
-		input:   ti,
+		step:     stepWelcome,
+		spinner:  sp,
+		input:    ti,
+		viewport: vp,
+		timeline: []timelineStep{
+			{label: "GitHub Authentication", state: statePending},
+			{label: "Generate Keys", state: statePending},
+			{label: "Registry Setup", state: statePending},
+			{label: "Save Configuration", state: statePending},
+		},
+	}
+}
+
+func (s *OnboardingScreen) addLog(line string) {
+	s.log = append(s.log, line)
+}
+
+func (s *OnboardingScreen) setTimelineState(idx int, state stepState, info string) {
+	if idx < len(s.timeline) {
+		s.timeline[idx].state = state
+		if info != "" {
+			s.timeline[idx].info = info
+		}
 	}
 }
 
@@ -129,6 +164,8 @@ func (s OnboardingScreen) Update(msg tea.Msg) (OnboardingScreen, tea.Cmd) {
 		case stepWelcome:
 			if msg.String() == "enter" {
 				s.step = stepCheckGH
+				s.setTimelineState(0, stateActive, "")
+				s.addLog(theme.DimStyle.Render("Checking for GitHub CLI..."))
 				return s, tea.Batch(s.checkGH, s.spinner.Tick)
 			}
 
@@ -138,6 +175,7 @@ func (s OnboardingScreen) Update(msg tea.Msg) (OnboardingScreen, tea.Cmd) {
 				if val != "" {
 					s.token = val
 					s.step = stepValidating
+					s.addLog(theme.DimStyle.Render("Validating token..."))
 					return s, tea.Batch(s.validateToken, s.spinner.Tick)
 				}
 			}
@@ -151,6 +189,7 @@ func (s OnboardingScreen) Update(msg tea.Msg) (OnboardingScreen, tea.Cmd) {
 				if val != "" {
 					s.registryURL = val
 					s.step = stepCloningRegistry
+					s.addLog(theme.DimStyle.Render("Cloning registry..."))
 					return s, tea.Batch(s.cloneRegistry, s.spinner.Tick)
 				}
 			}
@@ -197,8 +236,11 @@ func (s OnboardingScreen) Update(msg tea.Msg) (OnboardingScreen, tea.Cmd) {
 		if msg.err == nil && msg.token != "" {
 			s.token = msg.token
 			s.step = stepValidating
+			s.addLog(theme.GreenStyle.Render("✓ ") + theme.TextStyle.Render("GitHub CLI token detected"))
+			s.addLog(theme.DimStyle.Render("  Validating token..."))
 			return s, tea.Batch(s.validateToken, s.spinner.Tick)
 		}
+		s.addLog(theme.DimStyle.Render("  GitHub CLI not found — manual token needed"))
 		s.step = stepAskToken
 		s.input.Focus()
 		s.input.EchoMode = textinput.EchoPassword
@@ -210,12 +252,19 @@ func (s OnboardingScreen) Update(msg tea.Msg) (OnboardingScreen, tea.Cmd) {
 			s.step = stepError
 			s.errRetry = stepAskToken
 			s.errMsg = msg.err.Error()
+			s.setTimelineState(0, stateFailed, msg.err.Error())
+			s.addLog(theme.RedStyle.Render("✗ ") + theme.RedStyle.Render(msg.err.Error()))
 			return s, nil
 		}
 		s.userID = msg.userID
 		s.username = msg.username
 		s.displayName = msg.displayName
+		s.setTimelineState(0, stateDone, fmt.Sprintf("%s (@%s)", s.displayName, s.username))
+		s.addLog(theme.GreenStyle.Render("✓ ") + theme.TextStyle.Render(fmt.Sprintf("Authenticated as %s (@%s)", s.displayName, s.username)))
+
 		s.step = stepGenerateKeys
+		s.setTimelineState(1, stateActive, "")
+		s.addLog(theme.DimStyle.Render("  Generating keypair..."))
 		return s, tea.Batch(s.generateKeys, s.spinner.Tick)
 
 	case keysResult:
@@ -223,11 +272,17 @@ func (s OnboardingScreen) Update(msg tea.Msg) (OnboardingScreen, tea.Cmd) {
 			s.step = stepError
 			s.errRetry = stepAskToken
 			s.errMsg = msg.err.Error()
+			s.setTimelineState(1, stateFailed, msg.err.Error())
+			s.addLog(theme.RedStyle.Render("✗ ") + theme.RedStyle.Render(msg.err.Error()))
 			return s, nil
 		}
 		s.pubKey = msg.pub
-		// Move to registry setup
+		keyID := hex.EncodeToString(s.pubKey[:8]) + "..."
+		s.setTimelineState(1, stateDone, keyID)
+		s.addLog(theme.GreenStyle.Render("✓ ") + theme.TextStyle.Render("Keypair ready: ") + theme.DimStyle.Render(keyID))
+
 		s.step = stepAskRegistry
+		s.setTimelineState(2, stateActive, "")
 		s.input.SetValue("")
 		s.input.EchoMode = textinput.EchoNormal
 		s.input.Placeholder = "owner/repo or git URL"
@@ -239,9 +294,13 @@ func (s OnboardingScreen) Update(msg tea.Msg) (OnboardingScreen, tea.Cmd) {
 			s.step = stepError
 			s.errRetry = stepAskRegistry
 			s.errMsg = msg.err.Error()
+			s.setTimelineState(2, stateFailed, msg.err.Error())
+			s.addLog(theme.RedStyle.Render("✗ ") + theme.RedStyle.Render(msg.err.Error()))
 			return s, nil
 		}
 		s.registryURL = msg.repoURL
+		s.addLog(theme.GreenStyle.Render("✓ ") + theme.TextStyle.Render("Registry cloned"))
+		s.addLog(theme.DimStyle.Render("  Discovering pools..."))
 		s.step = stepFetchingPools
 		return s, tea.Batch(s.fetchPools, s.spinner.Tick)
 
@@ -250,10 +309,23 @@ func (s OnboardingScreen) Update(msg tea.Msg) (OnboardingScreen, tea.Cmd) {
 			s.step = stepError
 			s.errRetry = stepAskRegistry
 			s.errMsg = msg.err.Error()
+			s.setTimelineState(2, stateFailed, msg.err.Error())
+			s.addLog(theme.RedStyle.Render("✗ ") + theme.RedStyle.Render(msg.err.Error()))
 			return s, nil
 		}
 		s.pools = msg.pools
+		s.setTimelineState(2, stateDone, fmt.Sprintf("%d pool(s) found", len(s.pools)))
+		if len(s.pools) > 0 {
+			for _, p := range s.pools {
+				s.addLog(theme.AccentStyle.Render("  ◈ ") + theme.TextStyle.Render(p.Name) + theme.DimStyle.Render("  "+p.Description))
+			}
+		} else {
+			s.addLog(theme.DimStyle.Render("  No pools found in this registry"))
+		}
+
 		s.step = stepSaving
+		s.setTimelineState(3, stateActive, "")
+		s.addLog(theme.DimStyle.Render("  Encrypting token & saving..."))
 		return s, tea.Batch(s.saveConfig, s.spinner.Tick)
 
 	case saveResult:
@@ -261,14 +333,22 @@ func (s OnboardingScreen) Update(msg tea.Msg) (OnboardingScreen, tea.Cmd) {
 			s.step = stepError
 			s.errRetry = stepAskRegistry
 			s.errMsg = msg.err.Error()
+			s.setTimelineState(3, stateFailed, msg.err.Error())
+			s.addLog(theme.RedStyle.Render("✗ ") + theme.RedStyle.Render(msg.err.Error()))
 			return s, nil
 		}
+		s.setTimelineState(3, stateDone, "saved")
+		s.addLog(theme.GreenStyle.Render("✓ ") + theme.TextStyle.Render("Configuration saved"))
+		s.addLog("")
+		s.addLog(theme.GreenStyle.Render("  Setup complete! ") + theme.DimStyle.Render("Press enter to continue"))
 		s.step = stepDone
 		return s, nil
 
 	case tea.WindowSizeMsg:
 		s.Width = msg.Width
 		s.Height = msg.Height
+		s.viewport.Width = msg.Width - 6
+		s.viewport.Height = msg.Height - 12 // leave room for header/footer
 	}
 
 	return s, nil
@@ -277,69 +357,109 @@ func (s OnboardingScreen) Update(msg tea.Msg) (OnboardingScreen, tea.Cmd) {
 func (s OnboardingScreen) View() string {
 	pad := lipgloss.NewStyle().Padding(1, 3)
 
-	// Step indicator
-	totalSteps := 4
-	currentStep := 0
-	stepLabel := ""
-	switch s.step {
-	case stepWelcome:
+	if s.step == stepWelcome {
 		return pad.Render(s.welcomeView())
-	case stepCheckGH, stepAskToken, stepValidating:
-		currentStep = 1
-		stepLabel = "GitHub Authentication"
-	case stepGenerateKeys:
-		currentStep = 2
-		stepLabel = "Generate Keys"
-	case stepAskRegistry, stepCloningRegistry, stepFetchingPools:
-		currentStep = 3
-		stepLabel = "Registry Setup"
-	case stepSaving:
-		currentStep = 4
-		stepLabel = "Saving"
-	case stepDone:
-		return pad.Render(s.doneView())
-	case stepError:
-		return pad.Render(s.errorView())
 	}
 
-	progress := theme.DimStyle.Render(fmt.Sprintf("Step %d/%d", currentStep, totalSteps)) +
-		"  " + theme.BoldStyle.Render(stepLabel) + "\n" +
-		renderProgressBar(currentStep, totalSteps, s.Width-8) + "\n\n"
+	// Timeline sidebar
+	timeline := s.renderTimeline()
 
-	var content string
+	// Log + active content
+	var logContent string
+	for _, line := range s.log {
+		logContent += "  " + line + "\n"
+	}
+
+	// Active input area (only for input steps)
+	activeContent := ""
 	switch s.step {
-	case stepCheckGH:
-		content = fmt.Sprintf("%s Checking for GitHub CLI...", s.spinner.View())
+	case stepCheckGH, stepValidating, stepGenerateKeys, stepCloningRegistry, stepFetchingPools, stepSaving:
+		activeContent = "\n  " + s.spinner.View() + " " + s.activeLabel()
 	case stepAskToken:
-		content = s.tokenInputView()
-	case stepValidating:
-		content = fmt.Sprintf("%s Validating token...\n\n", s.spinner.View()) +
-			theme.DimStyle.Render("  Fetching your GitHub identity")
-	case stepGenerateKeys:
-		content = fmt.Sprintf("%s Generating ed25519 keypair...", s.spinner.View())
+		activeContent = "\n" + s.tokenInputCompact()
 	case stepAskRegistry:
-		content = s.registryInputView()
-	case stepCloningRegistry:
-		content = fmt.Sprintf("%s Cloning registry...", s.spinner.View())
-	case stepFetchingPools:
-		content = fmt.Sprintf("%s Discovering pools...", s.spinner.View())
-	case stepSaving:
-		content = fmt.Sprintf("%s Encrypting token & saving configuration...", s.spinner.View())
+		activeContent = "\n" + s.registryInputCompact()
+	case stepError:
+		activeContent = "\n  " + theme.RedStyle.Render("✗ "+s.errMsg) + "\n  " + theme.DimStyle.Render("Press enter to retry")
 	}
 
-	return pad.Render(progress + content)
+	mainContent := logContent + activeContent
+
+	// Update viewport
+	s.viewport.SetContent(mainContent)
+	s.viewport.GotoBottom()
+
+	// Layout: timeline | viewport
+	left := lipgloss.NewStyle().Width(28).Render(timeline)
+	right := s.viewport.View()
+
+	return pad.Render(lipgloss.JoinHorizontal(lipgloss.Top, left, right))
 }
 
-func renderProgressBar(current, total, width int) string {
-	if width < 10 {
-		width = 40
-	}
-	filled := width * current / total
-	empty := width - filled
+func (s OnboardingScreen) renderTimeline() string {
+	out := theme.BoldStyle.Render("Setup") + "\n\n"
 
-	bar := theme.BrandStyle.Render(strings.Repeat("█", filled)) +
-		theme.DimStyle.Render(strings.Repeat("░", empty))
-	return bar
+	for i, step := range s.timeline {
+		icon := theme.DimStyle.Render("○")
+		labelStyle := theme.DimStyle
+		connector := theme.DimStyle.Render("│")
+
+		switch step.state {
+		case stateActive:
+			icon = s.spinner.View()
+			labelStyle = theme.TextStyle
+		case stateDone:
+			icon = theme.GreenStyle.Render("✓")
+			labelStyle = theme.TextStyle
+		case stateFailed:
+			icon = theme.RedStyle.Render("✗")
+			labelStyle = theme.RedStyle
+		}
+
+		out += fmt.Sprintf("  %s %s\n", icon, labelStyle.Render(step.label))
+		if step.info != "" {
+			out += fmt.Sprintf("  %s %s\n", connector, theme.DimStyle.Render(step.info))
+		}
+		if i < len(s.timeline)-1 {
+			out += fmt.Sprintf("  %s\n", connector)
+		}
+	}
+
+	return out
+}
+
+func (s OnboardingScreen) activeLabel() string {
+	switch s.step {
+	case stepCheckGH:
+		return "Checking GitHub CLI..."
+	case stepValidating:
+		return "Validating token..."
+	case stepGenerateKeys:
+		return "Generating keypair..."
+	case stepCloningRegistry:
+		return "Cloning registry..."
+	case stepFetchingPools:
+		return "Discovering pools..."
+	case stepSaving:
+		return "Saving configuration..."
+	}
+	return ""
+}
+
+func (s OnboardingScreen) tokenInputCompact() string {
+	out := "  " + theme.BoldStyle.Render("Enter GitHub token") + "\n"
+	out += "  " + theme.DimStyle.Render("Create at: ") + theme.AccentStyle.Render("https://github.com/settings/tokens/new") + "\n"
+	out += "  " + theme.DimStyle.Render("Scopes: ") + theme.GreenStyle.Render("repo") + theme.DimStyle.Render(", ") + theme.GreenStyle.Render("read:user") + "\n\n"
+	out += "  " + s.input.View() + "\n"
+	return out
+}
+
+func (s OnboardingScreen) registryInputCompact() string {
+	out := "  " + theme.BoldStyle.Render("Enter pool registry") + "\n"
+	out += "  " + theme.DimStyle.Render("Discover at: ") + theme.AccentStyle.Render("https://dating.dev/pools") + "\n"
+	out += "  " + theme.DimStyle.Render("Example: ") + theme.TextStyle.Render("owner/registry") + theme.DimStyle.Render(" or full git URL") + "\n\n"
+	out += "  " + s.input.View() + "\n"
+	return out
 }
 
 func (s OnboardingScreen) welcomeView() string {
@@ -351,82 +471,6 @@ func (s OnboardingScreen) welcomeView() string {
 	body += theme.DimStyle.Render("Your token will be encrypted and stored locally.") + "\n"
 	body += theme.DimStyle.Render("Your private key never leaves your machine.") + "\n\n"
 	hint := theme.DimStyle.Render("Press enter to begin")
-	return title + body + hint
-}
-
-func (s OnboardingScreen) tokenInputView() string {
-	title := theme.BoldStyle.Render("GitHub Personal Access Token") + "\n\n"
-
-	guide := theme.TextStyle.Render("Create a token at:") + "\n"
-	guide += theme.AccentStyle.Render("  https://github.com/settings/tokens/new") + "\n\n"
-	guide += theme.DimStyle.Render("Required scopes:") + "\n"
-	guide += theme.TextStyle.Render("  - ") + theme.GreenStyle.Render("repo") + theme.DimStyle.Render("       — create issues for registration") + "\n"
-	guide += theme.TextStyle.Render("  - ") + theme.GreenStyle.Render("read:user") + theme.DimStyle.Render("  — verify your identity") + "\n\n"
-	guide += theme.DimStyle.Render("Or run: ") + theme.TextStyle.Render("gh auth login") +
-		theme.DimStyle.Render("  (we'll detect it automatically next time)") + "\n\n"
-
-	input := s.input.View() + "\n\n"
-	hint := theme.DimStyle.Render("Paste your token and press enter")
-
-	return title + guide + input + hint
-}
-
-func (s OnboardingScreen) registryInputView() string {
-	title := theme.GreenStyle.Render("✓") + " " +
-		theme.BoldStyle.Render(fmt.Sprintf("Authenticated as %s (@%s)", s.displayName, s.username)) + "\n\n"
-
-	title += theme.BoldStyle.Render("Pool Registry") + "\n\n"
-
-	guide := theme.TextStyle.Render("A registry is a directory of dating pools.") + "\n"
-	guide += theme.TextStyle.Render("Enter a registry to discover and join pools.") + "\n\n"
-	guide += theme.DimStyle.Render("Discover registries at: ") +
-		theme.AccentStyle.Render("https://dating.dev/pools") + "\n\n"
-	guide += theme.DimStyle.Render("Examples:") + "\n"
-	guide += theme.TextStyle.Render("  vutran1710/dating-test-registry") +
-		theme.DimStyle.Render("         — GitHub shorthand") + "\n"
-	guide += theme.TextStyle.Render("  https://github.com/owner/registry") +
-		theme.DimStyle.Render("    — full URL") + "\n"
-	guide += theme.TextStyle.Render("  git@gitlab.com:owner/registry.git") +
-		theme.DimStyle.Render("    — any git host") + "\n\n"
-
-	input := s.input.View() + "\n\n"
-	hint := theme.DimStyle.Render("Enter registry and press enter")
-
-	return title + guide + input + hint
-}
-
-func (s OnboardingScreen) doneView() string {
-	title := theme.GreenStyle.Render("✓") + " " + theme.BoldStyle.Render("Setup complete") + "\n\n"
-
-	info := ""
-	info += theme.DimStyle.Render("  Name       ") + theme.TextStyle.Render(s.displayName) + "\n"
-	info += theme.DimStyle.Render("  GitHub     ") + theme.AccentStyle.Render("@"+s.username) + "\n"
-	if s.pubKey != nil && len(s.pubKey) >= 8 {
-		info += theme.DimStyle.Render("  Key        ") + theme.DimStyle.Render(hex.EncodeToString(s.pubKey[:8])+"...") + "\n"
-	}
-	info += theme.DimStyle.Render("  Token      ") + theme.GreenStyle.Render("encrypted & saved") + "\n"
-	info += theme.DimStyle.Render("  Registry   ") + theme.TextStyle.Render(s.registryURL) + "\n"
-
-	if len(s.pools) > 0 {
-		info += "\n" + theme.DimStyle.Render("  Pools found:") + "\n"
-		for _, p := range s.pools {
-			info += theme.TextStyle.Render("    - ") + theme.AccentStyle.Render(p.Name)
-			if p.Description != "" {
-				info += theme.DimStyle.Render("  " + p.Description)
-			}
-			info += "\n"
-		}
-	}
-
-	info += "\n"
-	hint := theme.DimStyle.Render("Press enter to continue")
-	return title + info + hint
-}
-
-func (s OnboardingScreen) errorView() string {
-	title := theme.RedStyle.Render("✗") + " " + theme.BoldStyle.Render("Error") + "\n\n"
-	body := theme.RedStyle.Render("  "+s.errMsg) + "\n\n"
-	hint := theme.DimStyle.Render("Press enter to try again")
 	return title + body + hint
 }
 
@@ -496,13 +540,10 @@ func (s OnboardingScreen) generateKeys() tea.Msg {
 
 func (s OnboardingScreen) cloneRegistry() tea.Msg {
 	repoURL := gitrepo.EnsureGitURL(s.registryURL)
-
-	// Validated clone: checks for registry.json before full checkout
 	_, err := gitrepo.CloneRegistry(repoURL)
 	if err != nil {
 		return registryCloneResult{err: err}
 	}
-
 	return registryCloneResult{repoURL: repoURL}
 }
 
@@ -524,7 +565,6 @@ func (s OnboardingScreen) saveConfig() tea.Msg {
 		return saveResult{err: err}
 	}
 
-	// Encrypt token with user's public key
 	pub, _, err := crypto.LoadKeyPair(config.KeysDir())
 	if err != nil {
 		return saveResult{err: fmt.Errorf("loading keys: %w", err)}
