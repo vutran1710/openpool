@@ -1,4 +1,4 @@
-.PHONY: build cli relay test clean lint
+.PHONY: build cli relay seedpool test clean lint
 
 build: cli relay
 
@@ -7,6 +7,9 @@ cli:
 
 relay:
 	go build -o bin/relay ./cmd/relay
+
+seedpool:
+	go run ./cmd/seedpool -out ../dating-test-pool
 
 test:
 	go test ./...
