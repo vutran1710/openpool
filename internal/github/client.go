@@ -1,12 +1,16 @@
 package github
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
+
+const defaultHTTPTimeout = 30 * time.Second
 
 type Client struct {
 	token      string
@@ -18,7 +22,7 @@ func NewClient(repo, token string) *Client {
 	return &Client{
 		token:      token,
 		repo:       NormalizeRepo(repo),
-		httpClient: &http.Client{},
+		httpClient: &http.Client{Timeout: defaultHTTPTimeout},
 	}
 }
 
@@ -50,10 +54,10 @@ func (c *Client) apiURL(path string) string {
 	return fmt.Sprintf("https://api.github.com/repos/%s%s", c.repo, path)
 }
 
-func (c *Client) do(method, url string, body io.Reader) (*http.Response, error) {
-	req, err := http.NewRequest(method, url, body)
+func (c *Client) do(ctx context.Context, method, url string, body io.Reader) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("creating request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Accept", "application/vnd.github+json")
@@ -63,8 +67,8 @@ func (c *Client) do(method, url string, body io.Reader) (*http.Response, error) 
 	return c.httpClient.Do(req)
 }
 
-func (c *Client) GetFile(path string) ([]byte, error) {
-	resp, err := c.do("GET", c.apiURL("/contents/"+path), nil)
+func (c *Client) GetFile(ctx context.Context, path string) ([]byte, error) {
+	resp, err := c.do(ctx, "GET", c.apiURL("/contents/"+path), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -92,8 +96,8 @@ func (c *Client) GetFile(path string) ([]byte, error) {
 	return decodeBase64(file.Content)
 }
 
-func (c *Client) ListDir(path string) ([]string, error) {
-	resp, err := c.do("GET", c.apiURL("/contents/"+path), nil)
+func (c *Client) ListDir(ctx context.Context, path string) ([]string, error) {
+	resp, err := c.do(ctx, "GET", c.apiURL("/contents/"+path), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -118,14 +122,17 @@ func (c *Client) ListDir(path string) ([]string, error) {
 	return names, nil
 }
 
-func (c *Client) TriggerWorkflow(workflowFile string, inputs map[string]string) error {
+func (c *Client) TriggerWorkflow(ctx context.Context, workflowFile string, inputs map[string]string) error {
 	payload := map[string]any{
 		"ref":    "main",
 		"inputs": inputs,
 	}
-	body, _ := json.Marshal(payload)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshaling payload: %w", err)
+	}
 
-	resp, err := c.do("POST",
+	resp, err := c.do(ctx, "POST",
 		c.apiURL("/actions/workflows/"+workflowFile+"/dispatches"),
 		strings.NewReader(string(body)),
 	)
@@ -141,7 +148,7 @@ func (c *Client) TriggerWorkflow(workflowFile string, inputs map[string]string) 
 	return nil
 }
 
-func (c *Client) CreateIssue(title, body string, labels []string) (int, error) {
+func (c *Client) CreateIssue(ctx context.Context, title, body string, labels []string) (int, error) {
 	payload := map[string]any{
 		"title": title,
 		"body":  body,
@@ -149,9 +156,12 @@ func (c *Client) CreateIssue(title, body string, labels []string) (int, error) {
 	if len(labels) > 0 {
 		payload["labels"] = labels
 	}
-	data, _ := json.Marshal(payload)
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return 0, fmt.Errorf("marshaling payload: %w", err)
+	}
 
-	resp, err := c.do("POST", c.apiURL("/issues"), strings.NewReader(string(data)))
+	resp, err := c.do(ctx, "POST", c.apiURL("/issues"), strings.NewReader(string(data)))
 	if err != nil {
 		return 0, fmt.Errorf("creating issue: %w", err)
 	}
@@ -171,9 +181,9 @@ func (c *Client) CreateIssue(title, body string, labels []string) (int, error) {
 	return result.Number, nil
 }
 
-func (c *Client) ListPullRequests(state string) ([]PullRequest, error) {
+func (c *Client) ListPullRequests(ctx context.Context, state string) ([]PullRequest, error) {
 	url := c.apiURL("/pulls?state=" + state + "&per_page=100")
-	resp, err := c.do("GET", url, nil)
+	resp, err := c.do(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -9,8 +10,8 @@ import (
 	gh "github.com/vutran1710/dating-dev/internal/github"
 )
 
-func fillPRTemplate(client *gh.Client, templateName string) (string, error) {
-	tmpl, err := client.GetPRTemplate(templateName)
+func fillPRTemplate(ctx context.Context, client *gh.Client, templateName string) (string, error) {
+	tmpl, err := client.GetPRTemplate(ctx, templateName)
 	if err != nil || tmpl == nil {
 		return "", nil
 	}

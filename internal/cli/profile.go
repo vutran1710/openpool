@@ -27,6 +27,8 @@ func newProfileEditCmd() *cobra.Command {
 		Use:   "edit",
 		Short: "Edit and publish your profile to the active pool",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -71,7 +73,10 @@ func newProfileEditCmd() *cobra.Command {
 				"status":       "open",
 			}
 
-			plaintext, _ := json.Marshal(profileData)
+			plaintext, err := json.Marshal(profileData)
+			if err != nil {
+				return fmt.Errorf("marshaling profile: %w", err)
+			}
 			operatorPubBytes, err := hex.DecodeString(pool.OperatorPubKey)
 			if err != nil {
 				return fmt.Errorf("decoding operator public key: %w", err)
@@ -92,25 +97,30 @@ func newProfileEditCmd() *cobra.Command {
 				return fmt.Errorf("encrypting identity proof: %w", err)
 			}
 
-			payload, _ := json.Marshal(map[string]string{
+			payload, err := json.Marshal(map[string]string{
 				"action":    "register",
 				"user_hash": userHash,
 			})
+			if err != nil {
+				return fmt.Errorf("marshaling payload: %w", err)
+			}
 			signature := crypto.Sign(priv, payload)
 
 			client := poolClient(pool)
-			templateBody, err := fillPRTemplate(client.Client(), "join")
+			templateBody, err := fillPRTemplate(ctx, client.Client(), "join")
 			if err != nil {
 				return err
 			}
 
-			prNumber, err := client.RegisterUser(userHash, bin, signature, identityProof, templateBody)
+			prNumber, err := client.RegisterUser(ctx, userHash, bin, signature, identityProof, templateBody)
 			if err != nil {
 				return fmt.Errorf("publishing profile: %w", err)
 			}
 
 			cfg.User.PublicID = userHash[:12]
-			cfg.Save()
+			if err := cfg.Save(); err != nil {
+				return fmt.Errorf("saving config: %w", err)
+			}
 
 			printSuccess(fmt.Sprintf("Profile PR #%d created — pending pool operator approval", prNumber))
 			return nil
@@ -123,6 +133,8 @@ func newProfileShowCmd() *cobra.Command {
 		Use:   "show",
 		Short: "Show your current profile (decrypted locally)",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -140,7 +152,7 @@ func newProfileShowCmd() *cobra.Command {
 
 			userHash := crypto.UserHash(pool.Repo, cfg.User.Provider, cfg.User.ProviderUserID)
 			client := poolClient(pool)
-			bin, err := client.GetUserBlob(userHash)
+			bin, err := client.GetUserBlob(ctx, userHash)
 			if err != nil {
 				printDim("  No profile found in this pool. Run: dating profile edit")
 				return nil
@@ -152,7 +164,9 @@ func newProfileShowCmd() *cobra.Command {
 			}
 
 			var profile map[string]any
-			json.Unmarshal(plaintext, &profile)
+			if err := json.Unmarshal(plaintext, &profile); err != nil {
+				return fmt.Errorf("parsing profile: %w", err)
+			}
 
 			fmt.Println()
 			for k, v := range profile {

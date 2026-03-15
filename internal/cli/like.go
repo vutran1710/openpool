@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
@@ -15,6 +16,8 @@ func newLikeCmd() *cobra.Command {
 		Short: "Express interest in someone",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -30,15 +33,18 @@ func newLikeCmd() *cobra.Command {
 				return fmt.Errorf("loading keys: %w", err)
 			}
 
-			payload, _ := json.Marshal(map[string]string{
+			payload, err := json.Marshal(map[string]string{
 				"action":   "like",
 				"liker_id": cfg.User.PublicID,
 				"liked_id": args[0],
 			})
+			if err != nil {
+				return fmt.Errorf("marshaling payload: %w", err)
+			}
 			signature := crypto.Sign(priv, payload)
 
 			client := poolClient(pool)
-			prNumber, err := client.CreateLikePR(cfg.User.PublicID, args[0], signature)
+			prNumber, err := client.CreateLikePR(ctx, cfg.User.PublicID, args[0], signature)
 			if err != nil {
 				return fmt.Errorf("sending like: %w", err)
 			}
@@ -54,6 +60,8 @@ func newInboxCmd() *cobra.Command {
 		Use:   "inbox",
 		Short: "View incoming interests",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -65,7 +73,7 @@ func newInboxCmd() *cobra.Command {
 			}
 
 			client := poolClient(pool)
-			prs, err := client.ListIncomingLikes(cfg.User.PublicID)
+			prs, err := client.ListIncomingLikes(ctx, cfg.User.PublicID)
 			if err != nil {
 				return fmt.Errorf("fetching inbox: %w", err)
 			}
@@ -98,6 +106,8 @@ func newAcceptCmd() *cobra.Command {
 		Short: "Accept an incoming interest",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -108,11 +118,13 @@ func newAcceptCmd() *cobra.Command {
 				return nil
 			}
 
-			var prNumber int
-			fmt.Sscanf(args[0], "%d", &prNumber)
+			prNumber, err := strconv.Atoi(args[0])
+			if err != nil {
+				return fmt.Errorf("invalid PR number %q: %w", args[0], err)
+			}
 
 			client := poolClient(pool)
-			if err := client.AcceptLike(prNumber); err != nil {
+			if err := client.AcceptLike(ctx, prNumber); err != nil {
 				return fmt.Errorf("accepting: %w", err)
 			}
 

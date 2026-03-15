@@ -1,6 +1,7 @@
 package github
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -37,8 +38,8 @@ func (p *Pool) Client() *Client {
 	return p.client
 }
 
-func (p *Pool) GetManifest() (*PoolManifest, error) {
-	data, err := p.client.GetFile("pool.json")
+func (p *Pool) GetManifest(ctx context.Context) (*PoolManifest, error) {
+	data, err := p.client.GetFile(ctx, "pool.json")
 	if err != nil {
 		return nil, fmt.Errorf("reading pool manifest: %w", err)
 	}
@@ -50,12 +51,12 @@ func (p *Pool) GetManifest() (*PoolManifest, error) {
 	return &manifest, nil
 }
 
-func (p *Pool) GetUserBlob(userHash string) ([]byte, error) {
-	return p.client.GetFile("users/" + userHash + ".bin")
+func (p *Pool) GetUserBlob(ctx context.Context, userHash string) ([]byte, error) {
+	return p.client.GetFile(ctx, "users/"+userHash+".bin")
 }
 
-func (p *Pool) ListUsers() ([]string, error) {
-	entries, err := p.client.ListDir("users")
+func (p *Pool) ListUsers(ctx context.Context) ([]string, error) {
+	entries, err := p.client.ListDir(ctx, "users")
 	if err != nil {
 		return nil, err
 	}
@@ -70,8 +71,8 @@ func (p *Pool) ListUsers() ([]string, error) {
 	return hashes, nil
 }
 
-func (p *Pool) DiscoverRandom(excludeHash string) (string, error) {
-	hashes, err := p.ListUsers()
+func (p *Pool) DiscoverRandom(ctx context.Context, excludeHash string) (string, error) {
+	hashes, err := p.ListUsers(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -118,14 +119,14 @@ func (p *Pool) Stats() PoolStats {
 	return stats
 }
 
-func (p *Pool) IsUserRegistered(userHash string) bool {
+func (p *Pool) IsUserRegistered(ctx context.Context, userHash string) bool {
 	if p.repo != nil {
 		return p.repo.FileExists("users/" + userHash + ".bin")
 	}
-	return p.client.FileExists("users/" + userHash + ".bin")
+	return p.client.FileExists(ctx, "users/"+userHash+".bin")
 }
 
-func (p *Pool) RegisterUser(userHash string, encryptedBlob []byte, signature, identityProof, templateBody string) (int, error) {
+func (p *Pool) RegisterUser(ctx context.Context, userHash string, encryptedBlob []byte, signature, identityProof, templateBody string) (int, error) {
 	body := fmt.Sprintf(
 		"New member `%s` wants to join.\n\nSignature: `%s`\n\n**Identity proof** (encrypted for operator):\n```\n%s\n```",
 		userHash[:12], signature, identityProof,
@@ -143,12 +144,12 @@ func (p *Pool) RegisterUser(userHash string, encryptedBlob []byte, signature, id
 		},
 	}
 
-	return p.client.CreatePullRequest(pr)
+	return p.client.CreatePullRequest(ctx, pr)
 }
 
 // RegisterUserViaIssue submits a registration request as a GitHub issue.
 // A GitHub Action will process the issue, commit the .bin file, and close it.
-func (p *Pool) RegisterUserViaIssue(userHash string, encryptedBlob []byte, pubKeyHex, signature, identityProof string) (int, error) {
+func (p *Pool) RegisterUserViaIssue(ctx context.Context, userHash string, encryptedBlob []byte, pubKeyHex, signature, identityProof string) (int, error) {
 	blobHex := hex.EncodeToString(encryptedBlob)
 
 	body := fmt.Sprintf(
@@ -161,17 +162,17 @@ func (p *Pool) RegisterUserViaIssue(userHash string, encryptedBlob []byte, pubKe
 		userHash, pubKeyHex, blobHex, signature, identityProof,
 	)
 
-	return p.client.CreateIssue("Registration Request", body, []string{"registration"})
+	return p.client.CreateIssue(ctx, "Registration Request", body, []string{"registration"})
 }
 
-func (p *Pool) CreateLikePR(likerHash, likedHash, signature string) (int, error) {
+func (p *Pool) CreateLikePR(ctx context.Context, likerHash, likedHash, signature string) (int, error) {
 	ph := pairHash(likerHash, likedHash)
 
-	likerBlob, err := p.GetUserBlob(likerHash)
+	likerBlob, err := p.GetUserBlob(ctx, likerHash)
 	if err != nil {
 		return 0, fmt.Errorf("fetching liker: %w", err)
 	}
-	likedBlob, err := p.GetUserBlob(likedHash)
+	likedBlob, err := p.GetUserBlob(ctx, likedHash)
 	if err != nil {
 		return 0, fmt.Errorf("fetching liked: %w", err)
 	}
@@ -187,26 +188,32 @@ func (p *Pool) CreateLikePR(likerHash, likedHash, signature string) (int, error)
 		},
 	}
 
-	return p.client.CreatePullRequest(pr)
+	return p.client.CreatePullRequest(ctx, pr)
 }
 
-func (p *Pool) ListIncomingLikes(userHash string) ([]PullRequest, error) {
-	return p.listPRsByLabel("like:" + userHash[:12])
+func (p *Pool) ListIncomingLikes(ctx context.Context, userHash string) ([]PullRequest, error) {
+	return p.listPRsByLabel(ctx, "like:"+userHash[:12])
 }
 
-func (p *Pool) AcceptLike(prNumber int) error {
-	return p.client.MergePullRequest(prNumber)
+func (p *Pool) AcceptLike(ctx context.Context, prNumber int) error {
+	return p.client.MergePullRequest(ctx, prNumber)
 }
 
-func (p *Pool) ListMatches() ([]string, error) {
-	return p.client.ListDir("matches")
+func (p *Pool) ListMatches(ctx context.Context) ([]string, error) {
+	return p.client.ListDir(ctx, "matches")
 }
 
-func (p *Pool) CreateProposePR(proposerHash, targetHash, signature string) (int, error) {
+func (p *Pool) CreateProposePR(ctx context.Context, proposerHash, targetHash, signature string) (int, error) {
 	ph := pairHash(proposerHash, targetHash)
 
-	proposerBlob, _ := p.GetUserBlob(proposerHash)
-	targetBlob, _ := p.GetUserBlob(targetHash)
+	proposerBlob, err := p.GetUserBlob(ctx, proposerHash)
+	if err != nil {
+		return 0, fmt.Errorf("fetching proposer: %w", err)
+	}
+	targetBlob, err := p.GetUserBlob(ctx, targetHash)
+	if err != nil {
+		return 0, fmt.Errorf("fetching target: %w", err)
+	}
 
 	pr := PRRequest{
 		Title:  fmt.Sprintf("Propose: %s -> %s", proposerHash[:8], targetHash[:8]),
@@ -219,23 +226,23 @@ func (p *Pool) CreateProposePR(proposerHash, targetHash, signature string) (int,
 		},
 	}
 
-	return p.client.CreatePullRequest(pr)
+	return p.client.CreatePullRequest(ctx, pr)
 }
 
-func (p *Pool) ListIncomingProposals(userHash string) ([]PullRequest, error) {
-	return p.listPRsByLabel("propose:" + userHash[:12])
+func (p *Pool) ListIncomingProposals(ctx context.Context, userHash string) ([]PullRequest, error) {
+	return p.listPRsByLabel(ctx, "propose:"+userHash[:12])
 }
 
-func (p *Pool) AcceptPropose(prNumber int) error {
-	return p.client.MergePullRequest(prNumber)
+func (p *Pool) AcceptPropose(ctx context.Context, prNumber int) error {
+	return p.client.MergePullRequest(ctx, prNumber)
 }
 
-func (p *Pool) ListRelationships() ([]string, error) {
-	return p.client.ListDir("relationships")
+func (p *Pool) ListRelationships(ctx context.Context) ([]string, error) {
+	return p.client.ListDir(ctx, "relationships")
 }
 
-func (p *Pool) listPRsByLabel(label string) ([]PullRequest, error) {
-	prs, err := p.client.ListPullRequests("open")
+func (p *Pool) listPRsByLabel(ctx context.Context, label string) ([]PullRequest, error) {
+	prs, err := p.client.ListPullRequests(ctx, "open")
 	if err != nil {
 		return nil, err
 	}
