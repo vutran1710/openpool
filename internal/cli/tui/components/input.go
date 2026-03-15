@@ -16,16 +16,19 @@ type SubmitMsg struct {
 }
 
 type commandEntry struct {
-	Cmd  string
-	Desc string
+	Cmd    string
+	Desc   string
+	Syntax string
 }
 
 var commands = []commandEntry{
-	{Cmd: "/home", Desc: "go to home screen"},
-	{Cmd: "/discover", Desc: "find new people"},
-	{Cmd: "/matches", Desc: "view your matches"},
-	{Cmd: "/pools", Desc: "browse & manage pools"},
-	{Cmd: "/quit", Desc: "exit the app"},
+	{Cmd: "/home", Desc: "go to home screen", Syntax: "/home"},
+	{Cmd: "/discover", Desc: "find new people nearby", Syntax: "/discover  ·  alias: /fetch"},
+	{Cmd: "/matches", Desc: "view your matches and chat", Syntax: "/matches"},
+	{Cmd: "/pools", Desc: "browse & manage dating pools", Syntax: "/pools"},
+	{Cmd: "/profile", Desc: "edit your dating profile", Syntax: "/profile edit | /profile show"},
+	{Cmd: "/inbox", Desc: "view incoming interests", Syntax: "/inbox"},
+	{Cmd: "/quit", Desc: "exit the app", Syntax: "/quit  ·  alias: /q"},
 }
 
 type Input struct {
@@ -147,7 +150,18 @@ func (i Input) PaletteView() string {
 		Padding(0, 1).
 		Width(40)
 
+	// Find max command width for alignment
+	maxCmd := 0
+	for _, c := range i.filtered {
+		if len(c.Cmd) > maxCmd {
+			maxCmd = len(c.Cmd)
+		}
+	}
+
+	cmdColStyle := lipgloss.NewStyle().Width(maxCmd + 1)
+
 	var items string
+	selectedSyntax := ""
 	for idx, c := range i.filtered {
 		cursor := "  "
 		cmdStyle := theme.DimStyle
@@ -156,13 +170,18 @@ func (i Input) PaletteView() string {
 			cursor = theme.Cursor()
 			cmdStyle = theme.ActiveItem
 			descStyle = theme.TextStyle
+			selectedSyntax = c.Syntax
 		}
-		items += fmt.Sprintf("%s%s  %s\n", cursor, cmdStyle.Render(c.Cmd), descStyle.Render(c.Desc))
+		items += fmt.Sprintf("%s%s %s\n", cursor, cmdStyle.Render(cmdColStyle.Render(c.Cmd)), descStyle.Render(c.Desc))
+	}
+
+	if selectedSyntax != "" {
+		items += "\n" + theme.DimStyle.Render("  "+selectedSyntax)
 	}
 
 	return lipgloss.NewStyle().
 		Padding(0, 2).
-		Render(paletteStyle.Render(strings.TrimRight(items, "\n")))
+		Render(paletteStyle.Render(items))
 }
 
 func (i *Input) Focus() {
