@@ -21,8 +21,9 @@ const (
 )
 
 type poolItem struct {
-	entry gh.PoolEntry
-	stats gh.PoolStats
+	entry  gh.PoolEntry
+	stats  gh.PoolStats
+	logo   string
 	joined bool
 }
 
@@ -61,10 +62,11 @@ func NewPoolsScreen(registry string, joinedPools []string) PoolsScreen {
 }
 
 func (s PoolsScreen) fetchPools() tea.Msg {
-	reg, err := gh.CloneRegistry(s.registry)
+	regRepo, err := gitrepo.Clone(gitrepo.EnsureGitURL(s.registry))
 	if err != nil {
 		return poolsFetchedMsg{err: err}
 	}
+	reg := gh.NewLocalRegistry(regRepo)
 	entries, err := reg.ListPools()
 	if err != nil {
 		return poolsFetchedMsg{err: err}
@@ -87,9 +89,13 @@ func (s PoolsScreen) fetchPools() tea.Msg {
 			stats = pool.Stats()
 		}
 
+		// Get logo (image → ASCII, cached as logo.txt)
+		logo := components.PoolLogoFromRepo(regRepo, e.Name)
+
 		pools = append(pools, poolItem{
 			entry:  e,
 			stats:  stats,
+			logo:   logo,
 			joined: s.joinedPools[e.Name],
 		})
 	}
@@ -245,6 +251,7 @@ func (s PoolsScreen) renderDetail(width int) string {
 		Matches:       p.stats.Matches,
 		Relationships: p.stats.Relationships,
 		Joined:        p.joined,
+		Logo:          p.logo,
 	}
 
 	return components.RenderPoolCard(cardData, width, s.focus == focusDetail)

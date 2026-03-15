@@ -25,6 +25,7 @@ type PoolCardData struct {
 	Matches       int
 	Relationships int
 	Joined        bool
+	Logo          string // pre-rendered ASCII logo
 }
 
 // RenderPoolCard renders a detailed pool info card.
@@ -41,10 +42,14 @@ func RenderPoolCard(p PoolCardData, width int, focused bool) string {
 		Padding(1, 2)
 
 	// Logo + header side by side
+	logo := p.Logo
+	if logo == "" {
+		logo = PoolLogo()
+	}
 	headerBlock := renderCardHeader(p)
 	headerSection := lipgloss.JoinHorizontal(
 		lipgloss.Top,
-		PoolLogo(),
+		logo,
 		"  ",
 		headerBlock,
 	)
