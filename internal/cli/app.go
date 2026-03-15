@@ -34,6 +34,7 @@ func NewRootCmd() *cobra.Command {
 
 	root.AddCommand(
 		newAuthCmd(),
+		newRegistryCmd(),
 		newPoolCmd(),
 		newFetchCmd(),
 		newViewCmd(),

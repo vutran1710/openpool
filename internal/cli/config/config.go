@@ -9,9 +9,11 @@ import (
 )
 
 type Config struct {
-	User   UserConfig   `toml:"user"`
-	Pools  []PoolConfig `toml:"pools"`
-	Active string       `toml:"active_pool"`
+	User           UserConfig   `toml:"user"`
+	Pools          []PoolConfig `toml:"pools"`
+	Active         string       `toml:"active_pool"`
+	Registries     []string     `toml:"registries,omitempty"`
+	ActiveRegistry string       `toml:"active_registry,omitempty"`
 }
 
 type UserConfig struct {
@@ -92,6 +94,28 @@ func (c *Config) AddPool(pool PoolConfig) {
 		}
 	}
 	c.Pools = append(c.Pools, pool)
+}
+
+func (c *Config) AddRegistry(repo string) {
+	for _, r := range c.Registries {
+		if r == repo {
+			return
+		}
+	}
+	c.Registries = append(c.Registries, repo)
+}
+
+func (c *Config) RemoveRegistry(repo string) bool {
+	for i, r := range c.Registries {
+		if r == repo {
+			c.Registries = append(c.Registries[:i], c.Registries[i+1:]...)
+			if c.ActiveRegistry == repo {
+				c.ActiveRegistry = ""
+			}
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Config) RemovePool(name string) bool {
