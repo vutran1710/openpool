@@ -27,6 +27,9 @@ type poolItem struct {
 	joined bool
 }
 
+// PoolsInitMsg triggers the initial pool fetch.
+type PoolsInitMsg struct{}
+
 type poolsFetchedMsg struct {
 	pools []poolItem
 	err   error
@@ -108,6 +111,10 @@ func (s PoolsScreen) fetchPools() tea.Msg {
 	return poolsFetchedMsg{pools: pools}
 }
 
+func (s PoolsScreen) IsLoaded() bool {
+	return s.loaded || s.loading
+}
+
 func (s PoolsScreen) Update(msg tea.Msg) (PoolsScreen, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -161,9 +168,11 @@ func (s PoolsScreen) Update(msg tea.Msg) (PoolsScreen, tea.Cmd) {
 			return s, cmd
 		}
 
+	case PoolsInitMsg:
+		// Explicit init trigger
 	}
 
-	// Trigger fetch on first view
+	// Trigger fetch on first view or init
 	if !s.loading && !s.loaded {
 		s.loading = true
 		return s, tea.Batch(s.fetchPools, s.spinner.Tick)

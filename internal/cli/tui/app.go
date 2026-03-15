@@ -189,6 +189,14 @@ func (a app) handleMenuSelect(key string) (tea.Model, tea.Cmd) {
 		a.screen = screenMatches
 	case "pools":
 		a.screen = screenPools
+		a.updateHelp()
+		// Trigger fetch if not yet loaded
+		if !a.pools.IsLoaded() {
+			var cmd tea.Cmd
+			a.pools, cmd = a.pools.Update(screens.PoolsInitMsg{})
+			return a, cmd
+		}
+		return a, nil
 	case "inbox":
 		return a, func() tea.Msg {
 			return components.ToastMsg{Text: "Inbox coming soon", Level: components.ToastInfo}
