@@ -130,9 +130,9 @@ func (s PoolsScreen) Update(msg tea.Msg) (PoolsScreen, tea.Cmd) {
 		s.loaded = true
 		if msg.err != nil {
 			s.err = msg.err
-		} else {
-			s.pools = msg.pools
+			return s, nil
 		}
+		s.pools = msg.pools
 		return s, nil
 
 	case spinner.TickMsg:
@@ -141,6 +141,7 @@ func (s PoolsScreen) Update(msg tea.Msg) (PoolsScreen, tea.Cmd) {
 			s.spinner, cmd = s.spinner.Update(msg)
 			return s, cmd
 		}
+
 	}
 
 	// Trigger fetch on first view
@@ -172,15 +173,14 @@ func (s PoolsScreen) View() string {
 	}
 
 	totalWidth := s.Width
-	if totalWidth < 60 {
+	if totalWidth < 40 {
 		totalWidth = 80
 	}
 
-	listWidth := totalWidth * 35 / 100
-	if listWidth < 28 {
-		listWidth = 28
-	}
-	detailWidth := totalWidth - listWidth - 6
+	// 50/50 split, minus borders (2 each) and gap (2)
+	panelWidth := (totalWidth - 6) / 2
+	listWidth := panelWidth
+	detailWidth := panelWidth
 
 	leftPanel := s.renderList(listWidth)
 	rightPanel := s.renderDetail(detailWidth)
@@ -233,10 +233,12 @@ func (s PoolsScreen) renderDetail(width int) string {
 	cardData := components.PoolCardData{
 		Name:          p.entry.Name,
 		Description:   p.entry.Description,
+		About:         p.entry.About,
 		Operator:      p.entry.Operator,
 		OperatorKey:   opKey,
 		Repo:          p.entry.Repo,
 		RelayURL:      p.entry.RelayURL,
+		Website:       p.entry.Website,
 		CreatedAt:     p.entry.CreatedAt,
 		Tags:          p.entry.Tags,
 		Members:       p.stats.Members,

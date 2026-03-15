@@ -60,7 +60,7 @@ func newApp(user, pool, registry string, joinedPools []string) app {
 }
 
 func (a app) Init() tea.Cmd {
-	return inputInit()
+	return tea.Batch(inputInit(), a.statusBar.Heart.Tick())
 }
 
 func (a *app) updateHelp() {
@@ -91,6 +91,8 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.input.Width = msg.Width
 		a.helpBar.Width = msg.Width
 		a.discover.Width = msg.Width
+		a.pools.Width = msg.Width
+		a.pools.Height = msg.Height
 		return a, nil
 
 	case tea.KeyMsg:
@@ -117,6 +119,11 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.toast, cmd = a.toast.Update(msg)
 		cmds = append(cmds, cmd)
 		return a, tea.Batch(cmds...)
+
+	case components.HeartTickMsg:
+		var cmd tea.Cmd
+		a.statusBar.Heart, cmd = a.statusBar.Heart.Update(msg)
+		return a, cmd
 
 	case components.ToastClearMsg:
 		a.toast, _ = a.toast.Update(msg)

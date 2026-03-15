@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	figure "github.com/common-nighthawk/go-figure"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
 )
 
@@ -12,10 +13,12 @@ import (
 type PoolCardData struct {
 	Name          string
 	Description   string
+	About         string
 	Operator      string
 	OperatorKey   string
 	Repo          string
 	RelayURL      string
+	Website       string
 	CreatedAt     string
 	Tags          []string
 	Members       int
@@ -37,57 +40,89 @@ func RenderPoolCard(p PoolCardData, width int, focused bool) string {
 		Width(width).
 		Padding(1, 2)
 
-	content := renderCardHeader(p)
-	content += "\n\n"
-	content += renderCardDescription(p)
-	content += "\n\n"
-	content += RenderStatsBar(p.Members, p.Matches, p.Relationships)
-	content += "\n"
+	// Logo + header side by side
+	headerBlock := renderCardHeader(p)
+	headerSection := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		PoolLogo(),
+		"  ",
+		headerBlock,
+	)
 
+	content := headerSection + "\n"
+
+	// Short description
+	if p.Description != "" {
+		content += "\n" + theme.TextStyle.Render(p.Description) + "\n"
+	}
+
+	// Stats bar
+	content += "\n" + RenderStatsBar(p.Members, p.Matches, p.Relationships) + "\n"
+
+	// Tags
 	if len(p.Tags) > 0 {
 		content += "\n" + RenderTags(p.Tags) + "\n"
 	}
 
+	// About (longer description)
+	if p.About != "" {
+		content += "\n" + theme.DimStyle.Render("About") + "\n"
+		content += theme.TextStyle.Render(p.About) + "\n"
+	}
+
+	// Info table
 	content += "\n" + renderCardInfo(p)
+
+	// Action
 	content += "\n" + renderCardAction(p)
 
 	return cardStyle.Render(content)
 }
 
 func renderCardHeader(p PoolCardData) string {
-	statusBadge := theme.DimStyle.Render("  → join")
-	if p.Joined {
-		statusBadge = theme.GreenStyle.Render("  ✓ joined")
-	}
-	return theme.BrandStyle.Render("♥ ") + theme.BoldStyle.Render(p.Name) + statusBadge
-}
+	// Pool name in ASCII art
+	fig := figure.NewFigure(p.Name, "mini", true)
+	title := theme.BrandStyle.Render(fig.String())
 
-func renderCardDescription(p PoolCardData) string {
-	if p.Description == "" {
-		return theme.DimStyle.Render("No description")
+	statusBadge := theme.DimStyle.Render("→ join")
+	if p.Joined {
+		statusBadge = theme.GreenStyle.Render("✓ joined")
 	}
-	return theme.TextStyle.Render(p.Description)
+
+	return title + statusBadge
 }
 
 func renderCardInfo(p PoolCardData) string {
 	labelStyle := theme.DimStyle.Copy().Width(12)
-	valueStyle := theme.TextStyle
 
 	info := ""
-	info += labelStyle.Render("Operator") + valueStyle.Render(p.Operator) + "\n"
-	info += labelStyle.Render("Key") + theme.DimStyle.Render(p.OperatorKey) + "\n"
-	info += labelStyle.Render("Repo") + valueStyle.Render(p.Repo) + "\n"
-	if p.RelayURL != "" {
-		info += labelStyle.Render("Relay") + valueStyle.Render(p.RelayURL) + "\n"
+	info += labelStyle.Render("Operator") + infoValue(p.Operator) + "\n"
+	info += labelStyle.Render("Key") + infoValue(p.OperatorKey) + "\n"
+	info += labelStyle.Render("Repo") + infoValue(p.Repo) + "\n"
+	info += labelStyle.Render("Website") + infoValueAccent(p.Website) + "\n"
+	info += labelStyle.Render("Relay") + infoValue(p.RelayURL) + "\n"
+
+	created := p.CreatedAt
+	if len(created) > 10 {
+		created = created[:10]
 	}
-	if p.CreatedAt != "" {
-		created := p.CreatedAt
-		if len(created) > 10 {
-			created = created[:10]
-		}
-		info += labelStyle.Render("Created") + theme.DimStyle.Render(created) + "\n"
-	}
+	info += labelStyle.Render("Created") + infoValue(created) + "\n"
+
 	return info
+}
+
+func infoValue(v string) string {
+	if v == "" {
+		return theme.DimStyle.Render("unavailable")
+	}
+	return theme.TextStyle.Render(v)
+}
+
+func infoValueAccent(v string) string {
+	if v == "" {
+		return theme.DimStyle.Render("unavailable")
+	}
+	return theme.AccentStyle.Render(v)
 }
 
 func renderCardAction(p PoolCardData) string {
