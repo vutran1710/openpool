@@ -1,8 +1,8 @@
 package components
 
 import (
-	figure "github.com/common-nighthawk/go-figure"
 	"github.com/charmbracelet/lipgloss"
+	figure "github.com/common-nighthawk/go-figure"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
 )
 
@@ -20,35 +20,42 @@ func NewStatusBar() StatusBar {
 }
 
 func (s StatusBar) View() string {
-	// Big ASCII title
-	fig := figure.NewFigure("dating.dev", "mini", true)
+	// Blocky ASCII title
+	fig := figure.NewFigure("dating.dev", "rectangles", true)
 	title := lipgloss.NewStyle().Foreground(theme.Pink).Render(fig.String())
 
-	// Pulsing heart next to title
+	// Pulsing heart
 	heart := s.Heart.Inline()
 
-	// User/pool info on the right
-	info := ""
+	left := lipgloss.JoinHorizontal(lipgloss.Center, heart, "  ", title)
+
+	// User/pool info (right-aligned, vertically centered)
+	var infoLines []string
 	if s.User != "" {
-		info += theme.DimStyle.Render("⬡ ") + theme.AccentStyle.Render(s.User)
+		infoLines = append(infoLines, theme.DimStyle.Render("⬡ ")+theme.AccentStyle.Render(s.User))
 	}
 	if s.Pool != "" {
-		info += theme.DimStyle.Render("  ◈ ") + theme.GreenStyle.Render(s.Pool)
+		infoLines = append(infoLines, theme.DimStyle.Render("◈ ")+theme.GreenStyle.Render(s.Pool))
 	}
 
-	// Layout: heart + title on left, info on right
-	leftBlock := lipgloss.JoinHorizontal(lipgloss.Center, heart, "  ", title)
-
-	gap := s.Width - lipgloss.Width(leftBlock) - lipgloss.Width(info) - 4
-	if gap < 1 {
-		gap = 1
+	rightWidth := s.Width - lipgloss.Width(left) - 6
+	if rightWidth < 10 {
+		rightWidth = 10
 	}
+
+	right := ""
+	for _, l := range infoLines {
+		right += l + "\n"
+	}
+	rightBlock := lipgloss.NewStyle().
+		Align(lipgloss.Right).
+		Width(rightWidth).
+		Render(right)
 
 	bar := lipgloss.NewStyle().
 		Padding(0, 2).
-		Background(theme.Surface).
 		Width(s.Width).
-		Render(leftBlock + spaces(gap) + info)
+		Render(lipgloss.JoinHorizontal(lipgloss.Bottom, left, rightBlock))
 
 	separator := lipgloss.NewStyle().
 		Width(s.Width).

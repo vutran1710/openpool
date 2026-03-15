@@ -21,6 +21,7 @@ type UserConfig struct {
 	DisplayName    string `toml:"display_name"`
 	Provider       string `toml:"provider"`
 	ProviderUserID string `toml:"provider_user_id"`
+	EncryptedToken string `toml:"encrypted_token,omitempty"`
 }
 
 type PoolConfig struct {
@@ -115,6 +116,10 @@ func (c *Config) RemoveRegistry(repo string) bool {
 		}
 	}
 	return false
+}
+
+func (c *Config) HasToken() bool {
+	return c.User.EncryptedToken != ""
 }
 
 func (c *Config) RemovePool(name string) bool {

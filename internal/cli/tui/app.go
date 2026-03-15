@@ -9,7 +9,8 @@ import (
 type activeScreen int
 
 const (
-	screenHome activeScreen = iota
+	screenOnboarding activeScreen = iota
+	screenHome
 	screenDiscover
 	screenMatches
 	screenChat
@@ -17,41 +18,48 @@ const (
 )
 
 type app struct {
-	screen    activeScreen
+	screen     activeScreen
 	prevScreen activeScreen
-	width     int
-	height    int
-	quitting  bool
+	width      int
+	height     int
+	quitting   bool
 
-	statusBar components.StatusBar
-	input     components.Input
-	toast     components.Toast
-	helpBar   components.HelpBar
+	statusBar  components.StatusBar
+	input      components.Input
+	toast      components.Toast
+	helpBar    components.HelpBar
 
-	home     screens.HomeScreen
-	discover screens.DiscoverScreen
-	matches  screens.MatchesScreen
-	chat     screens.ChatScreen
-	pools    screens.PoolsScreen
+	onboarding screens.OnboardingScreen
+	home       screens.HomeScreen
+	discover   screens.DiscoverScreen
+	matches    screens.MatchesScreen
+	chat       screens.ChatScreen
+	pools      screens.PoolsScreen
 
 	user     string
 	pool     string
 	registry string
 }
 
-func newApp(user, pool, registry string, joinedPools []string) app {
+func newApp(user, pool, registry string, joinedPools []string, needsOnboarding bool) app {
+	startScreen := activeScreen(screenHome)
+	if needsOnboarding {
+		startScreen = screenOnboarding
+	}
+
 	a := app{
-		screen:    screenHome,
-		user:      user,
-		pool:      pool,
-		registry:  registry,
-		statusBar: components.NewStatusBar(),
-		input:     components.NewInput("Type / for commands..."),
-		toast:     components.NewToast(),
-		home:      screens.NewHomeScreen(),
-		discover:  screens.NewDiscoverScreen(),
-		matches:   screens.NewMatchesScreen(),
-		pools:     screens.NewPoolsScreen(registry, joinedPools),
+		screen:     startScreen,
+		user:       user,
+		pool:       pool,
+		registry:   registry,
+		statusBar:  components.NewStatusBar(),
+		input:      components.NewInput("Type / for commands..."),
+		toast:      components.NewToast(),
+		onboarding: screens.NewOnboardingScreen(),
+		home:       screens.NewHomeScreen(),
+		discover:   screens.NewDiscoverScreen(),
+		matches:    screens.NewMatchesScreen(),
+		pools:      screens.NewPoolsScreen(registry, joinedPools),
 	}
 	a.statusBar.User = user
 	a.statusBar.Pool = pool
@@ -66,6 +74,8 @@ func (a app) Init() tea.Cmd {
 func (a *app) updateHelp() {
 	var bindings []components.KeyBind
 	switch a.screen {
+	case screenOnboarding:
+		bindings = a.onboarding.HelpBindings()
 	case screenHome:
 		bindings = a.home.HelpBindings()
 	case screenDiscover:
@@ -93,6 +103,8 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.discover.Width = msg.Width
 		a.pools.Width = msg.Width
 		a.pools.Height = msg.Height
+		a.onboarding.Width = msg.Width
+		a.onboarding.Height = msg.Height
 		return a, nil
 
 	case tea.KeyMsg:
@@ -101,6 +113,10 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.quitting = true
 			return a, tea.Quit
 		case "esc":
+			if a.screen == screenOnboarding {
+				a.quitting = true
+				return a, tea.Quit
+			}
 			if a.screen != screenHome {
 				a.screen = screenHome
 				a.updateHelp()
@@ -108,10 +124,25 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case screens.OnboardingDoneMsg:
+		a.user = msg.Username
+		a.statusBar.User = msg.Username
+		a.screen = screenHome
+		a.updateHelp()
+		return a, func() tea.Msg {
+			return components.ToastMsg{
+				Text:  "Welcome, " + msg.DisplayName + "!",
+				Level: components.ToastSuccess,
+			}
+		}
+
 	case components.MenuSelectMsg:
 		return a.handleMenuSelect(msg.Key)
 
 	case components.SubmitMsg:
+		if a.screen == screenOnboarding {
+			return a.updateActiveScreen(msg)
+		}
 		return a.handleSubmit(msg)
 
 	case components.ToastMsg:
@@ -119,6 +150,19 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.toast, cmd = a.toast.Update(msg)
 		cmds = append(cmds, cmd)
 		return a, tea.Batch(cmds...)
+
+	case screens.PoolJoinMsg:
+		if msg.Joined {
+			return a, func() tea.Msg {
+				return components.ToastMsg{Text: "Already a member of " + msg.Name, Level: components.ToastInfo}
+			}
+		}
+		return a, func() tea.Msg {
+			return components.ToastMsg{
+				Text:  "Run: dating pool join " + msg.Name,
+				Level: components.ToastInfo,
+			}
+		}
 
 	case components.HeartTickMsg:
 		var cmd tea.Cmd
@@ -210,6 +254,9 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch a.screen {
+	case screenOnboarding:
+		a.onboarding, cmd = a.onboarding.Update(msg)
+		a.updateHelp()
 	case screenHome:
 		a.home, cmd = a.home.Update(msg)
 	case screenDiscover:
@@ -223,9 +270,17 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if cmd != nil {
+		// Don't forward to input during onboarding (it steals key events)
+		if a.screen == screenOnboarding {
+			return a, cmd
+		}
 		var inputCmd tea.Cmd
 		a.input, inputCmd = a.input.Update(msg)
 		return a, tea.Batch(cmd, inputCmd)
+	}
+
+	if a.screen == screenOnboarding {
+		return a, nil
 	}
 
 	a.input, cmd = a.input.Update(msg)
@@ -241,6 +296,8 @@ func (a app) View() string {
 
 	var content string
 	switch a.screen {
+	case screenOnboarding:
+		content = a.onboarding.View()
 	case screenHome:
 		content = a.home.View()
 	case screenDiscover:
@@ -254,7 +311,14 @@ func (a app) View() string {
 	}
 
 	toastView := a.toast.View()
-	bottom := a.helpBar.View() + "\n" + a.input.View()
+
+	// During onboarding, hide the command input
+	bottom := ""
+	if a.screen != screenOnboarding {
+		bottom = a.helpBar.View() + "\n" + a.input.View()
+	} else {
+		bottom = a.helpBar.View()
+	}
 
 	contentHeight := a.height - 6 - countLines(bottom)
 	if toastView != "" {

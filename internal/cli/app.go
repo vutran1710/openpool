@@ -20,12 +20,8 @@ func NewRootCmd() *cobra.Command {
 					cfg = &config.Config{}
 				}
 
-				// Ensure registry is configured before launching TUI
-				registry, err := requireRegistry(cfg)
-				if err != nil {
-					printError(err.Error())
-					return nil
-				}
+				needsOnboarding := !cfg.HasToken()
+				registry := cfg.ActiveRegistry
 
 				user := ""
 				pool := ""
@@ -39,7 +35,7 @@ func NewRootCmd() *cobra.Command {
 				for _, p := range cfg.Pools {
 					joinedPools = append(joinedPools, p.Name)
 				}
-				tui.RunOrFallback(user, pool, registry, joinedPools)
+				tui.RunOrFallback(user, pool, registry, joinedPools, needsOnboarding)
 				return nil
 			}
 			printHeader()

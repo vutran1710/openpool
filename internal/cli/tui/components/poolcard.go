@@ -86,7 +86,7 @@ func RenderPoolCard(p PoolCardData, width int, focused bool) string {
 
 func renderCardHeader(p PoolCardData) string {
 	// Pool name in ASCII art
-	fig := figure.NewFigure(p.Name, "mini", true)
+	fig := figure.NewFigure(p.Name, "small", true)
 	title := theme.BrandStyle.Render(fig.String())
 
 	statusBadge := theme.DimStyle.Render("→ join")
