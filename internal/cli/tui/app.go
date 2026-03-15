@@ -41,7 +41,7 @@ type app struct {
 	registry string
 }
 
-func newApp(user, pool, registry string, joinedPools []string, needsOnboarding bool) app {
+func newApp(userName, userHash, pool, registry string, joinedPools []string, needsOnboarding bool) app {
 	startScreen := activeScreen(screenHome)
 	if needsOnboarding {
 		startScreen = screenOnboarding
@@ -49,7 +49,7 @@ func newApp(user, pool, registry string, joinedPools []string, needsOnboarding b
 
 	a := app{
 		screen:     startScreen,
-		user:       user,
+		user:       userName,
 		pool:       pool,
 		registry:   registry,
 		statusBar:  components.NewStatusBar(),
@@ -61,7 +61,8 @@ func newApp(user, pool, registry string, joinedPools []string, needsOnboarding b
 		matches:    screens.NewMatchesScreen(),
 		pools:      screens.NewPoolsScreen(registry, joinedPools),
 	}
-	a.statusBar.User = user
+	a.statusBar.User = userName
+	a.statusBar.UserHash = userHash
 	a.statusBar.Pool = pool
 	a.updateHelp()
 	return a
@@ -125,9 +126,10 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case screens.OnboardingDoneMsg:
-		a.user = msg.Username
+		a.user = msg.DisplayName
 		a.registry = msg.Registry
-		a.statusBar.User = msg.Username
+		a.statusBar.User = msg.DisplayName
+		a.statusBar.UserHash = msg.Username
 		a.pools = screens.NewPoolsScreen(msg.Registry, nil)
 		a.pools.Width = a.width
 		a.pools.Height = a.height
@@ -327,26 +329,28 @@ func (a app) View() string {
 	// During onboarding, hide the command input
 	bottom := ""
 	if a.screen != screenOnboarding {
-		bottom = a.helpBar.View() + "\n" + a.input.View()
+		palette := a.input.PaletteView()
+		if palette != "" {
+			bottom += palette + "\n"
+		}
+		bottom += a.helpBar.View() + "\n" + a.input.View()
 	} else {
-		bottom = a.helpBar.View()
+		bottom += a.helpBar.View()
 	}
 
-	contentHeight := a.height - 6 - countLines(bottom)
+	// Status toast below input
 	if toastView != "" {
-		contentHeight -= countLines(toastView)
+		bottom += "\n" + toastView
 	}
+
+	contentHeight := a.height - 2 - countLines(top) - countLines(bottom)
 	if contentHeight < 1 {
 		contentHeight = 1
 	}
 
 	content = padToHeight(content, contentHeight)
 
-	out := top + "\n" + content
-	if toastView != "" {
-		out += toastView
-	}
-	out += "\n" + bottom
+	out := top + "\n" + content + "\n" + bottom
 
 	return out
 }

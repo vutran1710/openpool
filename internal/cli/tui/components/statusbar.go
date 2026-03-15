@@ -7,10 +7,11 @@ import (
 )
 
 type StatusBar struct {
-	User  string
-	Pool  string
-	Width int
-	Heart HeartBeat
+	User     string
+	UserHash string
+	Pool     string
+	Width    int
+	Heart    HeartBeat
 }
 
 func NewStatusBar() StatusBar {
@@ -29,13 +30,17 @@ func (s StatusBar) View() string {
 
 	left := lipgloss.JoinHorizontal(lipgloss.Center, heart, "  ", title)
 
-	// User/pool info (right-aligned, vertically centered)
+	// User info (right-aligned)
 	var infoLines []string
 	if s.User != "" {
-		infoLines = append(infoLines, theme.DimStyle.Render("⬡ ")+theme.AccentStyle.Render(s.User))
+		userLine := theme.DimStyle.Render("⬡ ") + theme.AccentStyle.Render(s.User)
+		if s.UserHash != "" {
+			userLine += theme.DimStyle.Render("  ") + theme.DimStyle.Render(s.UserHash)
+		}
+		infoLines = append(infoLines, userLine)
 	}
 	if s.Pool != "" {
-		infoLines = append(infoLines, theme.DimStyle.Render("◈ ")+theme.GreenStyle.Render(s.Pool))
+		infoLines = append(infoLines, theme.DimStyle.Render("◈ ") + theme.GreenStyle.Render(s.Pool))
 	}
 
 	rightWidth := s.Width - lipgloss.Width(left) - 6

@@ -23,19 +23,17 @@ func NewRootCmd() *cobra.Command {
 				needsOnboarding := !cfg.HasToken()
 				registry := cfg.ActiveRegistry
 
-				user := ""
+				userName := cfg.User.DisplayName
+				userHash := cfg.User.PublicID
 				pool := ""
 				var joinedPools []string
-				if cfg.IsRegistered() {
-					user = cfg.User.PublicID
-				}
 				if cfg.ActivePool() != nil {
 					pool = cfg.ActivePool().Name
 				}
 				for _, p := range cfg.Pools {
 					joinedPools = append(joinedPools, p.Name)
 				}
-				tui.RunOrFallback(user, pool, registry, joinedPools, needsOnboarding)
+				tui.RunOrFallback(userName, userHash, pool, registry, joinedPools, needsOnboarding)
 				return nil
 			}
 			printHeader()
