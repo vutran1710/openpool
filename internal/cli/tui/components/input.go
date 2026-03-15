@@ -144,11 +144,16 @@ func (i Input) PaletteView() string {
 		return ""
 	}
 
+	paletteWidth := i.Width - 6
+	if paletteWidth < 40 {
+		paletteWidth = 40
+	}
+
 	paletteStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(theme.Border).
 		Padding(0, 1).
-		Width(40)
+		Width(paletteWidth)
 
 	// Find max command width for alignment
 	maxCmd := 0
