@@ -12,6 +12,8 @@ func newMatchesCmd() *cobra.Command {
 		Use:   "matches",
 		Short: "List your matches",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -23,7 +25,7 @@ func newMatchesCmd() *cobra.Command {
 			}
 
 			client := poolClient(pool)
-			matchDirs, err := client.ListMatches()
+			matchDirs, err := client.ListMatches(ctx)
 			if err != nil {
 				return fmt.Errorf("fetching matches: %w", err)
 			}

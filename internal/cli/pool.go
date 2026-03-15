@@ -92,6 +92,7 @@ func newPoolCreateCmd() *cobra.Command {
 		Short: "Create and register a new pool",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
 			name := args[0]
 
 			if repo == "" || ghToken == "" {
@@ -110,7 +111,10 @@ func newPoolCreateCmd() *cobra.Command {
 			}
 			operatorPubHex := hex.EncodeToString(pub)
 
-			cfg, _ := config.Load()
+			cfg, err := config.Load()
+			if err != nil {
+				return fmt.Errorf("loading config: %w", err)
+			}
 			registryRepo, err := requireRegistry(cfg)
 			if err != nil {
 				printError(err.Error())
@@ -118,7 +122,7 @@ func newPoolCreateCmd() *cobra.Command {
 			}
 			reg := gh.NewRegistry(registryRepo, regToken)
 
-			templateBody, err := fillPRTemplate(reg.Client(), "register-pool")
+			templateBody, err := fillPRTemplate(ctx, reg.Client(), "register-pool")
 			if err != nil {
 				return err
 			}
@@ -135,7 +139,7 @@ func newPoolCreateCmd() *cobra.Command {
 				GHToken: ghToken,
 			}
 
-			prNumber, err := reg.RegisterPool(entry, tokens, templateBody)
+			prNumber, err := reg.RegisterPool(ctx, entry, tokens, templateBody)
 			if err != nil {
 				return fmt.Errorf("registering pool: %w", err)
 			}
@@ -163,7 +167,10 @@ func newPoolBrowseCmd() *cobra.Command {
 		Use:   "browse",
 		Short: "Browse available pools from the active registry",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, _ := config.Load()
+			cfg, err := config.Load()
+			if err != nil {
+				return fmt.Errorf("loading config: %w", err)
+			}
 			registryRepo, err := requireRegistry(cfg)
 			if err != nil {
 				printError(err.Error())
@@ -209,6 +216,8 @@ func newPoolJoinCmd() *cobra.Command {
 		Short: "Join a pool: authenticate, create profile, submit registration",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -249,7 +258,7 @@ func newPoolJoinCmd() *cobra.Command {
 				return fmt.Errorf("authentication failed: %w", err)
 			}
 
-			identity, err := fetchGitHubIdentity(ghToken)
+			identity, err := fetchGitHubIdentity(ctx, ghToken)
 			if err != nil {
 				return fmt.Errorf("fetching GitHub identity: %w", err)
 			}
@@ -295,7 +304,10 @@ func newPoolJoinCmd() *cobra.Command {
 				"public_key":   hex.EncodeToString(pub),
 				"status":       "open",
 			}
-			plaintext, _ := json.Marshal(profileData)
+			plaintext, err := json.Marshal(profileData)
+			if err != nil {
+				return fmt.Errorf("marshaling profile: %w", err)
+			}
 
 			// Encrypt profile to operator's pubkey — only operator/relay can decrypt
 			bin, err := crypto.PackUserBin(pub, operatorPubBytes, plaintext)
@@ -315,16 +327,19 @@ func newPoolJoinCmd() *cobra.Command {
 				return fmt.Errorf("encrypting identity proof: %w", err)
 			}
 
-			payload, _ := json.Marshal(map[string]string{
+			payload, err := json.Marshal(map[string]string{
 				"action":    "register",
 				"user_hash": userHash,
 			})
+			if err != nil {
+				return fmt.Errorf("marshaling payload: %w", err)
+			}
 			signature := crypto.Sign(priv, payload)
 
 			// Submit registration via GitHub issue using the user's GitHub token
 			poolGH := gh.NewPool(entry.Repo, identity.Token)
 			pubKeyHex := hex.EncodeToString(pub)
-			issueNumber, err := poolGH.RegisterUserViaIssue(userHash, bin, pubKeyHex, signature, identityProof)
+			issueNumber, err := poolGH.RegisterUserViaIssue(ctx, userHash, bin, pubKeyHex, signature, identityProof)
 			if err != nil {
 				return fmt.Errorf("submitting registration: %w", err)
 			}
@@ -390,6 +405,8 @@ func newPoolListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List joined pools",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -405,7 +422,7 @@ func newPoolListCmd() *cobra.Command {
 			for i, p := range cfg.Pools {
 				if p.Status == gh.PoolStatusPending {
 					pool := gh.NewPool(p.Repo, "")
-					if pool.IsUserRegistered(cfg.User.PublicID) {
+					if pool.IsUserRegistered(ctx, cfg.User.PublicID) {
 						cfg.Pools[i].Status = gh.PoolStatusActive
 						updated = true
 						p.Status = gh.PoolStatusActive
@@ -426,7 +443,9 @@ func newPoolListCmd() *cobra.Command {
 			fmt.Println()
 
 			if updated {
-				cfg.Save()
+				if err := cfg.Save(); err != nil {
+					return fmt.Errorf("saving config: %w", err)
+				}
 			}
 			return nil
 		},

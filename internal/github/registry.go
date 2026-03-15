@@ -1,6 +1,7 @@
 package github
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
@@ -115,12 +116,15 @@ func (r *Registry) GetPoolTokens(name string, operatorPrivKey ed25519.PrivateKey
 	return tokens, nil
 }
 
-func (r *Registry) RegisterPool(entry PoolEntry, tokens PoolTokens, templateBody string) (int, error) {
+func (r *Registry) RegisterPool(ctx context.Context, entry PoolEntry, tokens PoolTokens, templateBody string) (int, error) {
 	if r.client == nil {
 		return 0, fmt.Errorf("no write client available")
 	}
 
-	entryJSON, _ := json.MarshalIndent(entry, "", "  ")
+	entryJSON, err := json.MarshalIndent(entry, "", "  ")
+	if err != nil {
+		return 0, fmt.Errorf("marshaling pool entry: %w", err)
+	}
 	tokensBin, err := SerializeTokens(tokens, entry.OperatorPubKey)
 	if err != nil {
 		return 0, fmt.Errorf("encrypting tokens: %w", err)
@@ -141,7 +145,7 @@ func (r *Registry) RegisterPool(entry PoolEntry, tokens PoolTokens, templateBody
 		},
 	}
 
-	return r.client.CreatePullRequest(pr)
+	return r.client.CreatePullRequest(ctx, pr)
 }
 
 func (r *Registry) IsPoolRegistered(name string) bool {
@@ -149,7 +153,7 @@ func (r *Registry) IsPoolRegistered(name string) bool {
 		return r.repo.FileExists(fmt.Sprintf("pools/%s/pool.json", name))
 	}
 	if r.client != nil {
-		return r.client.FileExists(fmt.Sprintf("pools/%s/pool.json", name))
+		return r.client.FileExists(context.Background(), fmt.Sprintf("pools/%s/pool.json", name))
 	}
 	return false
 }
@@ -160,7 +164,10 @@ func SerializeTokens(tokens PoolTokens, operatorPubKeyHex string) ([]byte, error
 	if err != nil {
 		return nil, fmt.Errorf("decoding operator pubkey: %w", err)
 	}
-	plaintext, _ := json.Marshal(tokens)
+	plaintext, err := json.Marshal(tokens)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling tokens: %w", err)
+	}
 	return crypto.Encrypt(ed25519.PublicKey(pubBytes), plaintext)
 }
 

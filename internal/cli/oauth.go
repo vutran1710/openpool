@@ -1,12 +1,13 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 type GitHubIdentity struct {
@@ -15,6 +16,9 @@ type GitHubIdentity struct {
 	DisplayName string
 	Token       string
 }
+
+// ghHTTPClient is a shared HTTP client with a timeout for GitHub API calls.
+var ghHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 // resolveGitHubToken tries `gh auth token` first, then asks the user for a PAT.
 func resolveGitHubToken(promptFn func(label string) string) (string, error) {
@@ -36,13 +40,16 @@ func resolveGitHubToken(promptFn func(label string) string) (string, error) {
 }
 
 // fetchGitHubIdentity fetches the authenticated user's identity from GitHub.
-func fetchGitHubIdentity(token string) (*GitHubIdentity, error) {
-	req, _ := http.NewRequest("GET", "https://api.github.com/user", nil)
+func fetchGitHubIdentity(ctx context.Context, token string) (*GitHubIdentity, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/user", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := ghHTTPClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("contacting GitHub API: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -50,14 +57,13 @@ func fetchGitHubIdentity(token string) (*GitHubIdentity, error) {
 		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
 	}
 
-	body, _ := io.ReadAll(resp.Body)
 	var data struct {
 		ID    int    `json:"id"`
 		Login string `json:"login"`
 		Name  string `json:"name"`
 	}
-	if err := json.Unmarshal(body, &data); err != nil {
-		return nil, err
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, fmt.Errorf("parsing GitHub response: %w", err)
 	}
 
 	name := data.Name

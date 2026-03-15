@@ -1,14 +1,15 @@
 package screens
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -18,9 +19,12 @@ import (
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
 	"github.com/vutran1710/dating-dev/internal/crypto"
-	"github.com/vutran1710/dating-dev/internal/gitrepo"
 	gh "github.com/vutran1710/dating-dev/internal/github"
+	"github.com/vutran1710/dating-dev/internal/gitrepo"
 )
+
+// onboardingHTTPClient is used for GitHub API calls during onboarding.
+var onboardingHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 type onboardingStep int
 
@@ -408,7 +412,7 @@ func (s OnboardingScreen) doneView() string {
 		for _, p := range s.pools {
 			info += theme.TextStyle.Render("    - ") + theme.AccentStyle.Render(p.Name)
 			if p.Description != "" {
-				info += theme.DimStyle.Render("  "+p.Description)
+				info += theme.DimStyle.Render("  " + p.Description)
 			}
 			info += "\n"
 		}
@@ -421,7 +425,7 @@ func (s OnboardingScreen) doneView() string {
 
 func (s OnboardingScreen) errorView() string {
 	title := theme.RedStyle.Render("✗") + " " + theme.BoldStyle.Render("Error") + "\n\n"
-	body := theme.RedStyle.Render("  " + s.errMsg) + "\n\n"
+	body := theme.RedStyle.Render("  "+s.errMsg) + "\n\n"
 	hint := theme.DimStyle.Render("Press enter to try again")
 	return title + body + hint
 }
@@ -438,10 +442,16 @@ func (s OnboardingScreen) checkGH() tea.Msg {
 }
 
 func (s OnboardingScreen) validateToken() tea.Msg {
-	req, _ := http.NewRequest("GET", "https://api.github.com/user", nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/user", nil)
+	if err != nil {
+		return tokenValidResult{err: fmt.Errorf("creating request: %w", err)}
+	}
 	req.Header.Set("Authorization", "Bearer "+s.token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := onboardingHTTPClient.Do(req)
 	if err != nil {
 		return tokenValidResult{err: fmt.Errorf("network error: %w", err)}
 	}
@@ -454,13 +464,12 @@ func (s OnboardingScreen) validateToken() tea.Msg {
 		return tokenValidResult{err: fmt.Errorf("GitHub API returned %d", resp.StatusCode)}
 	}
 
-	body, _ := io.ReadAll(resp.Body)
 	var data struct {
 		ID    int    `json:"id"`
 		Login string `json:"login"`
 		Name  string `json:"name"`
 	}
-	if err := json.Unmarshal(body, &data); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return tokenValidResult{err: fmt.Errorf("parsing response: %w", err)}
 	}
 

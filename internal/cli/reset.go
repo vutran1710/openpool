@@ -33,8 +33,8 @@ func newResetCmd() *cobra.Command {
 
 			settingPath := config.Path()
 			if _, err := os.Stat(settingPath); err == nil {
-				cfg, _ := config.Load()
-				if cfg != nil {
+				cfg, err := config.Load()
+				if err == nil && cfg != nil {
 					if cfg.ActiveRegistry != "" {
 						fmt.Printf("    Registry:  %s\n", cfg.ActiveRegistry)
 					}
@@ -105,19 +105,27 @@ func archiveData(datingDir, archiveDir string) error {
 	// Archive setting.toml
 	settingPath := filepath.Join(datingDir, "setting.toml")
 	if data, err := os.ReadFile(settingPath); err == nil {
-		os.WriteFile(filepath.Join(archiveDir, "setting.toml"), data, 0600)
+		if err := os.WriteFile(filepath.Join(archiveDir, "setting.toml"), data, 0600); err != nil {
+			return fmt.Errorf("archiving setting.toml: %w", err)
+		}
 	}
 
 	// Archive keys/
 	keysDir := filepath.Join(datingDir, "keys")
 	if entries, err := os.ReadDir(keysDir); err == nil {
 		archiveKeys := filepath.Join(archiveDir, "keys")
-		os.MkdirAll(archiveKeys, 0700)
+		if err := os.MkdirAll(archiveKeys, 0700); err != nil {
+			return fmt.Errorf("creating archive keys dir: %w", err)
+		}
 		for _, e := range entries {
 			src := filepath.Join(keysDir, e.Name())
 			dst := filepath.Join(archiveKeys, e.Name())
-			if data, err := os.ReadFile(src); err == nil {
-				os.WriteFile(dst, data, 0600)
+			data, err := os.ReadFile(src)
+			if err != nil {
+				return fmt.Errorf("reading key file %s: %w", e.Name(), err)
+			}
+			if err := os.WriteFile(dst, data, 0600); err != nil {
+				return fmt.Errorf("archiving key file %s: %w", e.Name(), err)
 			}
 		}
 	}
@@ -126,19 +134,29 @@ func archiveData(datingDir, archiveDir string) error {
 	poolsDir := filepath.Join(datingDir, "pools")
 	if entries, err := os.ReadDir(poolsDir); err == nil {
 		archivePools := filepath.Join(archiveDir, "pools")
-		os.MkdirAll(archivePools, 0700)
+		if err := os.MkdirAll(archivePools, 0700); err != nil {
+			return fmt.Errorf("creating archive pools dir: %w", err)
+		}
 		for _, e := range entries {
 			if e.IsDir() {
 				poolDir := filepath.Join(poolsDir, e.Name())
 				archivePoolDir := filepath.Join(archivePools, e.Name())
-				os.MkdirAll(archivePoolDir, 0700)
-				if files, err := os.ReadDir(poolDir); err == nil {
-					for _, f := range files {
-						src := filepath.Join(poolDir, f.Name())
-						dst := filepath.Join(archivePoolDir, f.Name())
-						if data, err := os.ReadFile(src); err == nil {
-							os.WriteFile(dst, data, 0600)
-						}
+				if err := os.MkdirAll(archivePoolDir, 0700); err != nil {
+					return fmt.Errorf("creating archive pool dir %s: %w", e.Name(), err)
+				}
+				files, err := os.ReadDir(poolDir)
+				if err != nil {
+					return fmt.Errorf("reading pool dir %s: %w", e.Name(), err)
+				}
+				for _, f := range files {
+					src := filepath.Join(poolDir, f.Name())
+					dst := filepath.Join(archivePoolDir, f.Name())
+					data, err := os.ReadFile(src)
+					if err != nil {
+						return fmt.Errorf("reading pool file %s/%s: %w", e.Name(), f.Name(), err)
+					}
+					if err := os.WriteFile(dst, data, 0600); err != nil {
+						return fmt.Errorf("archiving pool file %s/%s: %w", e.Name(), f.Name(), err)
 					}
 				}
 			}

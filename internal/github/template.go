@@ -1,6 +1,7 @@
 package github
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -19,14 +20,14 @@ type TemplateField struct {
 	Required bool
 }
 
-func (c *Client) GetPRTemplate(templateName string) (*PRTemplate, error) {
+func (c *Client) GetPRTemplate(ctx context.Context, templateName string) (*PRTemplate, error) {
 	paths := []string{
 		fmt.Sprintf(".github/PULL_REQUEST_TEMPLATE/%s.md", templateName),
 		".github/PULL_REQUEST_TEMPLATE.md",
 	}
 
 	for _, path := range paths {
-		data, err := c.GetFile(path)
+		data, err := c.GetFile(ctx, path)
 		if err != nil {
 			continue
 		}

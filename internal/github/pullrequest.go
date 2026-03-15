@@ -1,6 +1,7 @@
 package github
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -21,8 +22,8 @@ type PRRequest struct {
 	Files  []PRFile
 }
 
-func (c *Client) GetDefaultBranch() (string, error) {
-	resp, err := c.do("GET", fmt.Sprintf("https://api.github.com/repos/%s", c.repo), nil)
+func (c *Client) GetDefaultBranch(ctx context.Context) (string, error) {
+	resp, err := c.do(ctx, "GET", fmt.Sprintf("https://api.github.com/repos/%s", c.repo), nil)
 	if err != nil {
 		return "", err
 	}
@@ -37,9 +38,9 @@ func (c *Client) GetDefaultBranch() (string, error) {
 	return repo.DefaultBranch, nil
 }
 
-func (c *Client) getRef(branch string) (string, error) {
+func (c *Client) getRef(ctx context.Context, branch string) (string, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/git/ref/heads/%s", c.repo, branch)
-	resp, err := c.do("GET", url, nil)
+	resp, err := c.do(ctx, "GET", url, nil)
 	if err != nil {
 		return "", err
 	}
@@ -56,13 +57,16 @@ func (c *Client) getRef(branch string) (string, error) {
 	return ref.Object.SHA, nil
 }
 
-func (c *Client) createRef(branch, sha string) error {
-	payload, _ := json.Marshal(map[string]string{
+func (c *Client) createRef(ctx context.Context, branch, sha string) error {
+	payload, err := json.Marshal(map[string]string{
 		"ref": "refs/heads/" + branch,
 		"sha": sha,
 	})
+	if err != nil {
+		return fmt.Errorf("marshaling ref payload: %w", err)
+	}
 
-	resp, err := c.do("POST",
+	resp, err := c.do(ctx, "POST",
 		fmt.Sprintf("https://api.github.com/repos/%s/git/refs", c.repo),
 		strings.NewReader(string(payload)),
 	)
@@ -78,7 +82,7 @@ func (c *Client) createRef(branch, sha string) error {
 	return nil
 }
 
-func (c *Client) createOrUpdateFile(path, branch string, content []byte, message string) error {
+func (c *Client) createOrUpdateFile(ctx context.Context, path, branch string, content []byte, message string) error {
 	encoded := base64.StdEncoding.EncodeToString(content)
 
 	payload := map[string]string{
@@ -87,10 +91,13 @@ func (c *Client) createOrUpdateFile(path, branch string, content []byte, message
 		"branch":  branch,
 	}
 
-	body, _ := json.Marshal(payload)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshaling file payload: %w", err)
+	}
 	url := c.apiURL("/contents/" + path)
 
-	resp, err := c.do("PUT", url, strings.NewReader(string(body)))
+	resp, err := c.do(ctx, "PUT", url, strings.NewReader(string(body)))
 	if err != nil {
 		return err
 	}
@@ -103,24 +110,24 @@ func (c *Client) createOrUpdateFile(path, branch string, content []byte, message
 	return nil
 }
 
-func (c *Client) CreatePullRequest(pr PRRequest) (int, error) {
-	defaultBranch, err := c.GetDefaultBranch()
+func (c *Client) CreatePullRequest(ctx context.Context, pr PRRequest) (int, error) {
+	defaultBranch, err := c.GetDefaultBranch(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("getting default branch: %w", err)
 	}
 
-	baseSHA, err := c.getRef(defaultBranch)
+	baseSHA, err := c.getRef(ctx, defaultBranch)
 	if err != nil {
 		return 0, fmt.Errorf("getting base ref: %w", err)
 	}
 
-	if err := c.createRef(pr.Branch, baseSHA); err != nil {
+	if err := c.createRef(ctx, pr.Branch, baseSHA); err != nil {
 		return 0, fmt.Errorf("creating branch: %w", err)
 	}
 
 	for _, f := range pr.Files {
 		msg := fmt.Sprintf("add %s", f.Path)
-		if err := c.createOrUpdateFile(f.Path, pr.Branch, f.Content, msg); err != nil {
+		if err := c.createOrUpdateFile(ctx, f.Path, pr.Branch, f.Content, msg); err != nil {
 			return 0, fmt.Errorf("creating file %s: %w", f.Path, err)
 		}
 	}
@@ -131,9 +138,12 @@ func (c *Client) CreatePullRequest(pr PRRequest) (int, error) {
 		"head":  pr.Branch,
 		"base":  defaultBranch,
 	}
-	body, _ := json.Marshal(payload)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return 0, fmt.Errorf("marshaling PR payload: %w", err)
+	}
 
-	resp, err := c.do("POST", c.apiURL("/pulls"), strings.NewReader(string(body)))
+	resp, err := c.do(ctx, "POST", c.apiURL("/pulls"), strings.NewReader(string(body)))
 	if err != nil {
 		return 0, fmt.Errorf("creating pull request: %w", err)
 	}
@@ -150,27 +160,37 @@ func (c *Client) CreatePullRequest(pr PRRequest) (int, error) {
 	}
 
 	if len(pr.Labels) > 0 {
-		c.addLabels(result.Number, pr.Labels)
+		if err := c.addLabels(ctx, result.Number, pr.Labels); err != nil {
+			// Non-fatal: PR was created successfully, labels are best-effort
+			fmt.Printf("warning: failed to add labels to PR #%d: %v\n", result.Number, err)
+		}
 	}
 
 	return result.Number, nil
 }
 
-func (c *Client) addLabels(prNumber int, labels []string) {
-	payload, _ := json.Marshal(map[string]any{"labels": labels})
-	url := c.apiURL(fmt.Sprintf("/issues/%d/labels", prNumber))
-	resp, err := c.do("POST", url, strings.NewReader(string(payload)))
+func (c *Client) addLabels(ctx context.Context, prNumber int, labels []string) error {
+	payload, err := json.Marshal(map[string]any{"labels": labels})
 	if err != nil {
-		return
+		return fmt.Errorf("marshaling labels: %w", err)
+	}
+	url := c.apiURL(fmt.Sprintf("/issues/%d/labels", prNumber))
+	resp, err := c.do(ctx, "POST", url, strings.NewReader(string(payload)))
+	if err != nil {
+		return err
 	}
 	resp.Body.Close()
+	return nil
 }
 
-func (c *Client) MergePullRequest(prNumber int) error {
+func (c *Client) MergePullRequest(ctx context.Context, prNumber int) error {
 	url := c.apiURL(fmt.Sprintf("/pulls/%d/merge", prNumber))
-	payload, _ := json.Marshal(map[string]string{"merge_method": "squash"})
+	payload, err := json.Marshal(map[string]string{"merge_method": "squash"})
+	if err != nil {
+		return fmt.Errorf("marshaling merge payload: %w", err)
+	}
 
-	resp, err := c.do("PUT", url, strings.NewReader(string(payload)))
+	resp, err := c.do(ctx, "PUT", url, strings.NewReader(string(payload)))
 	if err != nil {
 		return fmt.Errorf("merging PR: %w", err)
 	}
@@ -183,8 +203,8 @@ func (c *Client) MergePullRequest(prNumber int) error {
 	return nil
 }
 
-func (c *Client) FileExists(path string) bool {
-	resp, err := c.do("GET", c.apiURL("/contents/"+path), nil)
+func (c *Client) FileExists(ctx context.Context, path string) bool {
+	resp, err := c.do(ctx, "GET", c.apiURL("/contents/"+path), nil)
 	if err != nil {
 		return false
 	}

@@ -19,6 +19,8 @@ func newFetchCmd() *cobra.Command {
 		Use:   "fetch",
 		Short: "Discover new profiles via relay",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -43,12 +45,15 @@ func newFetchCmd() *cobra.Command {
 			message := []byte("discover:" + cfg.User.PublicID)
 			signature := crypto.Sign(priv, message)
 
-			reqBody, _ := json.Marshal(map[string]string{
+			reqBody, err := json.Marshal(map[string]string{
 				"user_hash": cfg.User.PublicID,
 				"pool_repo": pool.Repo,
 				"pub_key":   hex.EncodeToString(pub),
 				"signature": signature,
 			})
+			if err != nil {
+				return fmt.Errorf("marshaling request: %w", err)
+			}
 
 			// Call relay discover endpoint
 			relayURL := strings.TrimSuffix(pool.RelayURL, "/")
@@ -56,7 +61,13 @@ func newFetchCmd() *cobra.Command {
 			relayURL = strings.Replace(relayURL, "wss://", "https://", 1)
 			relayURL = strings.Replace(relayURL, "ws://", "http://", 1)
 
-			resp, err := http.Post(relayURL+"/discover", "application/json", bytes.NewReader(reqBody))
+			req, err := http.NewRequestWithContext(ctx, "POST", relayURL+"/discover", bytes.NewReader(reqBody))
+			if err != nil {
+				return fmt.Errorf("creating request: %w", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := ghHTTPClient.Do(req)
 			if err != nil {
 				return fmt.Errorf("contacting relay: %w", err)
 			}
@@ -128,6 +139,8 @@ func newViewCmd() *cobra.Command {
 		Short: "View a user's encrypted profile blob",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -139,7 +152,7 @@ func newViewCmd() *cobra.Command {
 			}
 
 			client := poolClient(pool)
-			blob, err := client.GetUserBlob(args[0])
+			blob, err := client.GetUserBlob(ctx, args[0])
 			if err != nil {
 				printError("User not found: " + args[0])
 				return nil

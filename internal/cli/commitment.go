@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
@@ -30,6 +31,8 @@ func newProposeCmd() *cobra.Command {
 		Short: "Propose a relationship to a match",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -45,15 +48,18 @@ func newProposeCmd() *cobra.Command {
 				return fmt.Errorf("loading keys: %w", err)
 			}
 
-			payload, _ := json.Marshal(map[string]string{
-				"action":    "propose",
-				"proposer":  cfg.User.PublicID,
-				"target":    args[0],
+			payload, err := json.Marshal(map[string]string{
+				"action":   "propose",
+				"proposer": cfg.User.PublicID,
+				"target":   args[0],
 			})
+			if err != nil {
+				return fmt.Errorf("marshaling payload: %w", err)
+			}
 			signature := crypto.Sign(priv, payload)
 
 			client := poolClient(pool)
-			prNumber, err := client.CreateProposePR(cfg.User.PublicID, args[0], signature)
+			prNumber, err := client.CreateProposePR(ctx, cfg.User.PublicID, args[0], signature)
 			if err != nil {
 				return fmt.Errorf("proposing: %w", err)
 			}
@@ -70,6 +76,8 @@ func newProposalsCmd() *cobra.Command {
 		Use:   "proposals",
 		Short: "View incoming proposals",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -81,7 +89,7 @@ func newProposalsCmd() *cobra.Command {
 			}
 
 			client := poolClient(pool)
-			prs, err := client.ListIncomingProposals(cfg.User.PublicID)
+			prs, err := client.ListIncomingProposals(ctx, cfg.User.PublicID)
 			if err != nil {
 				return fmt.Errorf("fetching proposals: %w", err)
 			}
@@ -114,6 +122,8 @@ func newAcceptProposeCmd() *cobra.Command {
 		Short: "Accept a relationship proposal",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -124,11 +134,13 @@ func newAcceptProposeCmd() *cobra.Command {
 				return nil
 			}
 
-			var prNumber int
-			fmt.Sscanf(args[0], "%d", &prNumber)
+			prNumber, err := strconv.Atoi(args[0])
+			if err != nil {
+				return fmt.Errorf("invalid PR number %q: %w", args[0], err)
+			}
 
 			client := poolClient(pool)
-			if err := client.AcceptPropose(prNumber); err != nil {
+			if err := client.AcceptPropose(ctx, prNumber); err != nil {
 				return fmt.Errorf("accepting proposal: %w", err)
 			}
 
@@ -144,6 +156,8 @@ func newStatusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Check relationship status",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -155,7 +169,7 @@ func newStatusCmd() *cobra.Command {
 			}
 
 			client := poolClient(pool)
-			rels, err := client.ListRelationships()
+			rels, err := client.ListRelationships(ctx)
 			if err != nil {
 				return fmt.Errorf("checking status: %w", err)
 			}

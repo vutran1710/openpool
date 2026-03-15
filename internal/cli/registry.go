@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"crypto/ed25519"
 	"encoding/hex"
 	"fmt"
@@ -12,8 +13,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
 	"github.com/vutran1710/dating-dev/internal/crypto"
-	"github.com/vutran1710/dating-dev/internal/gitrepo"
 	gh "github.com/vutran1710/dating-dev/internal/github"
+	"github.com/vutran1710/dating-dev/internal/gitrepo"
 )
 
 // parseRegistryInput normalizes registry input to a git-cloneable URL.
@@ -78,6 +79,7 @@ Discover available registries at https://dating.dev/pools`,
 }
 
 func runRegistryAdd(input string) error {
+	ctx := context.Background()
 	reader := bufio.NewReader(os.Stdin)
 
 	// Step 1: Parse & clone registry
@@ -163,7 +165,7 @@ func runRegistryAdd(input string) error {
 			printDim("  Skipping registration check (no GitHub token)")
 		} else {
 			identity, _ = withSpinner("Fetching GitHub identity", func() (*GitHubIdentity, error) {
-				return fetchGitHubIdentity(ghToken)
+				return fetchGitHubIdentity(ctx, ghToken)
 			})
 			if identity == nil {
 				printDim("  Skipping registration check")
@@ -187,7 +189,7 @@ func runRegistryAdd(input string) error {
 			}
 
 			pool := gh.NewLocalPool(poolRepo)
-			registered := pool.IsUserRegistered(userHash)
+			registered := pool.IsUserRegistered(ctx, userHash)
 
 			if registered {
 				printSuccess(fmt.Sprintf("  %s — registered ✓", p.Name))
