@@ -367,6 +367,9 @@ func (a app) handleMenuSelect(key string) (tea.Model, tea.Cmd) {
 		a.screen = screenProfile
 		a.profile.Width = a.width
 		a.profile.Height = a.height
+		if !a.profile.IsLoaded() {
+			return a, a.profile.LoadCmd
+		}
 	case "auth":
 		return a, func() tea.Msg {
 			return components.ToastMsg{Text: "Run: dating auth register", Level: components.ToastInfo}

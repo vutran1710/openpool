@@ -70,6 +70,18 @@ func HasShowcase(p gh.DatingProfile) bool {
 	return p.Showcase != ""
 }
 
+// DecodeShowcase returns the raw markdown from the base64-encoded showcase.
+func DecodeShowcase(p gh.DatingProfile) string {
+	if p.Showcase == "" {
+		return ""
+	}
+	decoded, err := base64.StdEncoding.DecodeString(p.Showcase)
+	if err != nil {
+		return ""
+	}
+	return string(decoded)
+}
+
 // ── Compact: single line ──
 
 func renderCompact(p gh.DatingProfile, width int) string {
