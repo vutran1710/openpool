@@ -60,7 +60,7 @@ func (s DiscoverScreen) View() string {
 		return "\n  " + theme.DimStyle.Render("No more profiles. Check back later.") + "\n"
 	}
 
-	card := components.RenderProfile(*s.Profile, s.Width, components.ProfileShort)
+	card := components.RenderProfile(*s.Profile, s.Width, components.ProfileNormal)
 
 	actions := fmt.Sprintf(
 		"\n  %s  %s  %s",

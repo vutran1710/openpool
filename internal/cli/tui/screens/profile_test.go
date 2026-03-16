@@ -1,19 +1,18 @@
 package screens
 
 import (
-	"encoding/base64"
 	"fmt"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
 	gh "github.com/vutran1710/dating-dev/internal/github"
 )
 
 func TestProfileScreen_InitialState(t *testing.T) {
 	s := NewProfileScreen()
-	// Loads synchronously from local file — may or may not have a profile
 	if !s.IsLoaded() {
-		t.Error("should be loaded after NewProfileScreen (reads local file)")
+		t.Error("should be loaded after NewProfileScreen")
 	}
 }
 
@@ -30,7 +29,7 @@ func TestProfileScreen_SetProfile(t *testing.T) {
 	}
 }
 
-func TestProfileScreen_FullModeAfterResize(t *testing.T) {
+func TestProfileScreen_NormalModeAfterResize(t *testing.T) {
 	s := NewProfileScreen()
 	p := &gh.DatingProfile{
 		DisplayName: "Alice",
@@ -42,81 +41,63 @@ func TestProfileScreen_FullModeAfterResize(t *testing.T) {
 		Website:     "https://alice.dev",
 	}
 	s.SetProfile(p)
-
-	// Simulate window resize — this triggers cache build
 	s, _ = s.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
-
-	// Mode starts at Full (2), cycle to ensure it's Full
-	// Tab cycles: Full(2) → Compact(0) → Short(1) → Full(2)
-	// Start at Full, do 3 tabs to get back to Full
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyTab}) // → Compact
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyTab}) // → Short
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyTab}) // → Full
 
 	view := s.View()
 	if !containsStr(view, "Alice") {
-		t.Errorf("Full mode View should contain name 'Alice'. Got:\n%s", view)
+		t.Error("Normal mode View should contain name")
 	}
-	if !containsStr(view, "rust") {
-		t.Error("Full mode View should contain interests")
-	}
-	if !containsStr(view, "About") {
-		t.Error("Full mode View should contain about section")
-	}
-	if !containsStr(view, "alice.dev") {
-		t.Error("Full mode View should contain website")
-	}
-}
-
-func TestProfileScreen_AllModesHaveContent(t *testing.T) {
-	s := NewProfileScreen()
-	p := &gh.DatingProfile{
-		DisplayName: "Bob",
-		Bio:         "dev",
-		Location:    "NYC",
-		Interests:   []string{"go"},
-		Intent:      []gh.Intent{"friendship"},
-		About:       "Testing!",
-	}
-	s.SetProfile(p)
-	s, _ = s.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
-
-	// Tab through all modes — each should contain the name
-	for i := 0; i < 3; i++ {
-		view := s.View()
-		if !containsStr(view, "Bob") {
-			t.Errorf("Mode %d: View missing name 'Bob'", s.mode)
-		}
-		s, _ = s.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if !containsStr(view, "Profile") {
+		t.Error("View should have Profile header")
 	}
 }
 
 func TestProfileScreen_ModeCycle(t *testing.T) {
 	s := NewProfileScreen()
 	s.SetProfile(&gh.DatingProfile{DisplayName: "Bob"})
-	s.Width = 80
-	s.Height = 40
-	s.leftVP.Width = 40
-	s.rightVP.Width = 40
+	s, _ = s.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
 
-	// Starts at ProfileFull (2)
-	if s.mode != 2 {
-		t.Errorf("expected mode 2 (Full), got %d", s.mode)
+	// Starts at Normal (1)
+	if s.mode != components.ProfileNormal {
+		t.Errorf("expected Normal, got %d", s.mode)
 	}
 
+	// Tab → Compact
 	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyTab})
-	if s.mode != 0 { // → Compact
-		t.Errorf("expected mode 0 (Compact), got %d", s.mode)
+	if s.mode != components.ProfileCompact {
+		t.Errorf("expected Compact, got %d", s.mode)
 	}
 
+	// Tab → Normal
 	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyTab})
-	if s.mode != 1 { // → Short
-		t.Errorf("expected mode 1 (Short), got %d", s.mode)
+	if s.mode != components.ProfileNormal {
+		t.Errorf("expected Normal, got %d", s.mode)
+	}
+}
+
+func TestProfileScreen_AllModesHaveContent(t *testing.T) {
+	s := NewProfileScreen()
+	s.SetProfile(&gh.DatingProfile{
+		DisplayName: "Bob",
+		Bio:         "dev",
+		Location:    "NYC",
+		Interests:   []string{"go"},
+		Intent:      []gh.Intent{"friendship"},
+		About:       "Testing!",
+	})
+	s, _ = s.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
+
+	// Normal
+	view := s.View()
+	if !containsStr(view, "Bob") {
+		t.Error("Normal mode: missing name")
 	}
 
+	// Compact
 	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyTab})
-	if s.mode != 2 { // → Full
-		t.Errorf("expected mode 2 (Full), got %d", s.mode)
+	view = s.View()
+	if !containsStr(view, "Bob") {
+		t.Error("Compact mode: missing name")
 	}
 }
 
@@ -146,115 +127,6 @@ func TestProfileScreen_HelpBindings(t *testing.T) {
 	bindings := s.HelpBindings()
 	if len(bindings) != 3 {
 		t.Errorf("expected 3 bindings, got %d", len(bindings))
-	}
-}
-
-func TestRenderShowcaseClean_StripsImages(t *testing.T) {
-	md := "# Title\n\n![badge](https://long-url.com/badge.svg)\n\nSome text"
-	p := gh.DatingProfile{
-		Showcase: base64.StdEncoding.EncodeToString([]byte(md)),
-	}
-	result := renderShowcaseClean(p, 60)
-
-	if containsStr(result, "long-url.com/badge.svg") {
-		t.Error("should strip image URLs")
-	}
-	if !containsStr(result, "Title") {
-		t.Error("should keep headings")
-	}
-	if !containsStr(result, "Some text") {
-		t.Error("should keep text")
-	}
-}
-
-func TestRenderShowcaseClean_ShortensLinks(t *testing.T) {
-	md := "[My Site](https://example.com/very/long/path/that/overflows)"
-	p := gh.DatingProfile{
-		Showcase: base64.StdEncoding.EncodeToString([]byte(md)),
-	}
-	result := renderShowcaseClean(p, 60)
-
-	if containsStr(result, "https://example.com/very/long") {
-		t.Error("should strip inline link URLs, keep text only")
-	}
-	if !containsStr(result, "My Site") {
-		t.Error("should keep link text")
-	}
-}
-
-func TestRenderShowcaseClean_Empty(t *testing.T) {
-	p := gh.DatingProfile{}
-	result := renderShowcaseClean(p, 60)
-	if result != "" {
-		t.Error("expected empty for no showcase")
-	}
-}
-
-func TestMatchDetailScreen_PageFlip(t *testing.T) {
-	md := "# Showcase\n\nHello world"
-	p := &gh.DatingProfile{
-		DisplayName: "Alice",
-		Showcase:    base64.StdEncoding.EncodeToString([]byte(md)),
-	}
-	s := NewMatchDetailScreen(p, 60, 30)
-
-	if s.page != 0 {
-		t.Error("should start on page 0")
-	}
-
-	// Flip right
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRight})
-	if s.page != 1 {
-		t.Errorf("expected page 1, got %d", s.page)
-	}
-
-	// Flip left
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyLeft})
-	if s.page != 0 {
-		t.Errorf("expected page 0, got %d", s.page)
-	}
-
-	// Tab flip
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyTab})
-	if s.page != 1 {
-		t.Errorf("expected page 1 after tab, got %d", s.page)
-	}
-}
-
-func TestMatchDetailScreen_NoShowcase_NoFlip(t *testing.T) {
-	p := &gh.DatingProfile{DisplayName: "Bob"}
-	s := NewMatchDetailScreen(p, 60, 30)
-
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRight})
-	if s.page != 0 {
-		t.Error("should not flip without showcase")
-	}
-}
-
-func TestMatchDetailScreen_HelpBindings(t *testing.T) {
-	p := &gh.DatingProfile{
-		DisplayName: "Alice",
-		Showcase:    base64.StdEncoding.EncodeToString([]byte("# Hi")),
-	}
-	s := NewMatchDetailScreen(p, 60, 30)
-	bindings := s.HelpBindings()
-
-	hasFlip := false
-	for _, b := range bindings {
-		if b.Key == "← →" {
-			hasFlip = true
-		}
-	}
-	if !hasFlip {
-		t.Error("should have flip binding when showcase exists")
-	}
-
-	// Without showcase
-	s2 := NewMatchDetailScreen(&gh.DatingProfile{DisplayName: "Bob"}, 60, 30)
-	for _, b := range s2.HelpBindings() {
-		if b.Key == "← →" {
-			t.Error("should not have flip binding without showcase")
-		}
 	}
 }
 

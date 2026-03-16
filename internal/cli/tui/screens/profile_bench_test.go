@@ -1,7 +1,6 @@
 package screens
 
 import (
-	"encoding/base64"
 	"testing"
 
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
@@ -18,18 +17,11 @@ var testProfile = gh.DatingProfile{
 	About:        "Looking for someone to debug life with",
 	Website:      "https://alice.dev",
 	Social:       []string{"https://twitter.com/alice"},
-	Showcase:     base64.StdEncoding.EncodeToString([]byte("# Alice\n\nRust developer\n\n## Stats\n\nSome stats here")),
 }
 
-func BenchmarkRenderProfileFull(b *testing.B) {
+func BenchmarkRenderProfileNormal(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		components.RenderProfile(testProfile, 60, components.ProfileFull)
-	}
-}
-
-func BenchmarkRenderProfileShort(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		components.RenderProfile(testProfile, 50, components.ProfileShort)
+		components.RenderProfile(testProfile, 60, components.ProfileNormal)
 	}
 }
 
@@ -37,23 +29,4 @@ func BenchmarkRenderProfileCompact(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		components.RenderProfile(testProfile, 80, components.ProfileCompact)
 	}
-}
-
-func BenchmarkRenderShowcase(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		renderShowcaseClean(testProfile, 60)
-	}
-}
-
-func BenchmarkRenderShowcaseVsRaw(b *testing.B) {
-	b.Run("glamour", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			renderShowcaseClean(testProfile, 60)
-		}
-	})
-	b.Run("raw_decode_only", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			components.DecodeShowcase(testProfile)
-		}
-	})
 }

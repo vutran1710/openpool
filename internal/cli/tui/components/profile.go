@@ -14,9 +14,8 @@ import (
 type ProfileMode int
 
 const (
-	ProfileCompact ProfileMode = iota // single line: name · bio · location
-	ProfileShort                      // card: header, interests, intent, about (truncated)
-	ProfileFull                       // page 1 of brochure: everything except showcase
+	ProfileCompact ProfileMode = iota // name, location, bio (slogan)
+	ProfileNormal                     // card: header, interests, intent, about, links
 )
 
 // RenderProfile renders a DatingProfile in the specified mode.
@@ -24,10 +23,8 @@ func RenderProfile(p gh.DatingProfile, width int, mode ProfileMode) string {
 	switch mode {
 	case ProfileCompact:
 		return renderCompact(p, width)
-	case ProfileShort:
-		return renderShort(p, width)
-	case ProfileFull:
-		return renderFull(p, width)
+	case ProfileNormal:
+		return renderNormal(p, width)
 	}
 	return ""
 }
@@ -85,29 +82,32 @@ func DecodeShowcase(p gh.DatingProfile) string {
 // ── Compact: single line ──
 
 func renderCompact(p gh.DatingProfile, width int) string {
-	name := theme.TextStyle.Render(p.DisplayName)
-	if name == "" {
+	name := theme.BoldStyle.Render(p.DisplayName)
+	if p.DisplayName == "" {
 		name = theme.DimStyle.Render("anonymous")
 	}
 
-	parts := []string{name}
-	if p.Bio != "" {
-		parts = append(parts, theme.DimStyle.Render(truncate(p.Bio, 35)))
-	}
+	var lines []string
+	lines = append(lines, name)
+
 	if p.Location != "" {
-		parts = append(parts, theme.DimStyle.Render("· "+p.Location))
+		lines = append(lines, theme.DimStyle.Render("📍 "+p.Location))
 	}
 
-	line := strings.Join(parts, "  ")
-	if len(line) > width {
-		line = line[:width-3] + "..."
+	if p.Bio != "" {
+		bio := p.Bio
+		if len(bio) > width-4 {
+			bio = bio[:width-7] + "..."
+		}
+		lines = append(lines, theme.TextStyle.Render(bio))
 	}
-	return line
+
+	return strings.Join(lines, "\n")
 }
 
-// ── Short: card without showcase/links ──
+// ── Normal: card with all visible info ──
 
-func renderShort(p gh.DatingProfile, width int) string {
+func renderNormal(p gh.DatingProfile, width int) string {
 	if width < 30 {
 		width = 44
 	}
@@ -132,57 +132,18 @@ func renderShort(p gh.DatingProfile, width int) string {
 	}
 
 	if p.About != "" {
-		about := truncate(p.About, inner*3)
-		sections = append(sections, theme.DimStyle.Render("About")+"\n"+theme.TextStyle.Render(about))
-	}
-
-	return card.Render(strings.Join(sections, "\n\n"))
-}
-
-// ── Full: page 1 of brochure ──
-
-func renderFull(p gh.DatingProfile, width int) string {
-	if width < 30 {
-		width = 56
-	}
-
-	card := lipgloss.NewStyle().
-		Padding(1, 2)
-
-	inner := width - 4
-	var sections []string
-
-	// Header with avatar placeholder
-	sections = append(sections, profileHeader(p, inner))
-
-	// Interests
-	if len(p.Interests) > 0 {
-		sections = append(sections, profileInterests(p.Interests))
-	}
-
-	// Intent + gender
-	if badges := profileBadges(p.Intent, p.GenderTarget); badges != "" {
-		sections = append(sections, badges)
-	}
-
-	// Full about (word wrapped)
-	if p.About != "" {
 		lines := wordWrap(p.About, inner)
 		sections = append(sections, theme.DimStyle.Render("About")+"\n"+theme.TextStyle.Render(strings.Join(lines, "\n")))
 	}
 
-	// Links
 	if links := profileLinks(p.Website, p.Social); links != "" {
 		sections = append(sections, links)
 	}
 
-	// Showcase indicator
-	if p.Showcase != "" {
-		sections = append(sections, theme.DimStyle.Render("→ Page 2: Showcase available"))
-	}
-
 	return card.Render(strings.Join(sections, "\n\n"))
 }
+
+
 
 // ── Shared section renderers ──
 

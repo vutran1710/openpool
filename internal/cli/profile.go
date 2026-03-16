@@ -147,18 +147,8 @@ func newProfileShowCmd() *cobra.Command {
 				return fmt.Errorf("parsing profile: %w", err)
 			}
 
-			// Render full profile
 			fmt.Println()
-			fmt.Println(components.RenderProfile(profile, 60, components.ProfileFull))
-
-			// Render showcase if available
-			if components.HasShowcase(profile) {
-				fmt.Println()
-				fmt.Println(dim.Render("  ── Showcase ──"))
-				fmt.Println()
-				fmt.Println(components.RenderShowcase(profile, 60))
-			}
-
+			fmt.Println(components.RenderProfile(profile, 60, components.ProfileNormal))
 			fmt.Println()
 			return nil
 		},

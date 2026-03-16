@@ -22,7 +22,7 @@ func TestRenderFull_WithRealData(t *testing.T) {
 
 	widths := []int{30, 40, 50, 60, 80, 100}
 	for _, w := range widths {
-		result := RenderProfile(p, w, ProfileFull)
+		result := RenderProfile(p, w, ProfileNormal)
 		if result == "" {
 			t.Errorf("Full mode at width %d: empty output", w)
 			continue
@@ -62,8 +62,8 @@ func TestRenderAllModes_NonEmpty(t *testing.T) {
 		Website:      "https://alice.dev",
 	}
 
-	modes := []ProfileMode{ProfileCompact, ProfileShort, ProfileFull}
-	modeNames := []string{"Compact", "Short", "Full"}
+	modes := []ProfileMode{ProfileCompact, ProfileNormal}
+	modeNames := []string{"Compact", "Normal"}
 
 	for i, mode := range modes {
 		result := RenderProfile(p, 60, mode)
@@ -91,7 +91,7 @@ func TestRenderFull_ContentLength(t *testing.T) {
 	}
 
 	compact := RenderProfile(p, 60, ProfileCompact)
-	full := RenderProfile(p, 60, ProfileFull)
+	full := RenderProfile(p, 60, ProfileNormal)
 
 	if len(full) <= len(compact) {
 		t.Errorf("Full mode (%d chars) should be longer than Compact (%d chars)", len(full), len(compact))

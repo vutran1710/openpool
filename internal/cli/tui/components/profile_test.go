@@ -60,7 +60,7 @@ func TestRenderProfile_Compact_Truncates(t *testing.T) {
 // --- Short mode ---
 
 func TestRenderProfile_Short_Rich(t *testing.T) {
-	out := RenderProfile(richProfile(), 50, ProfileShort)
+	out := RenderProfile(richProfile(), 50, ProfileNormal)
 	if !contains(out, "Alice Chen") {
 		t.Error("expected name")
 	}
@@ -77,7 +77,7 @@ func TestRenderProfile_Short_Rich(t *testing.T) {
 
 func TestRenderProfile_Short_NoInterests(t *testing.T) {
 	p := gh.DatingProfile{DisplayName: "Bob", Bio: "dev"}
-	out := RenderProfile(p, 50, ProfileShort)
+	out := RenderProfile(p, 50, ProfileNormal)
 	if !contains(out, "Bob") {
 		t.Error("expected name")
 	}
@@ -85,17 +85,17 @@ func TestRenderProfile_Short_NoInterests(t *testing.T) {
 }
 
 func TestRenderProfile_Short_Minimal(t *testing.T) {
-	out := RenderProfile(minimalProfile(), 50, ProfileShort)
+	out := RenderProfile(minimalProfile(), 50, ProfileNormal)
 	if !contains(out, "eve") {
 		t.Error("expected name")
 	}
 	// No interests, intent, about — should still render
 }
 
-// --- Full mode ---
+// --- Normal mode (detailed) ---
 
-func TestRenderProfile_Full_Rich(t *testing.T) {
-	out := RenderProfile(richProfile(), 60, ProfileFull)
+func TestRenderProfile_Normal_Rich(t *testing.T) {
+	out := RenderProfile(richProfile(), 60, ProfileNormal)
 	if !contains(out, "Alice Chen") {
 		t.Error("expected name")
 	}
@@ -105,26 +105,15 @@ func TestRenderProfile_Full_Rich(t *testing.T) {
 	if !contains(out, "twitter") {
 		t.Error("expected social links")
 	}
-	if !contains(out, "Showcase available") {
-		t.Error("expected showcase indicator")
-	}
 }
 
-func TestRenderProfile_Full_NoShowcase(t *testing.T) {
-	p := gh.DatingProfile{DisplayName: "Bob", Bio: "dev", Location: "NYC"}
-	out := RenderProfile(p, 60, ProfileFull)
-	if contains(out, "Showcase") {
-		t.Error("should not show showcase indicator without showcase data")
-	}
-}
-
-func TestRenderProfile_Full_WithLinks(t *testing.T) {
+func TestRenderProfile_Normal_WithLinks(t *testing.T) {
 	p := gh.DatingProfile{
 		DisplayName: "Charlie",
 		Website:     "https://charlie.dev",
 		Social:      []string{"https://twitter.com/charlie"},
 	}
-	out := RenderProfile(p, 60, ProfileFull)
+	out := RenderProfile(p, 60, ProfileNormal)
 	if !contains(out, "charlie.dev") {
 		t.Error("expected website")
 	}
@@ -139,7 +128,7 @@ func TestRenderProfile_Full_AllBadges(t *testing.T) {
 		Intent:       []gh.Intent{gh.IntentDating, gh.IntentYolo, gh.IntentFriendship, gh.IntentNetworking},
 		GenderTarget: []gh.GenderTarget{gh.GenderDev, gh.GenderWomen, gh.GenderMen, gh.GenderNonBinary},
 	}
-	out := RenderProfile(p, 60, ProfileFull)
+	out := RenderProfile(p, 60, ProfileNormal)
 	if !contains(out, "dating") {
 		t.Error("expected dating intent")
 	}
