@@ -51,7 +51,7 @@ func (c Checkbox) Update(msg tea.Msg) (Checkbox, tea.Cmd) {
 				c.Cursor++
 			}
 		case " ":
-			if c.Cursor < len(c.Items) {
+			if c.Cursor < len(c.Items) && !c.Items[c.Cursor].Muted {
 				c.Items[c.Cursor].Checked = !c.Items[c.Cursor].Checked
 			}
 		case "enter":
@@ -65,9 +65,11 @@ func (c Checkbox) Update(msg tea.Msg) (Checkbox, tea.Cmd) {
 				return CheckboxSubmitMsg{Selected: selected}
 			}
 		case "a":
-			// Select all
+			// Select all (except muted/empty)
 			for i := range c.Items {
-				c.Items[i].Checked = true
+				if !c.Items[i].Muted {
+					c.Items[i].Checked = true
+				}
 			}
 		case "n":
 			// Select none

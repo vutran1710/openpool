@@ -833,7 +833,13 @@ func fetchGitHubProfileForJoin(ctx context.Context, token string) (*gh.DatingPro
 		return nil, "", fmt.Errorf("GitHub API %d", resp.StatusCode)
 	}
 	var user struct {
-		Name, Login, Bio, Location, AvatarURL, Blog, TwitterUsername string
+		Name            string `json:"name"`
+		Login           string `json:"login"`
+		Bio             string `json:"bio"`
+		Location        string `json:"location"`
+		AvatarURL       string `json:"avatar_url"`
+		Blog            string `json:"blog"`
+		TwitterUsername string `json:"twitter_username"`
 	}
 	json.NewDecoder(resp.Body).Decode(&user)
 	name := user.Name
