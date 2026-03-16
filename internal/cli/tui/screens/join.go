@@ -110,9 +110,8 @@ type JoinScreen struct {
 	log           []string
 
 	// source config
-	includeShowcase bool
 	datingProfile   string // profile name (e.g. "default" → dating/default.md), empty = skip
-	configCursor    int    // 0=showcase toggle, 1=dating name input, 2=submit
+	configCursor    int    // 0=dating name input, 1=submit
 	editingDating   bool   // true when typing in the dating profile name
 
 	// dating profile creation
@@ -156,7 +155,6 @@ func NewJoinScreen(poolName, poolRepo, operatorPub, relayURL, username, userID s
 		username:        username,
 		userID:          userID,
 		templateVals:    make(map[string]string),
-		includeShowcase: true,
 		logVP:           vp,
 		aboutTA:         ta,
 	}
@@ -179,7 +177,7 @@ func (s JoinScreen) Update(msg tea.Msg) (JoinScreen, tea.Cmd) {
 				case "enter":
 					s.datingProfile = strings.TrimSpace(s.input.Value())
 					s.editingDating = false
-					s.configCursor = 2
+					s.configCursor = 1
 				case "esc":
 					s.editingDating = false
 					s.input.Blur()
@@ -196,20 +194,16 @@ func (s JoinScreen) Update(msg tea.Msg) (JoinScreen, tea.Cmd) {
 					s.configCursor--
 				}
 			case "down", "j":
-				if s.configCursor < 2 {
+				if s.configCursor < 1 {
 					s.configCursor++
 				}
-			case " ":
-				if s.configCursor == 0 {
-					s.includeShowcase = !s.includeShowcase
-				}
 			case "enter":
-				if s.configCursor == 1 {
+				if s.configCursor == 0 {
 					s.editingDating = true
 					s.input.Focus()
 					return s, textinput.Blink
 				}
-				if s.configCursor == 2 {
+				if s.configCursor == 1 {
 					s.step = joinFetchingSources
 					s.addLog(theme.DimStyle.Render("Fetching profile sources..."))
 					return s, tea.Batch(s.fetchSources, s.spinner.Tick)
@@ -556,13 +550,6 @@ func (s JoinScreen) configSourcesView() string {
 	// GitHub Profile (mandatory, locked)
 	out += row(-1, theme.GreenStyle.Render("[✓]"), "GitHub Profile", "always included")
 
-	// Showcase toggle
-	showcaseCheck := theme.DimStyle.Render("[ ]")
-	if s.includeShowcase {
-		showcaseCheck = theme.GreenStyle.Render("[✓]")
-	}
-	out += row(0, showcaseCheck, "Showcase", s.username+"/README.md")
-
 	// Dating profile
 	if s.editingDating {
 		cur := theme.Cursor()
@@ -576,11 +563,11 @@ func (s JoinScreen) configSourcesView() string {
 			datingCheck = theme.GreenStyle.Render("[✓]")
 			datingDesc = s.username + "/dating/" + s.datingProfile + ".md"
 		}
-		out += row(1, datingCheck, "Dating Profile", datingDesc)
+		out += row(0, datingCheck, "Dating Profile", datingDesc)
 	}
 
 	out += "\n"
-	out += row(2, " ", "Continue →", "")
+	out += row(1, " ", "Continue →", "")
 	out += "\n"
 	out += theme.DimStyle.Render("  You can fine-tune individual fields in the next step")
 
@@ -667,12 +654,6 @@ func (s JoinScreen) buildFieldToggle() components.Checkbox {
 	} else {
 		add("social", "Social", "")
 	}
-	add("showcase", "Showcase", func() string {
-		if p.Showcase != "" {
-			return fmt.Sprintf("(%d chars, base64)", len(p.Showcase))
-		}
-		return ""
-	}())
 	if len(p.Interests) > 0 {
 		add("interests", "Interests", strings.Join(p.Interests, ", "))
 	} else {
@@ -716,9 +697,6 @@ func (s *JoinScreen) applyFieldSelection(selected []components.CheckboxItem) {
 	}
 	if !enabled["social"] {
 		s.profile.Social = nil
-	}
-	if !enabled["showcase"] {
-		s.profile.Showcase = ""
 	}
 	if !enabled["interests"] {
 		s.profile.Interests = nil
@@ -956,14 +934,6 @@ func (s JoinScreen) fetchSources() tea.Msg {
 		ghLogin = login
 	}
 
-	// Showcase from identity repo
-	if s.includeShowcase {
-		showcase, err := fetchIdentityReadmeForJoin(s.username)
-		if err == nil && showcase != "" {
-			profiles = append(profiles, &gh.DatingProfile{Showcase: showcase})
-		}
-	}
-
 	// Dating profile
 	datingMissing := false
 	if s.datingProfile != "" {
@@ -1180,19 +1150,6 @@ func fetchGitHubProfileForJoin(ctx context.Context, token string) (*gh.DatingPro
 	}, user.Login, nil
 }
 
-func fetchIdentityReadmeForJoin(username string) (string, error) {
-	repoURL := gitrepo.EnsureGitURL(username + "/" + username)
-	repo, err := gitrepo.Clone(repoURL)
-	if err != nil {
-		return "", err
-	}
-	data, err := repo.ReadFile("README.md")
-	if err != nil {
-		return "", err
-	}
-	return b64Encode(data), nil
-}
-
 func fetchDatingProfileForJoin(username, profileName string) (*datingReadmeResult, error) {
 	repoURL := gitrepo.EnsureGitURL(username + "/dating")
 	repo, err := gitrepo.Clone(repoURL)
@@ -1292,9 +1249,6 @@ func mergeProfilesForJoin(profiles ...*gh.DatingProfile) *gh.DatingProfile {
 		}
 		if len(p.Social) > 0 {
 			merged.Social = p.Social
-		}
-		if p.Showcase != "" {
-			merged.Showcase = p.Showcase
 		}
 		if len(p.Interests) > 0 {
 			merged.Interests = p.Interests

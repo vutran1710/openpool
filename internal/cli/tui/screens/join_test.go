@@ -27,7 +27,7 @@ func TestJoin_ConfigSources_Continue(t *testing.T) {
 	s := newTestJoinScreen()
 
 	// Navigate to Continue and press enter
-	s.configCursor = 2
+	s.configCursor = 1
 	s, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if s.step != joinFetchingSources {
 		t.Errorf("expected joinFetchingSources, got %d", s.step)
@@ -37,19 +37,6 @@ func TestJoin_ConfigSources_Continue(t *testing.T) {
 	}
 }
 
-func TestJoin_ConfigSources_ToggleShowcase(t *testing.T) {
-	s := newTestJoinScreen()
-	if !s.includeShowcase {
-		t.Error("expected showcase enabled by default")
-	}
-
-	// Toggle showcase off
-	s.configCursor = 0
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
-	if s.includeShowcase {
-		t.Error("expected showcase disabled after toggle")
-	}
-}
 
 func TestJoin_SourcesFetched_MovesToToggle(t *testing.T) {
 	s := newTestJoinScreen()
