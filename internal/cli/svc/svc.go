@@ -1,5 +1,5 @@
 // Package svc defines service interfaces shared between CLI and TUI packages.
-// This breaks the circular dependency: screens can import svc without importing cli.
+// Each service has a single responsibility and does not reach into another's domain.
 package svc
 
 import (
@@ -7,27 +7,32 @@ import (
 	"crypto/ed25519"
 
 	"github.com/vutran1710/dating-dev/internal/cli/config"
+	gh "github.com/vutran1710/dating-dev/internal/github"
 	"github.com/vutran1710/dating-dev/internal/gitrepo"
 )
 
-// Services bundles all external dependencies.
+// Services bundles all service dependencies.
 type Services struct {
-	Config ConfigService
-	Crypto CryptoService
-	Git    GitService
-	GitHub GitHubService
+	Config      ConfigService
+	Crypto      CryptoService
+	Git         GitService
+	GitHub      GitHubService
+	Profile     ProfileService
+	Persistence PersistenceService
+	Polling     PollingService
 }
 
-// ConfigService abstracts config file operations.
+// ── Config: read/write setting.toml ──
+
 type ConfigService interface {
 	Load() (*config.Config, error)
 	Save(cfg *config.Config) error
 	Dir() string
 	KeysDir() string
-	ProfilePath() string
 }
 
-// CryptoService abstracts cryptographic operations.
+// ── Crypto: encrypt/decrypt/sign ──
+
 type CryptoService interface {
 	GenerateKeyPair(dir string) (ed25519.PublicKey, ed25519.PrivateKey, error)
 	LoadKeyPair(dir string) (ed25519.PublicKey, ed25519.PrivateKey, error)
@@ -37,7 +42,8 @@ type CryptoService interface {
 	Sign(priv ed25519.PrivateKey, message []byte) string
 }
 
-// GitService abstracts git repository operations.
+// ── Git: clone/fetch repos ──
+
 type GitService interface {
 	Clone(repoURL string) (*gitrepo.Repo, error)
 	CloneRegistry(repoURL string) (*gitrepo.Repo, error)
@@ -46,7 +52,8 @@ type GitService interface {
 	FileExistsRaw(ctx context.Context, repoRef, branch, path string) bool
 }
 
-// GitHubUser holds basic GitHub user info.
+// ── GitHub: API calls ──
+
 type GitHubUser struct {
 	UserID      string
 	Username    string
@@ -54,7 +61,6 @@ type GitHubUser struct {
 	Token       string
 }
 
-// GitHubService abstracts GitHub API operations.
 type GitHubService interface {
 	GetUser(ctx context.Context, token string) (*GitHubUser, error)
 	ResolveToken(promptFn func(string) string) (string, error)
@@ -64,4 +70,58 @@ type GitHubService interface {
 	CreateRepo(ctx context.Context, token, name string, private bool) error
 	CommitFile(ctx context.Context, token, repo, path, message string, content []byte) error
 	RepoExists(ctx context.Context, token, repo string) bool
+}
+
+// ── Profile: read/write profile files ──
+
+type ProfileService interface {
+	// Global profile (all sources merged)
+	LoadGlobal() (*gh.DatingProfile, error)
+	SaveGlobal(p *gh.DatingProfile) error
+
+	// Per-pool profile (filtered fields submitted to a specific pool)
+	LoadPool(poolName string) (*gh.DatingProfile, error)
+	SavePool(poolName string, p *gh.DatingProfile) error
+
+	// Paths
+	GlobalPath() string
+	PoolPath(poolName string) string
+}
+
+// ── Persistence: orchestrates writes across config + profiles ──
+
+type PersistenceService interface {
+	// Pool registration lifecycle
+	SavePendingPool(pool config.PoolConfig) error
+	MarkPoolActive(poolName, userHash string) error
+	MarkPoolRejected(poolName string) error
+
+	// Token
+	SaveEncryptedToken(encryptedHex string) error
+	DecryptToken() (string, error)
+
+	// User identity
+	SaveUserIdentity(displayName, username, provider, providerUserID string) error
+
+	// Registry
+	AddRegistry(repoURL string) error
+}
+
+// ── Polling: background status checks ──
+
+// StatusUpdate is emitted when a pending pool's status changes.
+type StatusUpdate struct {
+	PoolName string
+	Status   string // "active" or "rejected"
+}
+
+type PollingService interface {
+	// Start begins background polling. Updates are sent to the channel.
+	Start(ctx context.Context, updates chan<- StatusUpdate)
+
+	// Stop halts background polling.
+	Stop()
+
+	// PollOnce runs a single poll cycle (for testing or manual trigger).
+	PollOnce(ctx context.Context) *StatusUpdate
 }
