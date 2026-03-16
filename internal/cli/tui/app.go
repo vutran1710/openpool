@@ -591,7 +591,10 @@ func pollPendingPools() tea.Msg {
 			if resp != nil {
 				resp.Body.Close()
 			}
-			continue
+			// Issue not found or API error — remove stale pool entry
+			cfg.Pools = append(cfg.Pools[:i], cfg.Pools[i+1:]...)
+			cfg.Save()
+			return pendingPollResultMsg{}
 		}
 
 		var issue struct {
