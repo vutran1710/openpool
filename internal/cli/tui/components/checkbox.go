@@ -24,10 +24,11 @@ type CheckboxSubmitMsg struct {
 
 // Checkbox is a multi-select checkbox list component.
 type Checkbox struct {
-	Items  []CheckboxItem
-	Cursor int
-	Title  string
-	Width  int
+	Items    []CheckboxItem
+	Cursor   int
+	Title    string
+	Subtitle string
+	Width    int
 }
 
 func NewCheckbox(title string, items []CheckboxItem) Checkbox {
@@ -82,7 +83,11 @@ func (c Checkbox) View() string {
 	var out string
 
 	if c.Title != "" {
-		out += theme.BoldStyle.Render(c.Title) + "\n\n"
+		out += theme.BoldStyle.Render(c.Title) + "\n"
+		if c.Subtitle != "" {
+			out += theme.DimStyle.Render(c.Subtitle) + "\n"
+		}
+		out += "\n"
 	}
 
 	// Find max label width for alignment
