@@ -284,14 +284,14 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.status == "active" {
 				return a, func() tea.Msg {
 					return components.ToastMsg{
-						Text:  "✓ Registration accepted for " + msg.poolName + "!",
+						Text:  "Registration accepted for " + msg.poolName + "!",
 						Level: components.ToastSuccess,
 					}
 				}
 			} else if msg.status == "rejected" {
 				return a, func() tea.Msg {
 					return components.ToastMsg{
-						Text:  "✗ Registration rejected for " + msg.poolName,
+						Text:  "Registration rejected for " + msg.poolName,
 						Level: components.ToastError,
 					}
 				}
