@@ -416,20 +416,25 @@ func (c *Client) readLoop() {
 			if c.onRawMsg != nil {
 				c.onRawMsg(*f)
 			}
-			if f.Encrypted {
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				key, err := c.getOrDeriveKey(ctx, f.SourceHash)
-				cancel()
-				if err == nil {
-					if plain, err := crypto.OpenMessage(key, f.Body); err == nil {
-						f.Body = plain
-						f.Encrypted = false
+			// Handle in goroutine: decrypting an encrypted message may need to
+			// send a KeyRequest and wait for a KeyResponse, which arrives on
+			// this same read loop. Blocking here would cause a deadlock.
+			go func(msg protocol.Message) {
+				if msg.Encrypted {
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					key, err := c.getOrDeriveKey(ctx, msg.SourceHash)
+					cancel()
+					if err == nil {
+						if plain, err := crypto.OpenMessage(key, msg.Body); err == nil {
+							msg.Body = plain
+							msg.Encrypted = false
+						}
 					}
 				}
-			}
-			if c.onMsg != nil {
-				c.onMsg(*f)
-			}
+				if c.onMsg != nil {
+					c.onMsg(msg)
+				}
+			}(*f)
 		case *protocol.Error:
 			if c.onError != nil {
 				c.onError(*f)

@@ -226,8 +226,8 @@ func (s *Session) handleMessage(msg *protocol.Message) {
 	msgID := generateMsgID()
 
 	// Route to target
-	targetConn := s.server.hub.Send(msg.TargetHash)
-	if targetConn != nil {
+	targetSession := s.server.hub.Lookup(msg.TargetHash)
+	if targetSession != nil {
 		outMsg := protocol.Message{
 			Type:       protocol.TypeMsg,
 			MsgID:      msgID,
@@ -238,10 +238,7 @@ func (s *Session) handleMessage(msg *protocol.Message) {
 			Ts:         msg.Ts,
 			Encrypted:  msg.Encrypted,
 		}
-		data, err := protocol.Encode(outMsg)
-		if err == nil {
-			targetConn.WriteMessage(websocket.BinaryMessage, data)
-		}
+		targetSession.sendFrame(outMsg)
 	}
 	// TODO: queue for offline delivery
 }
