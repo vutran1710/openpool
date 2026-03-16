@@ -268,47 +268,13 @@ func (s JoinScreen) Update(msg tea.Msg) (JoinScreen, tea.Cmd) {
 		}
 		s.issueNumber = msg.number
 		s.addLog(theme.GreenStyle.Render("✓ ") + fmt.Sprintf("Registration issue #%d created", msg.number))
-		s.addLog(theme.DimStyle.Render("  Waiting for GitHub Action to process..."))
-		s.step = joinPolling
-		return s, tea.Tick(5*time.Second, func(time.Time) tea.Msg {
-			return s.pollIssue()
-		})
-
-	case pollResultMsg:
-		if msg.err != nil {
-			s.addLog(theme.DimStyle.Render("  Poll error: " + msg.err.Error()))
-			// Retry
-			return s, tea.Tick(5*time.Second, func(time.Time) tea.Msg {
-				return s.pollIssue()
-			})
-		}
-		if msg.state == "open" {
-			return s, tea.Tick(5*time.Second, func(time.Time) tea.Msg {
-				return s.pollIssue()
-			})
-		}
-		if msg.reason == "completed" {
-			s.addLog(theme.GreenStyle.Render("✓ ") + "Registration accepted!")
-			s.step = joinPostReg
-			s.addLog(theme.DimStyle.Render("  Finalizing..."))
-			return s, tea.Batch(s.postRegistration, s.spinner.Tick)
-		}
-		// Rejected
-		s.step = joinError
-		s.errMsg = "Registration was rejected by the pool operator"
-		s.addLog(theme.RedStyle.Render("✗ ") + "Registration rejected")
-		return s, nil
-
-	case postRegMsg:
-		if msg.err != nil {
-			s.addLog(theme.AmberStyle.Render("⚠ ") + "Post-registration: " + msg.err.Error())
-		} else {
-			s.userHash = msg.userHash
-			s.addLog(theme.GreenStyle.Render("✓ ") + "User hash: " + msg.userHash)
-		}
-		s.addLog(theme.GreenStyle.Render("✓ ") + "Joined " + s.poolName + "!")
+		s.addLog(theme.DimStyle.Render("  Processing will continue in background"))
 		s.addLog("")
 		s.addLog(theme.DimStyle.Render("  Press enter to continue"))
+
+		// Save pool as pending immediately
+		s.savePending()
+
 		s.step = joinDone
 		return s, nil
 
@@ -349,10 +315,6 @@ func (s JoinScreen) View() string {
 		active = fmt.Sprintf("  %s Encrypting profile...", s.spinner.View())
 	case joinSubmitting:
 		active = fmt.Sprintf("  %s Submitting registration...", s.spinner.View())
-	case joinPolling:
-		active = fmt.Sprintf("  %s Waiting for processing...", s.spinner.View())
-	case joinPostReg:
-		active = fmt.Sprintf("  %s Finalizing registration...", s.spinner.View())
 	case joinDone:
 		active = ""
 	case joinError:
@@ -499,6 +461,24 @@ func (s *JoinScreen) applyFieldSelection(selected []components.CheckboxItem) {
 	if !enabled["about"] {
 		s.profile.About = ""
 	}
+}
+
+func (s JoinScreen) savePending() {
+	cfg, err := config.Load()
+	if err != nil {
+		return
+	}
+	cfg.AddPool(config.PoolConfig{
+		Name:           s.poolName,
+		Repo:           s.poolRepo,
+		OperatorPubKey: s.operatorPub,
+		RelayURL:       s.relayURL,
+		Status:         "pending",
+	})
+	if cfg.Active == "" {
+		cfg.Active = s.poolName
+	}
+	cfg.Save()
 }
 
 // --- async commands ---

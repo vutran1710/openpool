@@ -139,19 +139,16 @@ func TestJoin_TemplateError_UsesDefault(t *testing.T) {
 	}
 }
 
-func TestJoin_IssueCreated_StartsPoll(t *testing.T) {
+func TestJoin_IssueCreated_SavesPendingAndDone(t *testing.T) {
 	s := newTestJoinScreen()
 	s.step = joinSubmitting
 
-	s, cmd := s.Update(issueCreatedMsg{number: 42})
-	if s.step != joinPolling {
-		t.Errorf("expected joinPolling, got %d", s.step)
+	s, _ = s.Update(issueCreatedMsg{number: 42})
+	if s.step != joinDone {
+		t.Errorf("expected joinDone (saves pending, returns immediately), got %d", s.step)
 	}
 	if s.issueNumber != 42 {
 		t.Errorf("expected issue 42, got %d", s.issueNumber)
-	}
-	if cmd == nil {
-		t.Error("expected poll command")
 	}
 }
 
@@ -162,55 +159,6 @@ func TestJoin_IssueCreateError(t *testing.T) {
 	s, _ = s.Update(issueCreatedMsg{err: fmt.Errorf("403 forbidden")})
 	if s.step != joinError {
 		t.Errorf("expected joinError, got %d", s.step)
-	}
-}
-
-func TestJoin_PollCompleted_MovesToPostReg(t *testing.T) {
-	s := newTestJoinScreen()
-	s.step = joinPolling
-
-	s, cmd := s.Update(pollResultMsg{state: "closed", reason: "completed"})
-	if s.step != joinPostReg {
-		t.Errorf("expected joinPostReg, got %d", s.step)
-	}
-	if cmd == nil {
-		t.Error("expected post-registration command")
-	}
-}
-
-func TestJoin_PollRejected(t *testing.T) {
-	s := newTestJoinScreen()
-	s.step = joinPolling
-
-	s, _ = s.Update(pollResultMsg{state: "closed", reason: "not_planned"})
-	if s.step != joinError {
-		t.Errorf("expected joinError, got %d", s.step)
-	}
-}
-
-func TestJoin_PollOpen_Retries(t *testing.T) {
-	s := newTestJoinScreen()
-	s.step = joinPolling
-
-	s, cmd := s.Update(pollResultMsg{state: "open"})
-	if s.step != joinPolling {
-		t.Errorf("expected still joinPolling, got %d", s.step)
-	}
-	if cmd == nil {
-		t.Error("expected retry command")
-	}
-}
-
-func TestJoin_PostReg_Done(t *testing.T) {
-	s := newTestJoinScreen()
-	s.step = joinPostReg
-
-	s, _ = s.Update(postRegMsg{userHash: "abc123"})
-	if s.step != joinDone {
-		t.Errorf("expected joinDone, got %d", s.step)
-	}
-	if s.userHash != "abc123" {
-		t.Errorf("expected hash abc123, got %s", s.userHash)
 	}
 }
 

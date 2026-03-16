@@ -1,10 +1,17 @@
 package tui
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/screens"
+	"github.com/vutran1710/dating-dev/internal/crypto"
 )
 
 type activeScreen int
@@ -72,7 +79,12 @@ func newApp(userName, userHash, pool, registry string, poolStatuses map[string]s
 }
 
 func (a app) Init() tea.Cmd {
-	return tea.Batch(inputInit(), a.statusBar.Heart.Tick())
+	cmds := []tea.Cmd{inputInit(), a.statusBar.Heart.Tick()}
+	// Start background polling for pending pools
+	cmds = append(cmds, tea.Tick(10*time.Second, func(time.Time) tea.Msg {
+		return pendingPollTickMsg{}
+	}))
+	return tea.Batch(cmds...)
 }
 
 func (a *app) updateHelp() {
@@ -199,19 +211,59 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.PoolName != "" {
 			a.pool = msg.PoolName
 			a.statusBar.Pool = msg.PoolName
-			// Refresh pools screen
-			a.pools = screens.NewPoolsScreen(a.registry, map[string]string{msg.PoolName: "active"})
+			// Refresh pools screen with pending status
+			cfg, _ := config.Load()
+			poolStatuses := make(map[string]string)
+			if cfg != nil {
+				for _, p := range cfg.Pools {
+					s := p.Status
+					if s == "" {
+						s = "active"
+					}
+					poolStatuses[p.Name] = s
+				}
+			}
+			a.pools = screens.NewPoolsScreen(a.registry, poolStatuses)
 			a.pools.Width = a.width
 			a.pools.Height = a.height
 		}
-		a.screen = screenPools
+		a.screen = screenHome
 		a.updateHelp()
 		if msg.PoolName != "" {
 			return a, func() tea.Msg {
-				return components.ToastMsg{Text: "Joined " + msg.PoolName + "!", Level: components.ToastSuccess}
+				return components.ToastMsg{
+					Text:  "Registration submitted for " + msg.PoolName + " — we'll notify you when it's processed",
+					Level: components.ToastInfo,
+				}
 			}
 		}
 		return a, nil
+
+	case pendingPollResultMsg:
+		if msg.poolName != "" {
+			if msg.status == "active" {
+				return a, func() tea.Msg {
+					return components.ToastMsg{
+						Text:  "✓ Registration accepted for " + msg.poolName + "!",
+						Level: components.ToastSuccess,
+					}
+				}
+			} else if msg.status == "rejected" {
+				return a, func() tea.Msg {
+					return components.ToastMsg{
+						Text:  "✗ Registration rejected for " + msg.poolName,
+						Level: components.ToastError,
+					}
+				}
+			}
+		}
+		// Schedule next poll
+		return a, tea.Tick(30*time.Second, func(time.Time) tea.Msg {
+			return pendingPollTickMsg{}
+		})
+
+	case pendingPollTickMsg:
+		return a, pollPendingPools
 
 	case components.HeartTickMsg:
 		var cmd tea.Cmd
@@ -411,6 +463,68 @@ func countLines(s string) int {
 		}
 	}
 	return n
+}
+
+// --- background polling for pending pools ---
+
+type pendingPollTickMsg struct{}
+
+type pendingPollResultMsg struct {
+	poolName string
+	status   string // "active", "rejected", ""
+}
+
+func pollPendingPools() tea.Msg {
+	cfg, err := config.Load()
+	if err != nil {
+		return pendingPollResultMsg{}
+	}
+
+	_, priv, err := crypto.LoadKeyPair(config.KeysDir())
+	if err != nil {
+		return pendingPollResultMsg{}
+	}
+
+	token, err := cfg.DecryptToken(priv)
+	if err != nil {
+		return pendingPollResultMsg{}
+	}
+
+	for i, p := range cfg.Pools {
+		if p.Status != "pending" {
+			continue
+		}
+
+		// Check if .bin exists in pool repo (via API since we have a token)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		url := fmt.Sprintf("https://api.github.com/repos/%s/contents/users", p.Repo)
+		req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		cancel()
+
+		if err != nil || resp.StatusCode != 200 {
+			if resp != nil {
+				resp.Body.Close()
+			}
+			continue
+		}
+
+		var entries []struct {
+			Name string `json:"name"`
+		}
+		json.NewDecoder(resp.Body).Decode(&entries)
+		resp.Body.Close()
+
+		// If any .bin file exists and pool was pending, it means Action processed it
+		if len(entries) > 0 {
+			cfg.Pools[i].Status = "active"
+			cfg.Save()
+			return pendingPollResultMsg{poolName: p.Name, status: "active"}
+		}
+	}
+
+	return pendingPollResultMsg{}
 }
 
 func padToHeight(s string, height int) string {
