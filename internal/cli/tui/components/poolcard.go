@@ -133,21 +133,23 @@ func valOrDefault(v string) string {
 }
 
 func renderCardAction(p PoolCardData) string {
+	var line string
 	switch p.Status {
 	case "active":
-		return theme.GreenStyle.Render("You are a member of this pool")
+		line = theme.GreenStyle.Render("You are a member of this pool")
 	case "pending":
-		line := theme.AmberStyle.Render("Registration pending — waiting for pool to process")
-		if p.PendingIssue > 0 && p.Repo != "" {
-			url := fmt.Sprintf("https://github.com/%s/issues/%d", p.Repo, p.PendingIssue)
-			line += "\n" + theme.DimStyle.Render("Issue: ") + theme.AccentStyle.Render(url)
-		}
-		return line
+		line = theme.AmberStyle.Render("Registration pending — waiting for pool to process")
 	case "rejected":
-		return theme.RedStyle.Render("Registration rejected") + theme.DimStyle.Render("  ·  Press enter to join again")
+		line = theme.RedStyle.Render("Registration rejected") + theme.DimStyle.Render("  ·  Press enter to join again")
 	default:
 		return theme.DimStyle.Render("Press enter to join  ·  dating pool join " + p.Name)
 	}
+
+	if p.PendingIssue > 0 && p.Repo != "" {
+		url := fmt.Sprintf("https://github.com/%s/issues/%d", p.Repo, p.PendingIssue)
+		line += "\n" + theme.DimStyle.Render("Issue: ") + theme.AccentStyle.Render(url)
+	}
+	return line
 }
 
 // RenderStatsBar renders a horizontal stats bar with icons.

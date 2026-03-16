@@ -84,8 +84,8 @@ func TestPersistence_MarkPoolActive(t *testing.T) {
 	if mc.cfg.Pools[0].UserHash != "hash123" {
 		t.Errorf("expected hash123, got %s", mc.cfg.Pools[0].UserHash)
 	}
-	if mc.cfg.Pools[0].PendingIssue != 0 {
-		t.Errorf("expected issue cleared, got %d", mc.cfg.Pools[0].PendingIssue)
+	if mc.cfg.Pools[0].PendingIssue != 5 {
+		t.Errorf("expected issue preserved, got %d", mc.cfg.Pools[0].PendingIssue)
 	}
 }
 

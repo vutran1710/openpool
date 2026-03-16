@@ -38,7 +38,6 @@ func (s *realPersistence) MarkPoolActive(poolName, userHash string) error {
 		if p.Name == poolName {
 			cfg.Pools[i].Status = "active"
 			cfg.Pools[i].UserHash = userHash
-			cfg.Pools[i].PendingIssue = 0
 			break
 		}
 	}
@@ -53,7 +52,6 @@ func (s *realPersistence) MarkPoolRejected(poolName string) error {
 	for i, p := range cfg.Pools {
 		if p.Name == poolName {
 			cfg.Pools[i].Status = "rejected"
-			cfg.Pools[i].PendingIssue = 0
 			break
 		}
 	}
