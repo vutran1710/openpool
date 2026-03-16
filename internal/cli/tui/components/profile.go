@@ -147,10 +147,9 @@ func renderFull(p gh.DatingProfile, width int) string {
 	}
 
 	card := lipgloss.NewStyle().
-		Padding(1, 2).
-		Width(width)
+		Padding(1, 2)
 
-	inner := width - 6
+	inner := width - 4
 	var sections []string
 
 	// Header with avatar placeholder

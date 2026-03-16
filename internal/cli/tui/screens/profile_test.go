@@ -30,6 +30,67 @@ func TestProfileScreen_SetProfile(t *testing.T) {
 	}
 }
 
+func TestProfileScreen_FullModeAfterResize(t *testing.T) {
+	s := NewProfileScreen()
+	p := &gh.DatingProfile{
+		DisplayName: "Alice",
+		Bio:         "engineer",
+		Location:    "Berlin",
+		Interests:   []string{"rust", "go"},
+		Intent:      []gh.Intent{"dating"},
+		About:       "Hello world",
+		Website:     "https://alice.dev",
+	}
+	s.SetProfile(p)
+
+	// Simulate window resize — this triggers cache build
+	s, _ = s.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+
+	// Mode starts at Full (2), cycle to ensure it's Full
+	// Tab cycles: Full(2) → Compact(0) → Short(1) → Full(2)
+	// Start at Full, do 3 tabs to get back to Full
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyTab}) // → Compact
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyTab}) // → Short
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyTab}) // → Full
+
+	view := s.View()
+	if !containsStr(view, "Alice") {
+		t.Errorf("Full mode View should contain name 'Alice'. Got:\n%s", view)
+	}
+	if !containsStr(view, "rust") {
+		t.Error("Full mode View should contain interests")
+	}
+	if !containsStr(view, "About") {
+		t.Error("Full mode View should contain about section")
+	}
+	if !containsStr(view, "alice.dev") {
+		t.Error("Full mode View should contain website")
+	}
+}
+
+func TestProfileScreen_AllModesHaveContent(t *testing.T) {
+	s := NewProfileScreen()
+	p := &gh.DatingProfile{
+		DisplayName: "Bob",
+		Bio:         "dev",
+		Location:    "NYC",
+		Interests:   []string{"go"},
+		Intent:      []gh.Intent{"friendship"},
+		About:       "Testing!",
+	}
+	s.SetProfile(p)
+	s, _ = s.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
+
+	// Tab through all modes — each should contain the name
+	for i := 0; i < 3; i++ {
+		view := s.View()
+		if !containsStr(view, "Bob") {
+			t.Errorf("Mode %d: View missing name 'Bob'", s.mode)
+		}
+		s, _ = s.Update(tea.KeyMsg{Type: tea.KeyTab})
+	}
+}
+
 func TestProfileScreen_ModeCycle(t *testing.T) {
 	s := NewProfileScreen()
 	s.SetProfile(&gh.DatingProfile{DisplayName: "Bob"})

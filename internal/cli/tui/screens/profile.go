@@ -160,10 +160,13 @@ func (s *ProfileScreen) updateContent() {
 	// Swap cached content — instant, no re-rendering
 	switch s.mode {
 	case components.ProfileFull:
+		dbg.Log("updateContent: Full cache len=%d, vpWidth=%d", len(s.cachedFull), s.leftVP.Width)
 		s.leftVP.SetContent(s.cachedFull)
 	case components.ProfileShort:
+		dbg.Log("updateContent: Short cache len=%d", len(s.cachedShort))
 		s.leftVP.SetContent(s.cachedShort)
 	case components.ProfileCompact:
+		dbg.Log("updateContent: Compact cache len=%d", len(s.cachedCompact))
 		s.leftVP.SetContent(s.cachedCompact)
 	}
 	s.leftVP.GotoTop()
