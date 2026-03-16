@@ -12,6 +12,7 @@ import (
 	"github.com/vutran1710/dating-dev/internal/cli/config"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
+	dbg "github.com/vutran1710/dating-dev/internal/debug"
 	"github.com/vutran1710/dating-dev/internal/gitrepo"
 	gh "github.com/vutran1710/dating-dev/internal/github"
 )
@@ -80,6 +81,8 @@ func NewPoolsScreen(registry string, poolStatuses map[string]string, poolIssues 
 }
 
 func (s PoolsScreen) fetchPools() tea.Msg {
+	done := dbg.Timer("PoolsScreen.fetchPools")
+	defer done()
 	regRepo, err := gitrepo.CloneRegistry(gitrepo.EnsureGitURL(s.registry))
 	if err != nil {
 		return poolsFetchedMsg{err: err}

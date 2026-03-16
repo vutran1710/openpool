@@ -11,7 +11,9 @@ import (
 	"github.com/vutran1710/dating-dev/internal/cli/config"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/screens"
+	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
 	"github.com/vutran1710/dating-dev/internal/crypto"
+	dbg "github.com/vutran1710/dating-dev/internal/debug"
 )
 
 type activeScreen int
@@ -364,6 +366,7 @@ func (a app) handleMenuSelect(key string) (tea.Model, tea.Cmd) {
 			return components.ToastMsg{Text: "Inbox coming soon", Level: components.ToastInfo}
 		}
 	case "profile":
+		dbg.Log("navigate → profile")
 		a.screen = screenProfile
 		a.profile.Width = a.width
 		a.profile.Height = a.height
@@ -518,6 +521,11 @@ func (a app) View() string {
 	// Status toast below input
 	if toastView != "" {
 		bottom += "\n" + toastView
+	}
+
+	// Debug log (only with DEBUG=1)
+	if debugView := dbg.View(3); debugView != "" {
+		bottom += "\n" + theme.DimStyle.Render(debugView)
 	}
 
 	contentHeight := a.height - 2 - countLines(top) - countLines(bottom)

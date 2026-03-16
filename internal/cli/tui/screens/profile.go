@@ -14,6 +14,7 @@ import (
 	"github.com/vutran1710/dating-dev/internal/cli/config"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
+	dbg "github.com/vutran1710/dating-dev/internal/debug"
 	gh "github.com/vutran1710/dating-dev/internal/github"
 )
 
@@ -41,12 +42,14 @@ type ProfileScreen struct {
 }
 
 func NewProfileScreen() ProfileScreen {
+	done := dbg.Timer("ProfileScreen.New")
+	defer done()
+
 	s := ProfileScreen{
 		mode:    components.ProfileFull,
 		leftVP:  viewport.New(40, 20),
 		rightVP: viewport.New(40, 20),
 	}
-	// Load synchronously — it's a local file, instant
 	s.loadLocal()
 	return s
 }
@@ -75,6 +78,7 @@ func (s ProfileScreen) Update(msg tea.Msg) (ProfileScreen, tea.Cmd) {
 		switch msg.String() {
 		case "tab":
 			s.mode = (s.mode + 1) % 3
+			dbg.Log("ProfileScreen.mode → %d", s.mode)
 			s.updateContent()
 			return s, nil
 		}
@@ -116,6 +120,8 @@ func (s *ProfileScreen) buildCache() {
 	if s.profile == nil {
 		return
 	}
+	done := dbg.Timer("ProfileScreen.buildCache")
+	defer done()
 	w := s.leftVP.Width
 	if w < 20 {
 		w = 40
