@@ -29,6 +29,8 @@ type joinStep int
 const (
 	joinConfigSources joinStep = iota
 	joinFetchingSources
+	joinCreateDating // prompt user to fill interests, looking_for, about
+	joinCreatingDating // creating repo + committing
 	joinToggleFields
 	joinFetchTemplate
 	joinFillTemplate
@@ -46,9 +48,14 @@ type JoinDoneMsg struct {
 
 // messages
 type sourcesFetchedMsg struct {
-	profile  *gh.DatingProfile
-	ghLogin  string // GitHub login, backfilled if missing from config
-	err      error
+	profile       *gh.DatingProfile
+	ghLogin       string
+	datingMissing bool // true if dating profile name was set but file not found
+	err           error
+}
+
+type datingCreatedMsg struct {
+	err error
 }
 type templateFetchedMsg struct {
 	template *gh.RegistrationTemplate
@@ -102,6 +109,12 @@ type JoinScreen struct {
 	datingProfile   string // profile name (e.g. "default" → dating/default.md), empty = skip
 	configCursor    int    // 0=showcase toggle, 1=dating name input, 2=submit
 	editingDating   bool   // true when typing in the dating profile name
+
+	// dating profile creation
+	datingInterests  components.Checkbox
+	datingLookingFor components.Checkbox
+	datingAbout      string
+	datingCreateStep int // 0=interests, 1=looking_for, 2=about, 3=confirm
 }
 
 func NewJoinScreen(poolName, poolRepo, operatorPub, relayURL, username, userID string) JoinScreen {
@@ -186,6 +199,33 @@ func (s JoinScreen) Update(msg tea.Msg) (JoinScreen, tea.Cmd) {
 			}
 			return s, nil
 
+		case joinCreateDating:
+			if msg.String() == "esc" {
+				return s, func() tea.Msg { return JoinDoneMsg{} }
+			}
+			switch s.datingCreateStep {
+			case 0: // interests
+				var cmd tea.Cmd
+				s.datingInterests, cmd = s.datingInterests.Update(msg)
+				return s, cmd
+			case 1: // looking for
+				var cmd tea.Cmd
+				s.datingLookingFor, cmd = s.datingLookingFor.Update(msg)
+				return s, cmd
+			case 2: // about text
+				if msg.String() == "enter" {
+					s.datingAbout = strings.TrimSpace(s.input.Value())
+					s.datingCreateStep = 3
+					s.step = joinCreatingDating
+					s.addLog(theme.DimStyle.Render("  Creating dating profile..."))
+					return s, tea.Batch(s.createDatingRepo, s.spinner.Tick)
+				}
+				var cmd tea.Cmd
+				s.input, cmd = s.input.Update(msg)
+				return s, cmd
+			}
+			return s, nil
+
 		case joinToggleFields:
 			if msg.String() == "esc" {
 				return s, func() tea.Msg { return JoinDoneMsg{} }
@@ -236,6 +276,20 @@ func (s JoinScreen) Update(msg tea.Msg) (JoinScreen, tea.Cmd) {
 		return s, cmd
 
 	case components.CheckboxSubmitMsg:
+		if s.step == joinCreateDating && s.datingCreateStep == 0 {
+			// Interests selected → move to looking_for
+			s.datingCreateStep = 1
+			return s, nil
+		}
+		if s.step == joinCreateDating && s.datingCreateStep == 1 {
+			// Looking for selected → move to about text
+			s.datingCreateStep = 2
+			s.input.SetValue("")
+			s.input.Placeholder = "Tell others about yourself..."
+			s.input.EchoMode = textinput.EchoNormal
+			s.input.Focus()
+			return s, textinput.Blink
+		}
 		if s.step == joinToggleFields {
 			// Build filtered profile from selected fields
 			s.applyFieldSelection(msg.Selected)
@@ -257,7 +311,30 @@ func (s JoinScreen) Update(msg tea.Msg) (JoinScreen, tea.Cmd) {
 			s.username = msg.ghLogin
 		}
 		s.addLog(theme.GreenStyle.Render("✓ ") + "Profile fetched")
-		// Build field toggle list
+
+		if msg.datingMissing {
+			s.addLog(theme.AmberStyle.Render("⚠ ") + s.username + "/dating/" + s.datingProfile + ".md not found")
+			s.addLog(theme.DimStyle.Render("  Let's create your dating profile"))
+			s.step = joinCreateDating
+			s.datingCreateStep = 0
+			s.initDatingCreation()
+			return s, nil
+		}
+
+		s.step = joinToggleFields
+		s.checkbox = s.buildFieldToggle()
+		return s, nil
+
+	case datingCreatedMsg:
+		if msg.err != nil {
+			s.addLog(theme.AmberStyle.Render("⚠ ") + "Could not create dating profile: " + msg.err.Error())
+		} else {
+			s.addLog(theme.GreenStyle.Render("✓ ") + "Dating profile created: " + s.username + "/dating/" + s.datingProfile + ".md")
+			// Merge the dating data into profile
+			s.profile.Interests = s.datingInterests.SelectedValues()
+			s.profile.LookingFor = s.datingLookingFor.SelectedValues()
+			s.profile.About = s.datingAbout
+		}
 		s.step = joinToggleFields
 		s.checkbox = s.buildFieldToggle()
 		return s, nil
@@ -321,6 +398,10 @@ func (s JoinScreen) View() string {
 		content = s.configSourcesView()
 	case joinFetchingSources:
 		content = s.renderLogWithActive(s.spinner.View() + " Fetching profile data...")
+	case joinCreateDating:
+		content = s.renderLogWithActive(s.datingCreationView())
+	case joinCreatingDating:
+		content = s.renderLogWithActive(s.spinner.View() + " Creating dating profile...")
 	case joinToggleFields:
 		content = s.renderLogWithActive(s.checkbox.View())
 	case joinFetchTemplate:
@@ -361,7 +442,7 @@ func (s JoinScreen) renderTimeline() string {
 
 	steps := []step{
 		{label: "Configure Sources", done: s.step > joinConfigSources, active: s.step == joinConfigSources},
-		{label: "Fetch Profile", done: s.step > joinFetchingSources, active: s.step == joinFetchingSources},
+		{label: "Fetch Profile", done: s.step > joinCreatingDating, active: s.step == joinFetchingSources || s.step == joinCreateDating || s.step == joinCreatingDating},
 		{label: "Select Fields", done: s.step > joinToggleFields, active: s.step == joinToggleFields},
 		{label: "Registration Form", done: s.step > joinFillTemplate, active: s.step == joinFetchTemplate || s.step == joinFillTemplate},
 		{label: "Submit", done: s.step == joinDone, active: s.step == joinEncrypting || s.step == joinSubmitting, failed: s.step == joinError},
@@ -594,6 +675,133 @@ func (s *JoinScreen) applyFieldSelection(selected []components.CheckboxItem) {
 	}
 }
 
+func (s JoinScreen) datingCreationView() string {
+	switch s.datingCreateStep {
+	case 0:
+		return s.datingInterests.View()
+	case 1:
+		return s.datingLookingFor.View()
+	case 2:
+		out := theme.BoldStyle.Render("About you") + "\n"
+		out += theme.DimStyle.Render("Write a short intro (enter to submit)") + "\n\n"
+		out += s.input.View()
+		return out
+	}
+	return ""
+}
+
+func (s JoinScreen) createDatingRepo() tea.Msg {
+	cfg, err := config.Load()
+	if err != nil {
+		return datingCreatedMsg{err: err}
+	}
+	_, priv, err := crypto.LoadKeyPair(config.KeysDir())
+	if err != nil {
+		return datingCreatedMsg{err: err}
+	}
+	token, err := cfg.DecryptToken(priv)
+	if err != nil {
+		return datingCreatedMsg{err: err}
+	}
+
+	interests := s.datingInterests.SelectedValues()
+	lookingFor := s.datingLookingFor.SelectedValues()
+
+	// Generate README content
+	var b strings.Builder
+	b.WriteString("---\n")
+	if len(interests) > 0 {
+		b.WriteString("interests: [" + strings.Join(interests, ", ") + "]\n")
+	}
+	if len(lookingFor) > 0 {
+		b.WriteString("looking_for: [" + strings.Join(lookingFor, ", ") + "]\n")
+	}
+	b.WriteString("---\n\n")
+	if s.datingAbout != "" {
+		b.WriteString("# About\n\n" + s.datingAbout + "\n")
+	}
+
+	content := b.String()
+	repoName := "dating"
+	filePath := s.datingProfile + ".md"
+
+	ctx := context.Background()
+
+	// Check if repo exists, create if not
+	checkURL := fmt.Sprintf("https://api.github.com/repos/%s/%s", s.username, repoName)
+	req, _ := http.NewRequestWithContext(ctx, "GET", checkURL, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return datingCreatedMsg{err: err}
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode == 404 {
+		// Create private repo
+		createBody := fmt.Sprintf(`{"name":"%s","private":true,"description":"Dating profile for dating.dev"}`, repoName)
+		req, _ = http.NewRequestWithContext(ctx, "POST", "https://api.github.com/user/repos", strings.NewReader(createBody))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err = http.DefaultClient.Do(req)
+		if err != nil {
+			return datingCreatedMsg{err: err}
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 201 {
+			return datingCreatedMsg{err: fmt.Errorf("failed to create repo (HTTP %d)", resp.StatusCode)}
+		}
+	}
+
+	// Commit the file via GitHub API (Contents API)
+	encodedContent := b64Encode([]byte(content))
+	commitBody := fmt.Sprintf(`{"message":"Add dating profile %s","content":"%s"}`, s.datingProfile, encodedContent)
+	commitURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/%s", s.username, repoName, filePath)
+	req, _ = http.NewRequestWithContext(ctx, "PUT", commitURL, strings.NewReader(commitBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		return datingCreatedMsg{err: err}
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 201 && resp.StatusCode != 200 {
+		return datingCreatedMsg{err: fmt.Errorf("failed to commit file (HTTP %d)", resp.StatusCode)}
+	}
+
+	return datingCreatedMsg{}
+}
+
+func (s *JoinScreen) initDatingCreation() {
+	commonInterests := []components.CheckboxItem{
+		{ID: "coding", Label: "coding", Value: "coding"},
+		{ID: "open-source", Label: "open-source", Value: "open-source"},
+		{ID: "gaming", Label: "gaming", Value: "gaming"},
+		{ID: "music", Label: "music", Value: "music"},
+		{ID: "hiking", Label: "hiking", Value: "hiking"},
+		{ID: "coffee", Label: "coffee", Value: "coffee"},
+		{ID: "reading", Label: "reading", Value: "reading"},
+		{ID: "travel", Label: "travel", Value: "travel"},
+		{ID: "cooking", Label: "cooking", Value: "cooking"},
+		{ID: "fitness", Label: "fitness", Value: "fitness"},
+		{ID: "art", Label: "art", Value: "art"},
+		{ID: "photography", Label: "photography", Value: "photography"},
+	}
+
+	lookingForItems := []components.CheckboxItem{
+		{ID: "friendship", Label: "friendship", Value: "friendship"},
+		{ID: "dating", Label: "dating", Value: "dating"},
+		{ID: "relationship", Label: "relationship", Value: "relationship"},
+		{ID: "networking", Label: "networking", Value: "networking"},
+		{ID: "open", Label: "open to anything", Value: "open"},
+	}
+
+	s.datingInterests = components.NewCheckbox("Select your interests", commonInterests)
+	s.datingInterests.Subtitle = "Space to toggle, enter to continue"
+	s.datingLookingFor = components.NewCheckbox("What are you looking for?", lookingForItems)
+	s.datingLookingFor.Subtitle = "Select one or more"
+}
+
 func (s JoinScreen) savePending() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -651,9 +859,12 @@ func (s JoinScreen) fetchSources() tea.Msg {
 	}
 
 	// Dating profile
+	datingMissing := false
 	if s.datingProfile != "" {
 		data, err := fetchDatingProfileForJoin(s.username, s.datingProfile)
-		if err == nil && data != nil {
+		if err != nil {
+			datingMissing = true
+		} else if data != nil {
 			profiles = append(profiles, &gh.DatingProfile{
 				Interests:  data.interests,
 				LookingFor: data.lookingFor,
@@ -663,7 +874,7 @@ func (s JoinScreen) fetchSources() tea.Msg {
 	}
 
 	merged := mergeProfilesForJoin(profiles...)
-	return sourcesFetchedMsg{profile: merged, ghLogin: ghLogin}
+	return sourcesFetchedMsg{profile: merged, ghLogin: ghLogin, datingMissing: datingMissing}
 }
 
 func (s JoinScreen) fetchTemplate() tea.Msg {
