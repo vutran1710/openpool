@@ -39,6 +39,9 @@ type PoolConfig struct {
 }
 
 func Dir() string {
+	if d := os.Getenv("DATING_HOME"); d != "" {
+		return d
+	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".dating")
 }
