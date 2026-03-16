@@ -147,13 +147,24 @@ pool-repo/
 
 All cryptographic operations use a single **ed25519 key pair** per user:
 
-- **Signing**: ed25519 (RFC 8032) — for relay authentication and message signing
 - **Encryption**: NaCl box with automatic ed25519 → curve25519 key conversion
   - Public key: Edwards→Montgomery point conversion (`filippo.io/edwards25519`)
   - Private key: SHA-512 seed derivation with clamping (RFC 8032)
-  - This is the same approach used by libsodium, Signal Protocol, and other established systems
+  - Same approach as libsodium, Signal Protocol, and other established systems
+- **Signing**: ed25519 (RFC 8032) — used only for relay WebSocket authentication
 - **Wire format**: `[32B ephemeral curve25519 pubkey][24B nonce][ciphertext + Poly1305 tag]`
 - **`.bin` format**: `[32B ed25519 pubkey][encrypted profile]`
+
+### Authentication Model
+
+| Operation | Auth Method | Why |
+|-----------|-----------|-----|
+| Registration (issue) | GitHub token | GitHub authenticates the user; Action derives identity from issue author |
+| Likes, proposals (PRs) | GitHub token | GitHub authenticates who created the PR |
+| Relay WebSocket | ed25519 signature | Nonce challenge-response proves private key ownership without exposing tokens |
+| Profile discovery | Relay auth | Already authenticated via WebSocket before requesting profiles |
+
+The pubkey is embedded in the `.bin` file (first 32 bytes). The relay reads it from the file and challenges the user to sign a nonce — proving they own the corresponding private key. No pubkey is sent separately in registration payloads.
 
 ### Relay Environment Variables
 
