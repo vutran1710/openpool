@@ -113,12 +113,9 @@ func renderNormal(p gh.DatingProfile, width int) string {
 	}
 
 	card := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(theme.Border).
-		Padding(1, 2).
-		Width(width)
+		Padding(1, 2)
 
-	inner := width - 6
+	inner := width - 4
 	var sections []string
 
 	sections = append(sections, profileHeader(p, inner))

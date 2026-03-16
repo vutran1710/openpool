@@ -93,7 +93,7 @@ func (s ProfileScreen) Update(msg tea.Msg) (ProfileScreen, tea.Cmd) {
 		s.Width = msg.Width
 		s.Height = msg.Height
 		s.vp.Width = msg.Width - 4
-		s.vp.Height = msg.Height - 6
+		s.vp.Height = msg.Height - 12 // header(7) + profile header(2) + help/input(3)
 		s.updateContent()
 		return s, nil
 	}
