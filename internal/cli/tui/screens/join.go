@@ -1,0 +1,855 @@
+package screens
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/vutran1710/dating-dev/internal/cli/config"
+	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
+	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
+	"github.com/vutran1710/dating-dev/internal/crypto"
+	gh "github.com/vutran1710/dating-dev/internal/github"
+	"github.com/vutran1710/dating-dev/internal/gitrepo"
+	"gopkg.in/yaml.v3"
+)
+
+type joinStep int
+
+const (
+	joinSelectSources joinStep = iota
+	joinFetchingSources
+	joinToggleFields
+	joinFetchTemplate
+	joinFillTemplate
+	joinEncrypting
+	joinSubmitting
+	joinPolling
+	joinPostReg
+	joinDone
+	joinError
+)
+
+// JoinDoneMsg is emitted when join completes.
+type JoinDoneMsg struct {
+	PoolName string
+	UserHash string
+}
+
+// messages
+type sourcesFetchedMsg struct {
+	profile *gh.DatingProfile
+	err     error
+}
+type templateFetchedMsg struct {
+	template *gh.RegistrationTemplate
+	err      error
+}
+type issueCreatedMsg struct {
+	number int
+	err    error
+}
+type pollResultMsg struct {
+	state  string // "open", "closed"
+	reason string // "completed", "not_planned"
+	err    error
+}
+type postRegMsg struct {
+	userHash string
+	err      error
+}
+
+type JoinScreen struct {
+	step     joinStep
+	spinner  spinner.Model
+	checkbox components.Checkbox
+	input    textinput.Model
+	Width    int
+	Height   int
+	errMsg   string
+
+	// pool info
+	poolName    string
+	poolRepo    string
+	operatorPub string
+	relayURL    string
+
+	// user info
+	username string
+	userID   string
+	token    string
+
+	// collected data
+	profile       *gh.DatingProfile
+	template      *gh.RegistrationTemplate
+	templateVals  map[string]string
+	templateIdx   int
+	issueNumber   int
+	userHash      string
+	log           []string
+
+	// source selection
+	srcGitHub   bool
+	srcIdentity bool
+	srcDating   bool
+}
+
+func NewJoinScreen(poolName, poolRepo, operatorPub, relayURL, username, userID string) JoinScreen {
+	sp := spinner.New()
+	sp.Spinner = spinner.Dot
+	sp.Style = lipgloss.NewStyle().Foreground(theme.Pink)
+
+	ti := textinput.New()
+	ti.Prompt = theme.Cursor()
+	ti.TextStyle = lipgloss.NewStyle().Foreground(theme.Text)
+	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(theme.Dim)
+	ti.CharLimit = 512
+
+	// Source selection checkboxes
+	cb := components.NewCheckbox("Select profile sources", []components.CheckboxItem{
+		{ID: "github", Label: "GitHub Profile", Value: "name, bio, location, avatar", Checked: true},
+		{ID: "identity", Label: "Identity Repo", Value: username + "/" + username + " → showcase", Checked: true},
+		{ID: "dating", Label: "Dating Repo", Value: username + "/dating → interests, about", Checked: false},
+	})
+
+	return JoinScreen{
+		step:         joinSelectSources,
+		spinner:      sp,
+		input:        ti,
+		checkbox:     cb,
+		poolName:     poolName,
+		poolRepo:     poolRepo,
+		operatorPub:  operatorPub,
+		relayURL:     relayURL,
+		username:     username,
+		userID:       userID,
+		templateVals: make(map[string]string),
+	}
+}
+
+func (s *JoinScreen) addLog(line string) {
+	s.log = append(s.log, line)
+}
+
+func (s JoinScreen) Update(msg tea.Msg) (JoinScreen, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch s.step {
+		case joinSelectSources:
+			if msg.String() == "esc" {
+				return s, func() tea.Msg { return JoinDoneMsg{} }
+			}
+			var cmd tea.Cmd
+			s.checkbox, cmd = s.checkbox.Update(msg)
+			return s, cmd
+
+		case joinToggleFields:
+			if msg.String() == "esc" {
+				return s, func() tea.Msg { return JoinDoneMsg{} }
+			}
+			var cmd tea.Cmd
+			s.checkbox, cmd = s.checkbox.Update(msg)
+			return s, cmd
+
+		case joinFillTemplate:
+			if msg.String() == "enter" {
+				val := strings.TrimSpace(s.input.Value())
+				field := s.template.Fields[s.templateIdx]
+				if field.Required && val == "" {
+					return s, nil // don't advance
+				}
+				s.templateVals[field.ID] = val
+				s.templateIdx++
+				if s.templateIdx >= len(s.template.Fields) {
+					// All fields filled → encrypt
+					s.step = joinEncrypting
+					s.addLog(theme.GreenStyle.Render("✓ ") + "Template fields complete")
+					return s, tea.Batch(s.encrypt, s.spinner.Tick)
+				}
+				// Next field
+				s.setupTemplateInput()
+				return s, nil
+			}
+			var cmd tea.Cmd
+			s.input, cmd = s.input.Update(msg)
+			return s, cmd
+
+		case joinDone:
+			if msg.String() == "enter" {
+				return s, func() tea.Msg {
+					return JoinDoneMsg{PoolName: s.poolName, UserHash: s.userHash}
+				}
+			}
+
+		case joinError:
+			if msg.String() == "enter" {
+				return s, func() tea.Msg { return JoinDoneMsg{} }
+			}
+		}
+
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		s.spinner, cmd = s.spinner.Update(msg)
+		return s, cmd
+
+	case components.CheckboxSubmitMsg:
+		if s.step == joinSelectSources {
+			for _, item := range msg.Selected {
+				switch item.ID {
+				case "github":
+					s.srcGitHub = true
+				case "identity":
+					s.srcIdentity = true
+				case "dating":
+					s.srcDating = true
+				}
+			}
+			s.step = joinFetchingSources
+			s.addLog(theme.DimStyle.Render("Fetching profile sources..."))
+			return s, tea.Batch(s.fetchSources, s.spinner.Tick)
+		}
+		if s.step == joinToggleFields {
+			// Build filtered profile from selected fields
+			s.applyFieldSelection(msg.Selected)
+			s.step = joinFetchTemplate
+			s.addLog(theme.GreenStyle.Render("✓ ") + "Profile fields selected")
+			s.addLog(theme.DimStyle.Render("  Checking registration template..."))
+			return s, tea.Batch(s.fetchTemplate, s.spinner.Tick)
+		}
+
+	case sourcesFetchedMsg:
+		if msg.err != nil {
+			s.step = joinError
+			s.errMsg = msg.err.Error()
+			s.addLog(theme.RedStyle.Render("✗ ") + msg.err.Error())
+			return s, nil
+		}
+		s.profile = msg.profile
+		s.addLog(theme.GreenStyle.Render("✓ ") + "Profile fetched")
+		// Build field toggle list
+		s.step = joinToggleFields
+		s.checkbox = s.buildFieldToggle()
+		return s, nil
+
+	case templateFetchedMsg:
+		if msg.err != nil {
+			s.addLog(theme.DimStyle.Render("  No custom template, using defaults"))
+			s.template = gh.DefaultTemplate()
+		} else {
+			s.template = msg.template
+			s.addLog(theme.GreenStyle.Render("✓ ") + fmt.Sprintf("Template loaded (%d fields)", len(s.template.Fields)))
+		}
+		if len(s.template.Fields) > 0 {
+			s.step = joinFillTemplate
+			s.templateIdx = 0
+			s.setupTemplateInput()
+		} else {
+			s.step = joinEncrypting
+			return s, tea.Batch(s.encrypt, s.spinner.Tick)
+		}
+		return s, nil
+
+	case issueCreatedMsg:
+		if msg.err != nil {
+			s.step = joinError
+			s.errMsg = msg.err.Error()
+			s.addLog(theme.RedStyle.Render("✗ ") + msg.err.Error())
+			return s, nil
+		}
+		s.issueNumber = msg.number
+		s.addLog(theme.GreenStyle.Render("✓ ") + fmt.Sprintf("Registration issue #%d created", msg.number))
+		s.addLog(theme.DimStyle.Render("  Waiting for GitHub Action to process..."))
+		s.step = joinPolling
+		return s, tea.Tick(5*time.Second, func(time.Time) tea.Msg {
+			return s.pollIssue()
+		})
+
+	case pollResultMsg:
+		if msg.err != nil {
+			s.addLog(theme.DimStyle.Render("  Poll error: " + msg.err.Error()))
+			// Retry
+			return s, tea.Tick(5*time.Second, func(time.Time) tea.Msg {
+				return s.pollIssue()
+			})
+		}
+		if msg.state == "open" {
+			return s, tea.Tick(5*time.Second, func(time.Time) tea.Msg {
+				return s.pollIssue()
+			})
+		}
+		if msg.reason == "completed" {
+			s.addLog(theme.GreenStyle.Render("✓ ") + "Registration accepted!")
+			s.step = joinPostReg
+			s.addLog(theme.DimStyle.Render("  Finalizing..."))
+			return s, tea.Batch(s.postRegistration, s.spinner.Tick)
+		}
+		// Rejected
+		s.step = joinError
+		s.errMsg = "Registration was rejected by the pool operator"
+		s.addLog(theme.RedStyle.Render("✗ ") + "Registration rejected")
+		return s, nil
+
+	case postRegMsg:
+		if msg.err != nil {
+			s.addLog(theme.AmberStyle.Render("⚠ ") + "Post-registration: " + msg.err.Error())
+		} else {
+			s.userHash = msg.userHash
+			s.addLog(theme.GreenStyle.Render("✓ ") + "User hash: " + msg.userHash)
+		}
+		s.addLog(theme.GreenStyle.Render("✓ ") + "Joined " + s.poolName + "!")
+		s.addLog("")
+		s.addLog(theme.DimStyle.Render("  Press enter to continue"))
+		s.step = joinDone
+		return s, nil
+
+	case tea.WindowSizeMsg:
+		s.Width = msg.Width
+		s.Height = msg.Height
+	}
+
+	return s, nil
+}
+
+func (s JoinScreen) View() string {
+	pad := lipgloss.NewStyle().Padding(1, 3)
+
+	header := theme.BoldStyle.Render("Join: "+s.poolName) + "\n"
+	header += theme.DimStyle.Render("  "+s.poolRepo) + "\n\n"
+
+	// Log area
+	var logContent string
+	for _, line := range s.log {
+		logContent += "  " + line + "\n"
+	}
+
+	// Active content
+	var active string
+	switch s.step {
+	case joinSelectSources:
+		active = s.checkbox.View()
+	case joinFetchingSources:
+		active = fmt.Sprintf("  %s Fetching profile data...", s.spinner.View())
+	case joinToggleFields:
+		active = s.checkbox.View()
+	case joinFetchTemplate:
+		active = fmt.Sprintf("  %s Loading registration template...", s.spinner.View())
+	case joinFillTemplate:
+		active = s.templateFieldView()
+	case joinEncrypting:
+		active = fmt.Sprintf("  %s Encrypting profile...", s.spinner.View())
+	case joinSubmitting:
+		active = fmt.Sprintf("  %s Submitting registration...", s.spinner.View())
+	case joinPolling:
+		active = fmt.Sprintf("  %s Waiting for processing...", s.spinner.View())
+	case joinPostReg:
+		active = fmt.Sprintf("  %s Finalizing registration...", s.spinner.View())
+	case joinDone:
+		active = ""
+	case joinError:
+		active = "\n  " + theme.RedStyle.Render("✗ "+s.errMsg) + "\n\n  " + theme.DimStyle.Render("Press enter to go back")
+	}
+
+	return pad.Render(header + logContent + active)
+}
+
+func (s JoinScreen) HelpBindings() []components.KeyBind {
+	switch s.step {
+	case joinSelectSources, joinToggleFields:
+		return []components.KeyBind{
+			{Key: "↑↓", Desc: "navigate"},
+			{Key: "space", Desc: "toggle"},
+			{Key: "enter", Desc: "confirm"},
+			{Key: "esc", Desc: "cancel"},
+		}
+	case joinFillTemplate:
+		return []components.KeyBind{
+			{Key: "enter", Desc: "next field"},
+			{Key: "esc", Desc: "cancel"},
+		}
+	default:
+		return []components.KeyBind{
+			{Key: "enter", Desc: "continue"},
+		}
+	}
+}
+
+// --- helpers ---
+
+func (s *JoinScreen) setupTemplateInput() {
+	if s.templateIdx >= len(s.template.Fields) {
+		return
+	}
+	field := s.template.Fields[s.templateIdx]
+	s.input.SetValue("")
+	s.input.Placeholder = field.Label
+	s.input.Focus()
+}
+
+func (s JoinScreen) templateFieldView() string {
+	if s.templateIdx >= len(s.template.Fields) {
+		return ""
+	}
+	field := s.template.Fields[s.templateIdx]
+
+	out := "  " + theme.BoldStyle.Render(field.Label)
+	if field.Required {
+		out += theme.RedStyle.Render(" *")
+	}
+	out += "\n"
+	if field.Description != "" {
+		out += "  " + theme.DimStyle.Render(field.Description) + "\n"
+	}
+	out += "\n  " + s.input.View() + "\n"
+	out += "\n  " + theme.DimStyle.Render(fmt.Sprintf("Field %d/%d", s.templateIdx+1, len(s.template.Fields)))
+	return out
+}
+
+func (s JoinScreen) buildFieldToggle() components.Checkbox {
+	var items []components.CheckboxItem
+	p := s.profile
+
+	add := func(id, label, value string) {
+		muted := value == ""
+		display := value
+		if muted {
+			display = "not set"
+		} else if len(display) > 50 {
+			display = display[:47] + "..."
+		}
+		items = append(items, components.CheckboxItem{
+			ID: id, Label: label, Value: display,
+			Checked: !muted, Muted: muted,
+		})
+	}
+
+	add("display_name", "Name", p.DisplayName)
+	add("bio", "Bio", p.Bio)
+	add("location", "Location", p.Location)
+	add("avatar_url", "Avatar", p.AvatarURL)
+	add("website", "Website", p.Website)
+	if len(p.Social) > 0 {
+		add("social", "Social", strings.Join(p.Social, ", "))
+	} else {
+		add("social", "Social", "")
+	}
+	add("showcase", "Showcase", func() string {
+		if p.Showcase != "" {
+			return fmt.Sprintf("(%d chars, base64)", len(p.Showcase))
+		}
+		return ""
+	}())
+	if len(p.Interests) > 0 {
+		add("interests", "Interests", strings.Join(p.Interests, ", "))
+	} else {
+		add("interests", "Interests", "")
+	}
+	if len(p.LookingFor) > 0 {
+		add("looking_for", "Looking for", strings.Join(p.LookingFor, ", "))
+	} else {
+		add("looking_for", "Looking for", "")
+	}
+	add("about", "About", p.About)
+
+	return components.NewCheckbox("Select fields to include", items)
+}
+
+func (s *JoinScreen) applyFieldSelection(selected []components.CheckboxItem) {
+	enabled := make(map[string]bool)
+	for _, item := range selected {
+		enabled[item.ID] = true
+	}
+
+	if !enabled["display_name"] {
+		s.profile.DisplayName = ""
+	}
+	if !enabled["bio"] {
+		s.profile.Bio = ""
+	}
+	if !enabled["location"] {
+		s.profile.Location = ""
+	}
+	if !enabled["avatar_url"] {
+		s.profile.AvatarURL = ""
+	}
+	if !enabled["website"] {
+		s.profile.Website = ""
+	}
+	if !enabled["social"] {
+		s.profile.Social = nil
+	}
+	if !enabled["showcase"] {
+		s.profile.Showcase = ""
+	}
+	if !enabled["interests"] {
+		s.profile.Interests = nil
+	}
+	if !enabled["looking_for"] {
+		s.profile.LookingFor = nil
+	}
+	if !enabled["about"] {
+		s.profile.About = ""
+	}
+}
+
+// --- async commands ---
+
+func (s JoinScreen) fetchSources() tea.Msg {
+	ctx := context.Background()
+
+	// Decrypt token
+	cfg, err := config.Load()
+	if err != nil {
+		return sourcesFetchedMsg{err: fmt.Errorf("loading config: %w", err)}
+	}
+	_, priv, err := crypto.LoadKeyPair(config.KeysDir())
+	if err != nil {
+		return sourcesFetchedMsg{err: fmt.Errorf("loading keys: %w", err)}
+	}
+	token, err := cfg.DecryptToken(priv)
+	if err != nil {
+		return sourcesFetchedMsg{err: fmt.Errorf("decrypting token: %w", err)}
+	}
+	s.token = token
+
+	var profiles []*gh.DatingProfile
+
+	// GitHub profile
+	if s.srcGitHub {
+		p, err := fetchGitHubProfileForJoin(ctx, token)
+		if err == nil {
+			profiles = append(profiles, p)
+		}
+	}
+
+	// Identity README
+	if s.srcIdentity {
+		showcase, err := fetchIdentityReadmeForJoin(s.username)
+		if err == nil && showcase != "" {
+			profiles = append(profiles, &gh.DatingProfile{Showcase: showcase})
+		}
+	}
+
+	// Dating README
+	if s.srcDating {
+		data, err := fetchDatingReadmeForJoin(s.username)
+		if err == nil && data != nil {
+			profiles = append(profiles, &gh.DatingProfile{
+				Interests:  data.interests,
+				LookingFor: data.lookingFor,
+				About:      data.about,
+			})
+		}
+	}
+
+	merged := mergeProfilesForJoin(profiles...)
+	return sourcesFetchedMsg{profile: merged}
+}
+
+func (s JoinScreen) fetchTemplate() tea.Msg {
+	poolURL := gitrepo.EnsureGitURL(s.poolRepo)
+	repo, err := gitrepo.Clone(poolURL)
+	if err != nil {
+		return templateFetchedMsg{err: err}
+	}
+
+	data, err := repo.ReadFile(".github/registration.yml")
+	if err != nil {
+		return templateFetchedMsg{err: err}
+	}
+
+	tmpl, err := gh.ParseRegistrationTemplate(data)
+	return templateFetchedMsg{template: tmpl, err: err}
+}
+
+func (s JoinScreen) encrypt() tea.Msg {
+	// Load keys
+	pub, priv, err := crypto.LoadKeyPair(config.KeysDir())
+	if err != nil {
+		return issueCreatedMsg{err: fmt.Errorf("loading keys: %w", err)}
+	}
+
+	// Decrypt token
+	cfg, err := config.Load()
+	if err != nil {
+		return issueCreatedMsg{err: fmt.Errorf("loading config: %w", err)}
+	}
+	token, err := cfg.DecryptToken(priv)
+	if err != nil {
+		return issueCreatedMsg{err: fmt.Errorf("decrypting token: %w", err)}
+	}
+
+	// Serialize profile
+	profileJSON, err := json.Marshal(s.profile)
+	if err != nil {
+		return issueCreatedMsg{err: fmt.Errorf("serializing profile: %w", err)}
+	}
+
+	// Save profile locally
+	os.MkdirAll(config.Dir(), 0700)
+	os.WriteFile(config.ProfilePath(), profileJSON, 0600)
+
+	// Pack binary
+	operatorPubBytes, err := hex.DecodeString(s.operatorPub)
+	if err != nil {
+		return issueCreatedMsg{err: fmt.Errorf("decoding operator key: %w", err)}
+	}
+	bin, err := crypto.PackUserBin(pub, operatorPubBytes, profileJSON)
+	if err != nil {
+		return issueCreatedMsg{err: fmt.Errorf("packing profile: %w", err)}
+	}
+
+	blobHex := hex.EncodeToString(bin)
+
+	// Build issue body
+	body := gh.RenderIssueBody(s.template, s.templateVals, blobHex)
+
+	// Submit issue
+	ctx := context.Background()
+	client := gh.NewClient(s.poolRepo, token)
+	number, err := client.CreateIssue(ctx, s.template.Title, body, s.template.Labels)
+	return issueCreatedMsg{number: number, err: err}
+}
+
+func (s JoinScreen) pollIssue() tea.Msg {
+	cfg, err := config.Load()
+	if err != nil {
+		return pollResultMsg{err: err}
+	}
+	_, priv, err := crypto.LoadKeyPair(config.KeysDir())
+	if err != nil {
+		return pollResultMsg{err: err}
+	}
+	token, err := cfg.DecryptToken(priv)
+	if err != nil {
+		return pollResultMsg{err: err}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client := gh.NewClient(s.poolRepo, token)
+	issue, err := client.GetIssue(ctx, s.issueNumber)
+	if err != nil {
+		return pollResultMsg{err: err}
+	}
+
+	return pollResultMsg{state: issue.State, reason: issue.StateReason}
+}
+
+func (s JoinScreen) postRegistration() tea.Msg {
+	cfg, err := config.Load()
+	if err != nil {
+		return postRegMsg{err: err}
+	}
+	_, priv, err := crypto.LoadKeyPair(config.KeysDir())
+	if err != nil {
+		return postRegMsg{err: err}
+	}
+	token, err := cfg.DecryptToken(priv)
+	if err != nil {
+		return postRegMsg{err: err}
+	}
+
+	ctx := context.Background()
+
+	// Star the repo
+	client := gh.NewClient(s.poolRepo, token)
+	client.StarRepo(ctx)
+
+	// Get hash from relay
+	pub, _, _ := crypto.LoadKeyPair(config.KeysDir())
+	pubHex := hex.EncodeToString(pub)
+	signature := crypto.Sign(priv, []byte("identity:"+pubHex))
+
+	userHash := ""
+	if s.relayURL != "" {
+		hash, err := fetchIdentityFromRelay(ctx, s.relayURL, s.poolRepo, pubHex, signature)
+		if err == nil {
+			userHash = hash
+		}
+	}
+
+	// Save to config
+	cfg.AddPool(config.PoolConfig{
+		Name:           s.poolName,
+		Repo:           s.poolRepo,
+		OperatorPubKey: s.operatorPub,
+		RelayURL:       s.relayURL,
+		Status:         "active",
+		UserHash:       userHash,
+	})
+	if cfg.Active == "" {
+		cfg.Active = s.poolName
+	}
+	if err := cfg.Save(); err != nil {
+		return postRegMsg{err: err}
+	}
+
+	return postRegMsg{userHash: userHash}
+}
+
+// --- thin wrappers to avoid import cycles ---
+
+type datingReadmeResult struct {
+	interests  []string
+	lookingFor []gh.LookingFor
+	about      string
+}
+
+func fetchGitHubProfileForJoin(ctx context.Context, token string) (*gh.DatingProfile, error) {
+	req, _ := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/user", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("GitHub API %d", resp.StatusCode)
+	}
+	var user struct {
+		Name, Login, Bio, Location, AvatarURL, Blog, TwitterUsername string
+	}
+	json.NewDecoder(resp.Body).Decode(&user)
+	name := user.Name
+	if name == "" {
+		name = user.Login
+	}
+	var social []string
+	if user.TwitterUsername != "" {
+		social = append(social, "https://twitter.com/"+user.TwitterUsername)
+	}
+	return &gh.DatingProfile{
+		DisplayName: name, Bio: user.Bio, Location: user.Location,
+		AvatarURL: user.AvatarURL, Website: user.Blog, Social: social,
+	}, nil
+}
+
+func fetchIdentityReadmeForJoin(username string) (string, error) {
+	repoURL := gitrepo.EnsureGitURL(username + "/" + username)
+	repo, err := gitrepo.Clone(repoURL)
+	if err != nil {
+		return "", err
+	}
+	data, err := repo.ReadFile("README.md")
+	if err != nil {
+		return "", err
+	}
+	return b64Encode(data), nil
+}
+
+func fetchDatingReadmeForJoin(username string) (*datingReadmeResult, error) {
+	repoURL := gitrepo.EnsureGitURL(username + "/dating")
+	repo, err := gitrepo.Clone(repoURL)
+	if err != nil {
+		return nil, err
+	}
+	data, err := repo.ReadFile("README.md")
+	if err != nil {
+		return nil, err
+	}
+
+	content := string(data)
+	if !strings.HasPrefix(content, "---") {
+		return &datingReadmeResult{about: strings.TrimSpace(content)}, nil
+	}
+
+	parts := strings.SplitN(content, "---", 3)
+	if len(parts) < 3 {
+		return &datingReadmeResult{about: strings.TrimSpace(content)}, nil
+	}
+
+	var fm struct {
+		Interests  []string        `yaml:"interests"`
+		LookingFor []gh.LookingFor `yaml:"looking_for"`
+	}
+	yaml.Unmarshal([]byte(parts[1]), &fm)
+
+	about := strings.TrimSpace(parts[2])
+	if strings.HasPrefix(about, "# About") {
+		about = strings.TrimSpace(strings.TrimPrefix(about, "# About"))
+	}
+
+	return &datingReadmeResult{
+		interests: fm.Interests, lookingFor: fm.LookingFor, about: about,
+	}, nil
+}
+
+func mergeProfilesForJoin(profiles ...*gh.DatingProfile) *gh.DatingProfile {
+	merged := &gh.DatingProfile{}
+	for _, p := range profiles {
+		if p == nil {
+			continue
+		}
+		if p.DisplayName != "" {
+			merged.DisplayName = p.DisplayName
+		}
+		if p.Bio != "" {
+			merged.Bio = p.Bio
+		}
+		if p.Location != "" {
+			merged.Location = p.Location
+		}
+		if p.AvatarURL != "" {
+			merged.AvatarURL = p.AvatarURL
+		}
+		if p.Website != "" {
+			merged.Website = p.Website
+		}
+		if len(p.Social) > 0 {
+			merged.Social = p.Social
+		}
+		if p.Showcase != "" {
+			merged.Showcase = p.Showcase
+		}
+		if len(p.Interests) > 0 {
+			merged.Interests = p.Interests
+		}
+		if len(p.LookingFor) > 0 {
+			merged.LookingFor = p.LookingFor
+		}
+		if p.About != "" {
+			merged.About = p.About
+		}
+	}
+	return merged
+}
+
+func fetchIdentityFromRelay(ctx context.Context, relayURL, poolRepo, pubKeyHex, signature string) (string, error) {
+	body := fmt.Sprintf(`{"pool_repo":"%s","pub_key":"%s","signature":"%s"}`, poolRepo, pubKeyHex, signature)
+	req, err := http.NewRequestWithContext(ctx, "POST", relayURL+"/identity", strings.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("relay returned %d", resp.StatusCode)
+	}
+
+	var result struct {
+		UserHash string `json:"user_hash"`
+	}
+	json.NewDecoder(resp.Body).Decode(&result)
+	return result.UserHash, nil
+}
+
+func b64Encode(data []byte) string {
+	return base64.StdEncoding.EncodeToString(data)
+}

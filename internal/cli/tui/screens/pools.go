@@ -111,6 +111,15 @@ func (s PoolsScreen) fetchPools() tea.Msg {
 	return poolsFetchedMsg{pools: pools}
 }
 
+// GetPools returns the pool entries for external use (e.g. join screen).
+func (s PoolsScreen) GetPools() []gh.PoolEntry {
+	var entries []gh.PoolEntry
+	for _, p := range s.pools {
+		entries = append(entries, p.entry)
+	}
+	return entries
+}
+
 func (s PoolsScreen) IsLoaded() bool {
 	return s.loaded || s.loading
 }

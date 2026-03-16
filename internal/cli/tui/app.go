@@ -2,6 +2,7 @@ package tui
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/vutran1710/dating-dev/internal/cli/config"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/screens"
 )
@@ -15,6 +16,7 @@ const (
 	screenMatches
 	screenChat
 	screenPools
+	screenJoin
 )
 
 type app struct {
@@ -35,6 +37,7 @@ type app struct {
 	matches    screens.MatchesScreen
 	chat       screens.ChatScreen
 	pools      screens.PoolsScreen
+	join       screens.JoinScreen
 
 	user     string
 	pool     string
@@ -87,6 +90,8 @@ func (a *app) updateHelp() {
 		bindings = a.chat.HelpBindings()
 	case screenPools:
 		bindings = a.pools.HelpBindings()
+	case screenJoin:
+		bindings = a.join.HelpBindings()
 	}
 	a.helpBar = components.NewHelpBar(bindings...)
 }
@@ -163,12 +168,50 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return components.ToastMsg{Text: "Already a member of " + msg.Name, Level: components.ToastInfo}
 			}
 		}
-		return a, func() tea.Msg {
-			return components.ToastMsg{
-				Text:  "Run: dating pool join " + msg.Name,
-				Level: components.ToastInfo,
+		// Launch join flow
+		cfg, _ := config.Load()
+		username := ""
+		userID := ""
+		if cfg != nil {
+			username = cfg.User.DisplayName
+			userID = cfg.User.ProviderUserID
+		}
+		// Find pool entry for operator key and relay URL
+		opKey := ""
+		relayURL := ""
+		poolRepo := ""
+		for _, p := range a.pools.GetPools() {
+			if p.Name == msg.Name {
+				opKey = p.OperatorPubKey
+				relayURL = p.RelayURL
+				poolRepo = p.Repo
+				break
 			}
 		}
+		a.join = screens.NewJoinScreen(msg.Name, poolRepo, opKey, relayURL, username, userID)
+		a.join.Width = a.width
+		a.join.Height = a.height
+		a.screen = screenJoin
+		a.updateHelp()
+		return a, nil
+
+	case screens.JoinDoneMsg:
+		if msg.PoolName != "" {
+			a.pool = msg.PoolName
+			a.statusBar.Pool = msg.PoolName
+			// Refresh pools screen
+			a.pools = screens.NewPoolsScreen(a.registry, []string{msg.PoolName})
+			a.pools.Width = a.width
+			a.pools.Height = a.height
+		}
+		a.screen = screenPools
+		a.updateHelp()
+		if msg.PoolName != "" {
+			return a, func() tea.Msg {
+				return components.ToastMsg{Text: "Joined " + msg.PoolName + "!", Level: components.ToastSuccess}
+			}
+		}
+		return a, nil
 
 	case components.HeartTickMsg:
 		var cmd tea.Cmd
@@ -281,11 +324,14 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.chat, cmd = a.chat.Update(msg)
 	case screenPools:
 		a.pools, cmd = a.pools.Update(msg)
+	case screenJoin:
+		a.join, cmd = a.join.Update(msg)
+		a.updateHelp()
 	}
 
 	if cmd != nil {
 		// Don't forward to input during onboarding (it steals key events)
-		if a.screen == screenOnboarding {
+		if a.screen == screenOnboarding || a.screen == screenJoin {
 			return a, cmd
 		}
 		var inputCmd tea.Cmd
@@ -293,7 +339,7 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(cmd, inputCmd)
 	}
 
-	if a.screen == screenOnboarding {
+	if a.screen == screenOnboarding || a.screen == screenJoin {
 		return a, nil
 	}
 
@@ -322,13 +368,15 @@ func (a app) View() string {
 		content = a.chat.View()
 	case screenPools:
 		content = a.pools.View()
+	case screenJoin:
+		content = a.join.View()
 	}
 
 	toastView := a.toast.View()
 
 	// During onboarding, hide the command input
 	bottom := ""
-	if a.screen != screenOnboarding {
+	if a.screen != screenOnboarding && a.screen != screenJoin {
 		palette := a.input.PaletteView()
 		if palette != "" {
 			bottom += palette + "\n"
