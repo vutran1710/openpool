@@ -12,12 +12,8 @@ type MatchesScreen struct {
 }
 
 func NewMatchesScreen() MatchesScreen {
-	items := []components.MenuItem{
-		{Key: "3f90a", Label: "♥ 3f90a", Desc: "Alex · Berlin"},
-		{Key: "b12c4", Label: "♥ b12c4", Desc: "Sam · Tokyo"},
-	}
 	return MatchesScreen{
-		Menu: components.NewMenu("Matches", items),
+		Empty: true,
 	}
 }
 
