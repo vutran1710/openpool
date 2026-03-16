@@ -3,6 +3,8 @@ package svc
 import (
 	"context"
 	"time"
+
+	dbg "github.com/vutran1710/dating-dev/internal/debug"
 )
 
 type realPolling struct {
@@ -20,7 +22,6 @@ func (s *realPolling) Start(ctx context.Context, updates chan<- StatusUpdate) {
 	ctx, s.cancel = context.WithCancel(ctx)
 
 	go func() {
-		// Initial delay
 		select {
 		case <-time.After(10 * time.Second):
 		case <-ctx.Done():
@@ -52,15 +53,17 @@ func (s *realPolling) Stop() {
 }
 
 func (s *realPolling) PollOnce(ctx context.Context) *StatusUpdate {
+	dbg.Log("polling: PollOnce start")
 	cfg, err := s.config.Load()
 	if err != nil {
+		dbg.Log("polling: config load error: %v", err)
 		return nil
 	}
 
-	// Decrypt token for API calls
 	persistence := NewPersistenceService(s.config, s.crypto)
 	token, err := persistence.DecryptToken()
 	if err != nil {
+		dbg.Log("polling: token decrypt error: %v", err)
 		return nil
 	}
 
@@ -69,12 +72,13 @@ func (s *realPolling) PollOnce(ctx context.Context) *StatusUpdate {
 			continue
 		}
 
+		dbg.Log("polling: checking %s repo=%s issue=%d", p.Name, p.Repo, p.PendingIssue)
 		pollCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		state, reason, err := s.github.GetIssue(pollCtx, p.Repo, token, p.PendingIssue)
 		cancel()
 
 		if err != nil {
-			// Issue not found (404) or API error — clear stale data, reset to unjoined
+			dbg.Log("polling: GetIssue error for %s: %v — removing stale entry", p.Name, err)
 			cfg, _ := s.config.Load()
 			if cfg != nil {
 				for i, pool := range cfg.Pools {
@@ -88,15 +92,19 @@ func (s *realPolling) PollOnce(ctx context.Context) *StatusUpdate {
 			return nil
 		}
 
+		dbg.Log("polling: %s state=%s reason=%s", p.Name, state, reason)
 		if state == "closed" {
 			if reason == "completed" {
+				dbg.Log("polling: %s → active", p.Name)
 				persistence.MarkPoolActive(p.Name, "")
 				return &StatusUpdate{PoolName: p.Name, Status: "active"}
 			}
+			dbg.Log("polling: %s → rejected", p.Name)
 			persistence.MarkPoolRejected(p.Name)
 			return &StatusUpdate{PoolName: p.Name, Status: "rejected"}
 		}
 	}
 
+	dbg.Log("polling: no updates")
 	return nil
 }
