@@ -147,12 +147,13 @@ func (s *ProfileScreen) updateContent() {
 		return
 	}
 
-	// Rebuild cache if width changed
 	w := s.leftVP.Width
 	if w < 20 {
-		w = 40
+		return // wait for WindowSizeMsg before rendering
 	}
-	if s.cacheWidth != w || s.cachedFull == "" {
+
+	// Rebuild cache if width changed
+	if s.cacheWidth != w {
 		s.buildCache()
 	}
 
