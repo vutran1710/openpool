@@ -111,8 +111,8 @@ func (s *ProfileScreen) buildCache() {
 	defer done()
 
 	w := s.vp.Width
-	s.cachedNormal = components.RenderProfile(*s.profile, w, components.ProfileNormal)
-	s.cachedCompact = components.RenderProfile(*s.profile, w, components.ProfileCompact)
+	s.cachedNormal = components.RenderProfile(*s.profile, w-4, components.ProfileNormal)
+	s.cachedCompact = components.RenderProfile(*s.profile, w-4, components.ProfileCompact)
 	s.cacheWidth = w
 }
 
