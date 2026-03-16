@@ -102,6 +102,8 @@ func TestDecodeFrame_AllTypes(t *testing.T) {
 		&Message{Type: TypeMsg, Body: "hi"},
 		&Ack{Type: TypeAck, MsgID: "id"},
 		&Error{Type: TypeError, Code: ErrInternal},
+		&KeyRequest{Type: TypeKeyRequest, TargetHash: "abc"},
+		&KeyResponse{Type: TypeKeyResponse, TargetHash: "abc", PubKey: "deadbeef"},
 	}
 
 	for _, orig := range frames {
@@ -118,6 +120,41 @@ func TestDecodeFrame_AllTypes(t *testing.T) {
 		if decoded == nil {
 			t.Errorf("decoded %T is nil", orig)
 		}
+	}
+}
+
+func TestEncodeDecode_KeyRequest(t *testing.T) {
+	orig := KeyRequest{Type: TypeKeyRequest, TargetHash: "abc123"}
+	data, err := Encode(orig)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	var decoded KeyRequest
+	if err := Decode(data, &decoded); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if decoded.TargetHash != "abc123" {
+		t.Errorf("target_hash = %q, want abc123", decoded.TargetHash)
+	}
+}
+
+func TestEncodeDecode_KeyResponse(t *testing.T) {
+	orig := KeyResponse{Type: TypeKeyResponse, TargetHash: "abc", PubKey: "deadbeef"}
+	data, _ := Encode(orig)
+	var decoded KeyResponse
+	Decode(data, &decoded)
+	if decoded.PubKey != "deadbeef" {
+		t.Errorf("pubkey = %q, want deadbeef", decoded.PubKey)
+	}
+}
+
+func TestEncodeDecode_MessageEncrypted(t *testing.T) {
+	orig := Message{Type: TypeMsg, Body: "cipher", Encrypted: true}
+	data, _ := Encode(orig)
+	var decoded Message
+	Decode(data, &decoded)
+	if !decoded.Encrypted {
+		t.Error("expected Encrypted=true")
 	}
 }
 

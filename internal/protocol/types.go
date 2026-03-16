@@ -15,6 +15,8 @@ const (
 	TypeMsg              = "msg"
 	TypeAck              = "ack"
 	TypeError            = "error"
+	TypeKeyRequest  = "key_request"
+	TypeKeyResponse = "key_response"
 )
 
 // Error codes
@@ -67,12 +69,26 @@ type Message struct {
 	PoolURL    string `msgpack:"pool_url"`
 	Body       string `msgpack:"body"`
 	Ts         int64  `msgpack:"ts"`
+	Encrypted  bool   `msgpack:"encrypted,omitempty"`
 }
 
 // Ack acknowledges message delivery.
 type Ack struct {
 	Type  string `msgpack:"type"`
 	MsgID string `msgpack:"msg_id"`
+}
+
+// KeyRequest asks the relay for a matched user's public key.
+type KeyRequest struct {
+	Type       string `msgpack:"type"`
+	TargetHash string `msgpack:"target_hash"`
+}
+
+// KeyResponse returns a user's ed25519 public key.
+type KeyResponse struct {
+	Type       string `msgpack:"type"`
+	TargetHash string `msgpack:"target_hash"`
+	PubKey     string `msgpack:"pubkey"`
 }
 
 // --- Relay → Client ---
@@ -143,4 +159,5 @@ type QueuedMessage struct {
 	Ts         int64  `msgpack:"ts"`
 	Delivered  bool   `msgpack:"delivered"`
 	Acked      bool   `msgpack:"acked"`
+	Encrypted  bool   `msgpack:"encrypted"`
 }

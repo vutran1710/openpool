@@ -67,6 +67,12 @@ func DecodeFrame(data []byte) (any, error) {
 	case TypeError:
 		var f Error
 		return &f, Decode(data, &f)
+	case TypeKeyRequest:
+		var f KeyRequest
+		return &f, Decode(data, &f)
+	case TypeKeyResponse:
+		var f KeyResponse
+		return &f, Decode(data, &f)
 	default:
 		return nil, fmt.Errorf("unknown frame type: %s", typ)
 	}
