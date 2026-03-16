@@ -576,6 +576,7 @@ func (s OnboardingScreen) saveConfig() tea.Msg {
 	}
 
 	cfg.User.DisplayName = s.displayName
+	cfg.User.Username = s.username
 	cfg.User.Provider = "github"
 	cfg.User.ProviderUserID = s.userID
 	cfg.User.EncryptedToken = hex.EncodeToString(encrypted)

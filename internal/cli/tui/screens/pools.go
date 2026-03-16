@@ -24,7 +24,7 @@ type poolItem struct {
 	entry  gh.PoolEntry
 	stats  gh.PoolStats
 	logo   string
-	joined bool
+	status string // "active", "pending", "rejected", "" (not joined)
 }
 
 // PoolsInitMsg triggers the initial pool fetch.
@@ -38,12 +38,12 @@ type poolsFetchedMsg struct {
 // PoolJoinMsg is emitted when the user presses enter on a pool.
 type PoolJoinMsg struct {
 	Name   string
-	Joined bool
+	Status string // "active", "pending", "rejected", ""
 }
 
 type PoolsScreen struct {
 	registry    string
-	joinedPools map[string]bool
+	poolStatus  map[string]string // pool name → status
 	pools       []poolItem
 	cursor      int
 	focus       poolFocus
@@ -55,18 +55,17 @@ type PoolsScreen struct {
 	Height      int
 }
 
-func NewPoolsScreen(registry string, joinedPools []string) PoolsScreen {
-	joined := make(map[string]bool)
-	for _, p := range joinedPools {
-		joined[p] = true
+func NewPoolsScreen(registry string, poolStatuses map[string]string) PoolsScreen {
+	if poolStatuses == nil {
+		poolStatuses = make(map[string]string)
 	}
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(theme.Pink)
 	return PoolsScreen{
-		registry:    registry,
-		joinedPools: joined,
-		spinner:     sp,
+		registry:   registry,
+		poolStatus: poolStatuses,
+		spinner:    sp,
 	}
 }
 
@@ -105,10 +104,19 @@ func (s PoolsScreen) fetchPools() tea.Msg {
 			entry:  e,
 			stats:  stats,
 			logo:   logo,
-			joined: s.joinedPools[e.Name],
+			status: s.poolStatus[e.Name],
 		})
 	}
 	return poolsFetchedMsg{pools: pools}
+}
+
+// GetPools returns the pool entries for external use (e.g. join screen).
+func (s PoolsScreen) GetPools() []gh.PoolEntry {
+	var entries []gh.PoolEntry
+	for _, p := range s.pools {
+		entries = append(entries, p.entry)
+	}
+	return entries
 }
 
 func (s PoolsScreen) IsLoaded() bool {
@@ -134,7 +142,7 @@ func (s PoolsScreen) Update(msg tea.Msg) (PoolsScreen, tea.Cmd) {
 			if s.cursor < len(s.pools) {
 				p := s.pools[s.cursor]
 				return s, func() tea.Msg {
-					return PoolJoinMsg{Name: p.entry.Name, Joined: p.joined}
+					return PoolJoinMsg{Name: p.entry.Name, Status: p.status}
 				}
 			}
 		case "up", "k":
@@ -236,7 +244,7 @@ func (s PoolsScreen) renderList(width int) string {
 		items += components.RenderPoolListItem(
 			p.entry.Name,
 			p.entry.Description,
-			p.joined,
+			p.status,
 			i == s.cursor,
 			maxDesc,
 		)
@@ -272,7 +280,7 @@ func (s PoolsScreen) renderDetail(width int) string {
 		Members:       p.stats.Members,
 		Matches:       p.stats.Matches,
 		Relationships: p.stats.Relationships,
-		Joined:        p.joined,
+		Status:        p.status,
 		Logo:          p.logo,
 	}
 

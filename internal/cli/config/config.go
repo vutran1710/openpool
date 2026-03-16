@@ -1,11 +1,14 @@
 package config
 
 import (
+	"crypto/ed25519"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/pelletier/go-toml/v2"
+	"github.com/vutran1710/dating-dev/internal/crypto"
 )
 
 type Config struct {
@@ -19,6 +22,7 @@ type Config struct {
 type UserConfig struct {
 	PublicID       string `toml:"public_id"`
 	DisplayName    string `toml:"display_name"`
+	Username       string `toml:"username"`
 	Provider       string `toml:"provider"`
 	ProviderUserID string `toml:"provider_user_id"`
 	EncryptedToken string `toml:"encrypted_token,omitempty"`
@@ -30,6 +34,8 @@ type PoolConfig struct {
 	OperatorPubKey string `toml:"operator_public_key"`
 	RelayURL       string `toml:"relay_url,omitempty"`
 	Status         string `toml:"status,omitempty"`
+	UserHash       string `toml:"user_hash,omitempty"`
+	PendingIssue   int    `toml:"pending_issue,omitempty"`
 }
 
 func Dir() string {
@@ -120,6 +126,27 @@ func (c *Config) RemoveRegistry(repo string) bool {
 
 func (c *Config) HasToken() bool {
 	return c.User.EncryptedToken != ""
+}
+
+// DecryptToken decrypts the stored GitHub token using the user's ed25519 private key.
+func (c *Config) DecryptToken(privKey ed25519.PrivateKey) (string, error) {
+	if c.User.EncryptedToken == "" {
+		return "", fmt.Errorf("no token stored")
+	}
+	encrypted, err := hex.DecodeString(c.User.EncryptedToken)
+	if err != nil {
+		return "", fmt.Errorf("decoding token: %w", err)
+	}
+	plaintext, err := crypto.Decrypt(privKey, encrypted)
+	if err != nil {
+		return "", fmt.Errorf("decrypting token: %w", err)
+	}
+	return string(plaintext), nil
+}
+
+// ProfilePath returns the path to the local profile cache.
+func ProfilePath() string {
+	return filepath.Join(Dir(), "profile.json")
 }
 
 func (c *Config) RemovePool(name string) bool {

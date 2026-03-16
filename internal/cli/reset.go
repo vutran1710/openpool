@@ -110,6 +110,14 @@ func archiveData(datingDir, archiveDir string) error {
 		}
 	}
 
+	// Archive profile.json
+	profilePath := filepath.Join(datingDir, "profile.json")
+	if data, err := os.ReadFile(profilePath); err == nil {
+		if err := os.WriteFile(filepath.Join(archiveDir, "profile.json"), data, 0600); err != nil {
+			return fmt.Errorf("archiving profile.json: %w", err)
+		}
+	}
+
 	// Archive keys/
 	keysDir := filepath.Join(datingDir, "keys")
 	if entries, err := os.ReadDir(keysDir); err == nil {

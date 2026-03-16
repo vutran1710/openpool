@@ -1,9 +1,17 @@
 package tui
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/vutran1710/dating-dev/internal/cli/config"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/screens"
+	"github.com/vutran1710/dating-dev/internal/crypto"
 )
 
 type activeScreen int
@@ -15,6 +23,7 @@ const (
 	screenMatches
 	screenChat
 	screenPools
+	screenJoin
 )
 
 type app struct {
@@ -35,13 +44,14 @@ type app struct {
 	matches    screens.MatchesScreen
 	chat       screens.ChatScreen
 	pools      screens.PoolsScreen
+	join       screens.JoinScreen
 
 	user     string
 	pool     string
 	registry string
 }
 
-func newApp(userName, userHash, pool, registry string, joinedPools []string, needsOnboarding bool) app {
+func newApp(userName, userHash, pool, registry string, poolStatuses map[string]string, needsOnboarding bool) app {
 	startScreen := activeScreen(screenHome)
 	if needsOnboarding {
 		startScreen = screenOnboarding
@@ -59,7 +69,7 @@ func newApp(userName, userHash, pool, registry string, joinedPools []string, nee
 		home:       screens.NewHomeScreen(),
 		discover:   screens.NewDiscoverScreen(),
 		matches:    screens.NewMatchesScreen(),
-		pools:      screens.NewPoolsScreen(registry, joinedPools),
+		pools:      screens.NewPoolsScreen(registry, poolStatuses),
 	}
 	a.statusBar.User = userName
 	a.statusBar.UserHash = userHash
@@ -69,7 +79,12 @@ func newApp(userName, userHash, pool, registry string, joinedPools []string, nee
 }
 
 func (a app) Init() tea.Cmd {
-	return tea.Batch(inputInit(), a.statusBar.Heart.Tick())
+	cmds := []tea.Cmd{inputInit(), a.statusBar.Heart.Tick()}
+	// Start background polling for pending pools
+	cmds = append(cmds, tea.Tick(10*time.Second, func(time.Time) tea.Msg {
+		return pendingPollTickMsg{}
+	}))
+	return tea.Batch(cmds...)
 }
 
 func (a *app) updateHelp() {
@@ -87,6 +102,8 @@ func (a *app) updateHelp() {
 		bindings = a.chat.HelpBindings()
 	case screenPools:
 		bindings = a.pools.HelpBindings()
+	case screenJoin:
+		bindings = a.join.HelpBindings()
 	}
 	a.helpBar = components.NewHelpBar(bindings...)
 }
@@ -158,17 +175,135 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(cmds...)
 
 	case screens.PoolJoinMsg:
-		if msg.Joined {
+		if msg.Status == "active" {
 			return a, func() tea.Msg {
 				return components.ToastMsg{Text: "Already a member of " + msg.Name, Level: components.ToastInfo}
 			}
 		}
-		return a, func() tea.Msg {
-			return components.ToastMsg{
-				Text:  "Run: dating pool join " + msg.Name,
-				Level: components.ToastInfo,
+		if msg.Status == "pending" {
+			return a, func() tea.Msg {
+				return components.ToastMsg{Text: "Registration for " + msg.Name + " is still being processed", Level: components.ToastInfo}
 			}
 		}
+		// Launch join flow (for "" or "rejected")
+		cfg, _ := config.Load()
+		username := ""
+		userID := ""
+		if cfg != nil {
+			username = cfg.User.Username
+			if username == "" {
+				username = cfg.User.DisplayName // fallback for old configs
+			}
+			userID = cfg.User.ProviderUserID
+		}
+		// Find pool entry from the pools screen (fetched from registry)
+		opKey := ""
+		relayURL := ""
+		poolRepo := ""
+		for _, p := range a.pools.GetPools() {
+			if p.Name == msg.Name {
+				opKey = p.OperatorPubKey
+				relayURL = p.RelayURL
+				poolRepo = p.Repo
+				break
+			}
+		}
+		// Fallback: check local config (for rejoin)
+		if poolRepo == "" && cfg != nil {
+			for _, p := range cfg.Pools {
+				if p.Name == msg.Name {
+					opKey = p.OperatorPubKey
+					relayURL = p.RelayURL
+					poolRepo = p.Repo
+					break
+				}
+			}
+		}
+		if poolRepo == "" {
+			return a, func() tea.Msg {
+				return components.ToastMsg{Text: "Pool not found: " + msg.Name, Level: components.ToastError}
+			}
+		}
+		a.join = screens.NewJoinScreen(msg.Name, poolRepo, opKey, relayURL, username, userID)
+		a.join.Width = a.width
+		a.join.Height = a.height
+		a.screen = screenJoin
+		a.updateHelp()
+		return a, nil
+
+	case screens.JoinDoneMsg:
+		if msg.PoolName != "" {
+			a.pool = msg.PoolName
+			a.statusBar.Pool = msg.PoolName
+			// Refresh pools screen with pending status
+			cfg, _ := config.Load()
+			poolStatuses := make(map[string]string)
+			if cfg != nil {
+				for _, p := range cfg.Pools {
+					s := p.Status
+					if s == "" {
+						s = "active"
+					}
+					poolStatuses[p.Name] = s
+				}
+			}
+			a.pools = screens.NewPoolsScreen(a.registry, poolStatuses)
+			a.pools.Width = a.width
+			a.pools.Height = a.height
+		}
+		a.screen = screenHome
+		a.updateHelp()
+		if msg.PoolName != "" {
+			return a, func() tea.Msg {
+				return components.ToastMsg{
+					Text:  "Registration submitted for " + msg.PoolName + " — we'll notify you when it's processed",
+					Level: components.ToastInfo,
+				}
+			}
+		}
+		return a, nil
+
+	case pendingPollResultMsg:
+		if msg.poolName != "" {
+			// Refresh pools screen with updated statuses
+			cfg, _ := config.Load()
+			if cfg != nil {
+				ps := make(map[string]string)
+				for _, p := range cfg.Pools {
+					s := p.Status
+					if s == "" {
+						s = "active"
+					}
+					ps[p.Name] = s
+				}
+				a.pools = screens.NewPoolsScreen(a.registry, ps)
+				a.pools.Width = a.width
+				a.pools.Height = a.height
+			}
+
+			if msg.status == "active" {
+				return a, func() tea.Msg {
+					return components.ToastMsg{
+						Text:  "Registration accepted for " + msg.poolName + "!",
+						Level: components.ToastSuccess,
+					}
+				}
+			} else if msg.status == "rejected" {
+				return a, func() tea.Msg {
+					return components.ToastMsg{
+						Text:  "Registration rejected for " + msg.poolName,
+						Level: components.ToastError,
+					}
+				}
+			}
+		}
+		// Schedule next poll
+		return a, tea.Tick(30*time.Second, func(time.Time) tea.Msg {
+			return pendingPollTickMsg{}
+		})
+
+	case pendingPollTickMsg:
+		return a, pollPendingPools
 
 	case components.HeartTickMsg:
 		var cmd tea.Cmd
@@ -281,11 +416,14 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.chat, cmd = a.chat.Update(msg)
 	case screenPools:
 		a.pools, cmd = a.pools.Update(msg)
+	case screenJoin:
+		a.join, cmd = a.join.Update(msg)
+		a.updateHelp()
 	}
 
 	if cmd != nil {
 		// Don't forward to input during onboarding (it steals key events)
-		if a.screen == screenOnboarding {
+		if a.screen == screenOnboarding || a.screen == screenJoin {
 			return a, cmd
 		}
 		var inputCmd tea.Cmd
@@ -293,7 +431,7 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(cmd, inputCmd)
 	}
 
-	if a.screen == screenOnboarding {
+	if a.screen == screenOnboarding || a.screen == screenJoin {
 		return a, nil
 	}
 
@@ -322,13 +460,15 @@ func (a app) View() string {
 		content = a.chat.View()
 	case screenPools:
 		content = a.pools.View()
+	case screenJoin:
+		content = a.join.View()
 	}
 
 	toastView := a.toast.View()
 
 	// During onboarding, hide the command input
 	bottom := ""
-	if a.screen != screenOnboarding {
+	if a.screen != screenOnboarding && a.screen != screenJoin {
 		palette := a.input.PaletteView()
 		if palette != "" {
 			bottom += palette + "\n"
@@ -363,6 +503,77 @@ func countLines(s string) int {
 		}
 	}
 	return n
+}
+
+// --- background polling for pending pools ---
+
+type pendingPollTickMsg struct{}
+
+type pendingPollResultMsg struct {
+	poolName string
+	status   string // "active", "rejected", ""
+}
+
+func pollPendingPools() tea.Msg {
+	cfg, err := config.Load()
+	if err != nil {
+		return pendingPollResultMsg{}
+	}
+
+	_, priv, err := crypto.LoadKeyPair(config.KeysDir())
+	if err != nil {
+		return pendingPollResultMsg{}
+	}
+
+	token, err := cfg.DecryptToken(priv)
+	if err != nil {
+		return pendingPollResultMsg{}
+	}
+
+	for i, p := range cfg.Pools {
+		if p.Status != "pending" || p.PendingIssue == 0 {
+			continue
+		}
+
+		// Poll the actual issue status
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		url := fmt.Sprintf("https://api.github.com/repos/%s/issues/%d", p.Repo, p.PendingIssue)
+		req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		cancel()
+
+		if err != nil || resp.StatusCode != 200 {
+			if resp != nil {
+				resp.Body.Close()
+			}
+			continue
+		}
+
+		var issue struct {
+			State       string `json:"state"`
+			StateReason string `json:"state_reason"`
+		}
+		json.NewDecoder(resp.Body).Decode(&issue)
+		resp.Body.Close()
+
+		if issue.State == "closed" {
+			if issue.StateReason == "completed" {
+				cfg.Pools[i].Status = "active"
+				cfg.Pools[i].PendingIssue = 0
+				cfg.Save()
+				return pendingPollResultMsg{poolName: p.Name, status: "active"}
+			}
+			// Rejected
+			cfg.Pools[i].Status = "rejected"
+			cfg.Pools[i].PendingIssue = 0
+			cfg.Save()
+			return pendingPollResultMsg{poolName: p.Name, status: "rejected"}
+		}
+		// Still open — keep polling
+	}
+
+	return pendingPollResultMsg{}
 }
 
 func padToHeight(s string, height int) string {

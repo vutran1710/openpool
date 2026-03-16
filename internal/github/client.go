@@ -195,3 +195,32 @@ func (c *Client) ListPullRequests(ctx context.Context, state string) ([]PullRequ
 	}
 	return prs, nil
 }
+
+func (c *Client) GetIssue(ctx context.Context, number int) (*Issue, error) {
+	url := c.apiURL(fmt.Sprintf("/issues/%d", number))
+	resp, err := c.do(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("getting issue: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("get issue failed (%d)", resp.StatusCode)
+	}
+
+	var issue Issue
+	if err := json.NewDecoder(resp.Body).Decode(&issue); err != nil {
+		return nil, err
+	}
+	return &issue, nil
+}
+
+func (c *Client) StarRepo(ctx context.Context) error {
+	url := fmt.Sprintf("https://api.github.com/user/starred/%s", c.repo)
+	resp, err := c.do(ctx, "PUT", url, nil)
+	if err != nil {
+		return fmt.Errorf("starring repo: %w", err)
+	}
+	defer resp.Body.Close()
+	return nil
+}

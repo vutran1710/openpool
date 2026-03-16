@@ -2,13 +2,13 @@
 
 ## Overview
 
-User selects a pool from the TUI, builds a dating profile from multiple sources, encrypts it, and submits it as a GitHub Issue. A GitHub Action processes the issue and commits the encrypted profile to the pool repo.
+User selects a pool from the TUI, builds a dating profile from multiple sources, encrypts it, and submits it as a GitHub Issue. A GitHub Action processes the issue and commits the encrypted profile to the pool repo. After confirmation, the CLI stars the repo and fetches the user's hash from the relay.
 
 ---
 
 ## 1. DatingProfile Struct
 
-**File:** `internal/github/types.go`
+**File:** `internal/github/profile.go`
 
 ```go
 type LookingFor = string
@@ -43,6 +43,8 @@ Not in the profile: pubkey (in .bin prefix), status (always "open"), email (priv
 
 **File:** `internal/cli/profile_source.go`
 
+Three sources, user selects which to include:
+
 ### Source 1: GitHub API
 
 ```
@@ -53,15 +55,15 @@ GET /user (with token)
 ### Source 2: Identity Repo README
 
 ```
-GET {username}/{username}/README.md (via git clone)
+{username}/{username}/README.md (via git clone)
 → showcase (base64-encode the raw markdown)
 ```
 
 ### Source 3: Dating Repo README
 
 ```
-GET {username}/dating/README.md (via git clone)
-→ Parse YAML frontmatter for: interests, looking_for, about
+{username}/dating/README.md (via git clone)
+→ Parse YAML frontmatter: interests, looking_for, about (body after frontmatter)
 → If repo doesn't exist: prompt user, create private repo via API, commit generated README
 ```
 
@@ -79,8 +81,6 @@ Your about text here...
 
 ### Source Selection TUI
 
-**File:** `internal/cli/tui/screens/join.go`
-
 ```
 Select profile sources:
 
@@ -89,11 +89,9 @@ Select profile sources:
   [ ] Dating Repo         vutran1710/dating → interests, looking_for, about
 ```
 
-Space to toggle. After selection, fetch all checked sources (with spinners).
-
 ### Field Toggle TUI
 
-After fetching, show all populated fields. User toggles with space:
+After fetching, user toggles individual fields on/off:
 
 ```
   [✓] Name          Vu Tran
@@ -108,7 +106,7 @@ After fetching, show all populated fields. User toggles with space:
   space toggle · enter submit
 ```
 
-Only checked fields are included in the final profile.
+Only checked fields are included in the encrypted profile.
 
 ---
 
@@ -142,7 +140,7 @@ When `{username}/dating` doesn't exist:
 
 ## 5. Registration Template
 
-**File:** `internal/github/template.go`
+**File:** `internal/github/registration.go`
 
 ### Template Schema
 
@@ -156,6 +154,7 @@ fields:
     label: "Display Name"
     type: text
     required: true
+    description: "How you want to be known"
   - id: age_range
     label: "Age Range"
     type: select
@@ -164,9 +163,9 @@ fields:
   - id: vibe
     label: "Your Vibe"
     type: multiselect
-    options: ["chill", "adventurous", "nerdy", "creative"]
+    options: ["chill", "adventurous", "nerdy", "creative", "sporty"]
   - id: rules_accepted
-    label: "I agree to pool rules"
+    label: "I agree to the pool rules"
     type: checkbox
     required: true
   - id: intro
@@ -175,7 +174,7 @@ fields:
     required: false
 ```
 
-### Template Types
+### Template Field Types
 
 | Type | TUI Component |
 |---|---|
@@ -187,7 +186,7 @@ fields:
 
 ### CLI Flow
 
-1. Clone pool repo (already cloned for pools screen)
+1. Clone pool repo (already cloned from pools screen)
 2. Read `.github/registration.yml` — if missing, skip (default title + labels)
 3. Render fields as TUI form
 4. Validate required fields
@@ -200,7 +199,7 @@ fields:
 **File:** `internal/cli/tui/screens/join.go`
 
 1. Decrypt GitHub token from config (`encrypted_token` → user's private key)
-2. Create GitHub Issue on pool repo:
+2. Create GitHub Issue on pool repo via API:
    - Title: from template (or "Registration Request")
    - Body: template fields + `<!-- blob:{hex_encoded_bin} -->`
    - Labels: from template (or ["registration"])
@@ -235,16 +234,41 @@ GET /repos/{pool_repo}/issues/{number}
 | State | Meaning | Action |
 |---|---|---|
 | open | Waiting | spinner: "Processing..." |
-| closed + completed | Registered | save pool as active |
+| closed + completed | Registered | → post-registration steps |
 | closed + not_planned | Rejected | show error |
 
 Timeout after 2 minutes → save as pending, check later.
 
 ---
 
-## 8. Pool Status in Config & TUI
+## 8. Post-Registration (Issue Closed as Completed)
 
-### Config
+### Step 1: Star the Pool Repo
+
+```
+PUT /user/starred/{pool_repo} (via GitHub API)
+```
+
+### Step 2: Get User Hash from Relay
+
+New relay endpoint:
+
+```
+POST /identity
+{
+  "pool_repo": "vutran1710/dating-test-pool",
+  "pub_key": "hex-encoded ed25519 pubkey",
+  "signature": "sign('identity:' + pub_key_hex)"
+}
+→ { "user_hash": "fef9b374b0d6f4ad" }
+```
+
+Relay flow:
+1. Verify signature against pubkey (prove ownership)
+2. Compute `SHA256(pool_salt:pool_repo:github:user_id)[:16]` using its salt
+3. Return hash
+
+### Step 3: Save to Local Config
 
 ```toml
 [[pools]]
@@ -252,24 +276,15 @@ name = "test-pool"
 repo = "vutran1710/dating-test-pool"
 operator_public_key = "c251e2cf..."
 relay_url = "ws://localhost:8081"
-status = "pending"    # "active" | "pending" | "rejected"
+status = "active"
+user_hash = "fef9b374b0d6f4ad"
 ```
 
-### Pool List TUI
-
-```
-  ✓ test-pool        active
-  ⠋ berlin-singles   pending
-  ✗ tokyo-devs       rejected
-```
-
-### Pool List CLI (`dating pool list`)
-
-Check pending pools on each list — if `.bin` exists in pool repo, auto-promote to active.
+`user_hash` used for: discovery, chat, likes, profile lookup.
 
 ---
 
-## 9. GitHub Action Update
+## 9. GitHub Action
 
 **File:** `dating-test-pool/.github/workflows/register.yml`
 
@@ -277,6 +292,17 @@ Check pending pools on each list — if `.bin` exists in pool repo, auto-promote
 
 - `OPERATOR_PRIVATE_KEY` — for decrypting profiles
 - `POOL_SALT` — for computing filenames
+
+### User Hash Computation
+
+```
+SHA256(pool_salt:pool_repo:github:issue_author_id)[:16]
+```
+
+Computed by Action from:
+- `POOL_SALT` — GitHub secret
+- `pool_repo` — `github.repository`
+- `github:issue_author_id` — `github.event.issue.user.id`
 
 ### Updated Action
 
@@ -292,14 +318,17 @@ Check pending pools on each list — if `.bin` exists in pool repo, auto-promote
     # Extract hex blob from issue body
     BLOB_HEX=$(echo "$ISSUE_BODY" | sed -n 's/.*<!-- blob:\(.*\) -->/\1/p')
 
-    # Compute filename: SHA256(salt:repo:github:author_id)[:16]
+    # Compute filename
     REPO="${{ github.repository }}"
     HASH=$(echo -n "${POOL_SALT}:${REPO}:github:${ISSUE_AUTHOR_ID}" | sha256sum | cut -c1-16)
 
     # Write .bin
+    mkdir -p users
     echo "$BLOB_HEX" | xxd -r -p > "users/${HASH}.bin"
 
     # Commit
+    git config user.name "dating-bot"
+    git config user.email "bot@dating-pool.dev"
     git add "users/${HASH}.bin"
     git commit -m "Register user ${HASH}"
     git push
@@ -307,9 +336,33 @@ Check pending pools on each list — if `.bin` exists in pool repo, auto-promote
 
 ---
 
-## 10. Local Profile Storage
+## 10. Pool Status in Config & TUI
 
-Save the final DatingProfile locally for reference/editing:
+### Config
+
+```toml
+[[pools]]
+status = "pending"    # "active" | "pending" | "rejected"
+user_hash = ""        # populated after registration confirmed
+```
+
+### Pool List TUI Indicators
+
+```
+  ✓ test-pool        active
+  ⠋ berlin-singles   pending
+  ✗ tokyo-devs       rejected
+```
+
+### Auto-promote
+
+`dating pool list` checks pending pools — if relay returns a user_hash, promote to active.
+
+---
+
+## 11. Local Profile Storage
+
+Save the final DatingProfile locally:
 
 **File:** `~/.dating/profile.json`
 
@@ -317,53 +370,176 @@ Archived by `dating reset` along with keys and config.
 
 ---
 
-## 11. Files to Create/Modify
+## 12. Service Interfaces
 
-### New Files
+External services defined as interfaces for testability and modularity.
+
+### GitHub API Interface
+
+**File:** `internal/github/interfaces.go`
+
+```go
+type GitHubAPI interface {
+    GetUser(ctx context.Context, token string) (*UserInfo, error)
+    CreateIssue(ctx context.Context, repo, token, title, body string, labels []string) (int, error)
+    GetIssue(ctx context.Context, repo, token string, number int) (*Issue, error)
+    StarRepo(ctx context.Context, repo, token string) error
+    CreateRepo(ctx context.Context, token, name string, private bool) error
+    CommitFile(ctx context.Context, repo, token, path, message string, content []byte) error
+    GetFileContent(ctx context.Context, repo, token, path string) ([]byte, error)
+}
+```
+
+### Relay API Interface
+
+**File:** `internal/relay/interfaces.go`
+
+```go
+type RelayAPI interface {
+    GetIdentity(ctx context.Context, relayURL, poolRepo, pubKeyHex, signature string) (string, error)
+    Discover(ctx context.Context, relayURL string, req DiscoverRequest) (*DiscoverResponse, error)
+}
+```
+
+### Git Operations Interface
+
+**File:** `internal/gitrepo/interfaces.go`
+
+```go
+type GitOps interface {
+    Clone(repoURL string) (*Repo, error)
+    CloneRegistry(repoURL string) (*Repo, error)
+    ReadFile(repo *Repo, path string) ([]byte, error)
+    ListDir(repo *Repo, path string) ([]string, error)
+    FileExists(repo *Repo, path string) bool
+}
+```
+
+### Crypto Interface
+
+**File:** `internal/crypto/interfaces.go`
+
+```go
+type CryptoOps interface {
+    GenerateKeyPair(dir string) (ed25519.PublicKey, ed25519.PrivateKey, error)
+    LoadKeyPair(dir string) (ed25519.PublicKey, ed25519.PrivateKey, error)
+    Encrypt(recipientPub ed25519.PublicKey, plaintext []byte) ([]byte, error)
+    Decrypt(privKey ed25519.PrivateKey, ciphertext []byte) ([]byte, error)
+    PackUserBin(userPub, operatorPub ed25519.PublicKey, plaintext []byte) ([]byte, error)
+}
+```
+
+All TUI screens and CLI commands depend on interfaces, not concrete implementations.
+
+---
+
+## 13. Testing Strategy
+
+### Unit Tests
+
+| File | Tests |
+|---|---|
+| `internal/github/profile_test.go` | DatingProfile serialization, field filtering, LookingFor validation |
+| `internal/github/registration_test.go` | Template YAML parsing, field type validation, required field checking |
+| `internal/cli/profile_source_test.go` | GitHub API response parsing, README frontmatter parsing, source merging |
+| `internal/cli/dating_repo_test.go` | README generation from prompts, frontmatter formatting |
+| `internal/cli/tui/screens/join_test.go` | All state transitions, source select, field toggle, submit, poll |
+| `internal/cli/tui/components/checkbox_test.go` | Toggle, multi-select, keyboard navigation |
+| `internal/crypto/encrypt_test.go` | Pack/unpack round-trip with DatingProfile |
+
+### Integration Tests
+
+| File | Tests |
+|---|---|
+| `internal/github/pool_integration_test.go` | Full registration flow with test pool repo |
+| `internal/cli/join_integration_test.go` | End-to-end join flow with mock services |
+
+### Mock Implementations
+
+| Mock | Purpose |
+|---|---|
+| `internal/github/mock_github.go` | In-memory GitHub API (issues, repos, files) |
+| `internal/relay/mock_relay.go` | In-memory relay (identity lookup, discover) |
+| `internal/gitrepo/mock_gitops.go` | In-memory filesystem (no actual git) |
+| `internal/crypto/mock_crypto.go` | Deterministic keys, no-op encryption |
+
+### Test Patterns
+
+- `_test.go` in same package for unit tests
+- `_integration_test.go` with build tag `//go:build integration` for network tests
+- Inject interfaces via constructor parameters, not globals
+- TUI screen tests: construct → send message → assert state + command
+
+---
+
+## 14. Files to Create/Modify
+
+### New Files (16)
 
 | File | Purpose |
 |---|---|
 | `internal/github/profile.go` | DatingProfile struct, LookingFor enum |
+| `internal/github/interfaces.go` | GitHubAPI interface |
+| `internal/github/registration.go` | Parse registration.yml template |
+| `internal/github/mock_github.go` | Mock GitHub API for tests |
+| `internal/relay/interfaces.go` | RelayAPI interface |
+| `internal/relay/mock_relay.go` | Mock relay for tests |
+| `internal/relay/identity.go` | POST /identity endpoint |
+| `internal/gitrepo/interfaces.go` | GitOps interface |
+| `internal/gitrepo/mock_gitops.go` | Mock git operations for tests |
+| `internal/crypto/interfaces.go` | CryptoOps interface |
+| `internal/crypto/mock_crypto.go` | Mock crypto for tests |
 | `internal/cli/profile_source.go` | Fetch from GitHub, identity repo, dating repo |
 | `internal/cli/dating_repo.go` | Create private dating repo if missing |
-| `internal/cli/tui/screens/join.go` | Join pool TUI: source select, field toggle, template form, submit, poll |
-| `internal/cli/tui/components/checkbox.go` | Checkbox / multi-select TUI component |
-| `internal/github/registration.go` | Parse registration.yml template |
+| `internal/cli/tui/screens/join.go` | Join pool TUI screen |
+| `internal/cli/tui/components/checkbox.go` | Checkbox / multi-select component |
+| `~/.dating/profile.json` | Local profile storage (runtime) |
 
-### Modified Files
+### Modified Files (9)
 
 | File | Change |
 |---|---|
-| `internal/cli/config/config.go` | Add DecryptToken method |
-| `internal/cli/tui/app.go` | Wire join screen, handle PoolJoinMsg |
+| `internal/cli/config/config.go` | Add DecryptToken, UserHash in PoolConfig |
+| `internal/cli/tui/app.go` | Wire join screen, PoolJoinMsg → join flow |
 | `internal/cli/tui/screens/pools.go` | Enter on unjoined pool → join screen |
 | `internal/cli/reset.go` | Archive profile.json |
 | `internal/github/pool.go` | Update RegisterUserViaIssue (blob only) |
-| `.github/workflows/register.yml` | New Action with POOL_SALT |
-| `dating-test-pool/.github/workflows/register.yml` | Updated Action |
+| `internal/relay/server.go` | Register /identity route |
+| `internal/relay/discover.go` | Identity hash computation |
+| `dating-test-pool/.github/workflows/register.yml` | Updated Action with POOL_SALT |
+| `cmd/seedpool/main.go` | Use new DatingProfile struct |
 
-### Test Files
+### Test Files (9)
 
 | File | Coverage |
 |---|---|
-| `internal/cli/tui/screens/join_test.go` | Join flow state transitions |
-| `internal/github/profile_test.go` | Profile struct, serialization |
-| `internal/github/registration_test.go` | Template parsing |
+| `internal/github/profile_test.go` | Profile serialization, filtering |
+| `internal/github/registration_test.go` | Template parsing, validation |
 | `internal/cli/profile_source_test.go` | Source fetching, merging |
+| `internal/cli/dating_repo_test.go` | README generation |
+| `internal/cli/tui/screens/join_test.go` | State transitions, happy path |
+| `internal/cli/tui/components/checkbox_test.go` | Toggle, navigation |
+| `internal/crypto/encrypt_test.go` | Round-trip with DatingProfile |
+| `internal/github/pool_integration_test.go` | Full registration (integration) |
+| `internal/cli/join_integration_test.go` | End-to-end with mocks |
 
 ---
 
-## 12. Implementation Order
+## 15. Implementation Order
 
-1. `DatingProfile` struct + `LookingFor` enum
-2. Profile sources (GitHub API, identity repo, dating repo)
-3. Dating repo creation flow
-4. Registration template parser
-5. TUI components (checkbox, multi-select)
-6. Join screen (source select → field toggle → template form → submit → poll)
-7. Token decryption
-8. Updated GitHub Action
-9. Pool status indicators in TUI
-10. Local profile storage
-11. Tests
-12. Update seedpool to use new DatingProfile struct
+1. Service interfaces (github, relay, gitrepo, crypto)
+2. DatingProfile struct + LookingFor enum
+3. Mock implementations
+4. Profile sources (GitHub API, identity repo, dating repo)
+5. Dating repo creation flow
+6. Registration template parser
+7. TUI components (checkbox, multi-select)
+8. Join screen (source select → field toggle → template form → submit → poll)
+9. Token decryption
+10. Post-registration (star repo, relay /identity endpoint, save hash)
+11. Updated GitHub Action (with POOL_SALT)
+12. Pool status indicators in TUI (pending/active/rejected)
+13. Local profile storage
+14. Unit tests
+15. Integration tests
+16. Update seedpool to use new DatingProfile struct

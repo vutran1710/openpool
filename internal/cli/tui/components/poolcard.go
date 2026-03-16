@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
 )
@@ -23,7 +24,7 @@ type PoolCardData struct {
 	Members       int
 	Matches       int
 	Relationships int
-	Joined        bool
+	Status        string // "active", "pending", "rejected", ""
 	Logo          string // pre-rendered ASCII logo
 }
 
@@ -88,43 +89,59 @@ func renderCardHeader(p PoolCardData) string {
 }
 
 func renderCardInfo(p PoolCardData) string {
-	labelStyle := theme.DimStyle.Copy().Width(12)
-
-	info := ""
-	info += labelStyle.Render("Operator") + infoValue(p.Operator) + "\n"
-	info += labelStyle.Render("Key") + infoValue(p.OperatorKey) + "\n"
-	info += labelStyle.Render("Repo") + infoValue(p.Repo) + "\n"
-	info += labelStyle.Render("Website") + infoValueAccent(p.Website) + "\n"
-	info += labelStyle.Render("Relay") + infoValue(p.RelayURL) + "\n"
-
 	created := p.CreatedAt
 	if len(created) > 10 {
 		created = created[:10]
 	}
-	info += labelStyle.Render("Created") + infoValue(created) + "\n"
 
-	return info
+	rows := []table.Row{
+		{"Operator", valOrDefault(p.Operator)},
+		{"Key", valOrDefault(p.OperatorKey)},
+		{"Repo", valOrDefault(p.Repo)},
+		{"Website", valOrDefault(p.Website)},
+		{"Relay", valOrDefault(p.RelayURL)},
+		{"Created", valOrDefault(created)},
+	}
+
+	columns := []table.Column{
+		{Title: "", Width: 12},
+		{Title: "", Width: 40},
+	}
+
+	t := table.New(
+		table.WithColumns(columns),
+		table.WithRows(rows),
+		table.WithHeight(len(rows)),
+	)
+
+	s := table.DefaultStyles()
+	s.Header = lipgloss.NewStyle()
+	s.Cell = lipgloss.NewStyle().Foreground(theme.Text)
+	s.Selected = lipgloss.NewStyle().Foreground(theme.Text)
+	t.SetStyles(s)
+
+	// Style the label column
+	return t.View()
 }
 
-func infoValue(v string) string {
+func valOrDefault(v string) string {
 	if v == "" {
-		return theme.DimStyle.Render("unavailable")
+		return "unavailable"
 	}
-	return theme.TextStyle.Render(v)
-}
-
-func infoValueAccent(v string) string {
-	if v == "" {
-		return theme.DimStyle.Render("unavailable")
-	}
-	return theme.AccentStyle.Render(v)
+	return v
 }
 
 func renderCardAction(p PoolCardData) string {
-	if p.Joined {
+	switch p.Status {
+	case "active":
 		return theme.GreenStyle.Render("You are a member of this pool")
+	case "pending":
+		return theme.AmberStyle.Render("Registration pending — waiting for pool to process")
+	case "rejected":
+		return theme.RedStyle.Render("Registration rejected") + theme.DimStyle.Render("  ·  Press enter to join again")
+	default:
+		return theme.DimStyle.Render("Press enter to join  ·  dating pool join " + p.Name)
 	}
-	return theme.DimStyle.Render("Press enter to join  ·  dating pool join " + p.Name)
 }
 
 // RenderStatsBar renders a horizontal stats bar with icons.
@@ -147,7 +164,8 @@ func RenderTags(tags []string) string {
 }
 
 // RenderPoolListItem renders a single pool item for a list.
-func RenderPoolListItem(name, description string, joined, selected bool, maxDescWidth int) string {
+// poolStatus: "" or "active" = joined, "pending" = waiting, "rejected" = rejected, anything else = not joined
+func RenderPoolListItem(name, description, poolStatus string, selected bool, maxDescWidth int) string {
 	cursor := "  "
 	nameStyle := theme.NormalItem
 	if selected {
@@ -155,9 +173,16 @@ func RenderPoolListItem(name, description string, joined, selected bool, maxDesc
 		nameStyle = theme.ActiveItem
 	}
 
-	status := theme.DimStyle.Render(" → join")
-	if joined {
+	var status string
+	switch poolStatus {
+	case "active":
 		status = theme.GreenStyle.Render(" ✓")
+	case "pending":
+		status = theme.AmberStyle.Render(" ⏱")
+	case "rejected":
+		status = theme.RedStyle.Render(" ✗")
+	default:
+		status = theme.DimStyle.Render(" → join")
 	}
 
 	line := fmt.Sprintf("%s%s%s\n", cursor, nameStyle.Render(name), status)
