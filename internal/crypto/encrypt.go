@@ -1,3 +1,15 @@
+// Package crypto provides encryption and signing using ed25519 key pairs.
+//
+// Signing uses ed25519 directly (native).
+//
+// Encryption uses NaCl box (Curve25519 + XSalsa20-Poly1305) with automatic
+// ed25519 → curve25519 key conversion. This is the same approach used by
+// libsodium (crypto_sign_ed25519_pk_to_curve25519), Signal Protocol, and
+// other established cryptographic systems. The conversion is an internal
+// implementation detail — the public API only accepts ed25519 keys.
+//
+// Wire format for encrypted data:
+//   [32B ephemeral curve25519 pubkey][24B nonce][ciphertext + Poly1305 tag]
 package crypto
 
 import (

@@ -133,12 +133,27 @@ pool-repo/
 | Layer | Mechanism |
 |-------|-----------|
 | Identity | ed25519 key pairs, generated locally |
-| User hash | `SHA256(pool_repo:provider:provider_user_id)` |
-| Profile data | NaCl box encrypted to **operator pubkey** — only relay decrypts |
+| Signing | ed25519 signatures (native) |
+| Encryption | NaCl box (Curve25519 + XSalsa20-Poly1305) with ed25519→curve25519 conversion |
+| User hash | `SHA256(pool_salt:pool_repo:github:user_id)` — computed by Action, salt is secret |
+| Profile data | Encrypted to **operator pubkey** — only relay decrypts |
 | Discovery | Relay re-encrypts per-request — users can't browse the whole DB |
-| Registration | GitHub Issue → Action commits (no link between GitHub user and hash via timing correlation accepted) |
+| Registration | GitHub Issue → Action commits (no identity in issue body) |
 | Relay auth | Pubkey extracted from `.bin`, nonce challenge-response |
-| Anti-spam | OAuth required, GitHub's built-in issue rate limits |
+| Token storage | GitHub PAT encrypted with user's ed25519 pubkey, stored locally |
+| Anti-spam | GitHub account required (issue rate limits) |
+
+### Cryptography
+
+All cryptographic operations use a single **ed25519 key pair** per user:
+
+- **Signing**: ed25519 (RFC 8032) — for relay authentication and message signing
+- **Encryption**: NaCl box with automatic ed25519 → curve25519 key conversion
+  - Public key: Edwards→Montgomery point conversion (`filippo.io/edwards25519`)
+  - Private key: SHA-512 seed derivation with clamping (RFC 8032)
+  - This is the same approach used by libsodium, Signal Protocol, and other established systems
+- **Wire format**: `[32B ephemeral curve25519 pubkey][24B nonce][ciphertext + Poly1305 tag]`
+- **`.bin` format**: `[32B ed25519 pubkey][encrypted profile]`
 
 ### Relay Environment Variables
 
