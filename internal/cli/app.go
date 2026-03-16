@@ -26,14 +26,18 @@ func NewRootCmd() *cobra.Command {
 				userName := cfg.User.DisplayName
 				userHash := cfg.User.PublicID
 				pool := ""
-				var joinedPools []string
+				poolStatuses := make(map[string]string)
 				if cfg.ActivePool() != nil {
 					pool = cfg.ActivePool().Name
 				}
 				for _, p := range cfg.Pools {
-					joinedPools = append(joinedPools, p.Name)
+					status := p.Status
+					if status == "" {
+						status = "active"
+					}
+					poolStatuses[p.Name] = status
 				}
-				tui.RunOrFallback(userName, userHash, pool, registry, joinedPools, needsOnboarding)
+				tui.RunOrFallback(userName, userHash, pool, registry, poolStatuses, needsOnboarding)
 				return nil
 			}
 			printHeader()

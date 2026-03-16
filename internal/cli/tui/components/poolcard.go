@@ -23,7 +23,7 @@ type PoolCardData struct {
 	Members       int
 	Matches       int
 	Relationships int
-	Joined        bool
+	Status        string // "active", "pending", "rejected", ""
 	Logo          string // pre-rendered ASCII logo
 }
 
@@ -121,7 +121,7 @@ func infoValueAccent(v string) string {
 }
 
 func renderCardAction(p PoolCardData) string {
-	if p.Joined {
+	if p.Status == "active" {
 		return theme.GreenStyle.Render("You are a member of this pool")
 	}
 	return theme.DimStyle.Render("Press enter to join  ·  dating pool join " + p.Name)
@@ -147,7 +147,8 @@ func RenderTags(tags []string) string {
 }
 
 // RenderPoolListItem renders a single pool item for a list.
-func RenderPoolListItem(name, description string, joined, selected bool, maxDescWidth int) string {
+// poolStatus: "" or "active" = joined, "pending" = waiting, "rejected" = rejected, anything else = not joined
+func RenderPoolListItem(name, description, poolStatus string, selected bool, maxDescWidth int) string {
 	cursor := "  "
 	nameStyle := theme.NormalItem
 	if selected {
@@ -155,9 +156,16 @@ func RenderPoolListItem(name, description string, joined, selected bool, maxDesc
 		nameStyle = theme.ActiveItem
 	}
 
-	status := theme.DimStyle.Render(" → join")
-	if joined {
+	var status string
+	switch poolStatus {
+	case "active":
 		status = theme.GreenStyle.Render(" ✓")
+	case "pending":
+		status = theme.AmberStyle.Render(" ⏳")
+	case "rejected":
+		status = theme.RedStyle.Render(" ✗")
+	default:
+		status = theme.DimStyle.Render(" → join")
 	}
 
 	line := fmt.Sprintf("%s%s%s\n", cursor, nameStyle.Render(name), status)
