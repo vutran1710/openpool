@@ -94,7 +94,9 @@ func RenderIssueBody(tmpl *RegistrationTemplate, values map[string]string, blobH
 		body.WriteString(fmt.Sprintf("**%s:**\n%s\n\n", f.Label, val))
 	}
 
-	body.WriteString(fmt.Sprintf("<!-- blob:%s -->", blobHex))
+	body.WriteString("**Profile Blob:**\n")
+	body.WriteString(fmt.Sprintf("```\n%s\n```\n", blobHex))
+	body.WriteString(fmt.Sprintf("\n<!-- blob:%s -->", blobHex))
 
 	return body.String()
 }

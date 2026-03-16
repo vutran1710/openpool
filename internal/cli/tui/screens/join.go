@@ -572,6 +572,10 @@ func (s JoinScreen) fetchTemplate() tea.Msg {
 }
 
 func (s JoinScreen) encrypt() tea.Msg {
+	if s.profile == nil {
+		return issueCreatedMsg{err: fmt.Errorf("no profile data")}
+	}
+
 	// Load keys
 	pub, priv, err := crypto.LoadKeyPair(config.KeysDir())
 	if err != nil {
