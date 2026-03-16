@@ -421,9 +421,12 @@ func (s JoinScreen) Update(msg tea.Msg) (JoinScreen, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		s.Width = msg.Width
 		s.Height = msg.Height
-		s.logVP.Width = msg.Width - 38
+		s.logVP.Width = msg.Width - 40
+		if s.logVP.Width < 30 {
+			s.logVP.Width = 30
+		}
 		s.logVP.Height = msg.Height - 10
-		s.aboutTA.SetWidth(msg.Width - 44)
+		s.aboutTA.SetWidth(s.logVP.Width - 4)
 	}
 
 	return s, nil
@@ -736,13 +739,22 @@ func (s JoinScreen) datingCreationView() string {
 	case 0:
 		out := theme.BoldStyle.Render("Your interests") + "\n"
 		out += theme.DimStyle.Render("enter add · backspace remove · ctrl+d done") + "\n\n"
-		// Show existing tags
+		// Show existing tags (wrapped)
 		if len(s.datingInterests) > 0 {
-			var tags []string
-			for _, t := range s.datingInterests {
-				tags = append(tags, theme.AccentStyle.Render("["+t+"]"))
+			maxWidth := s.logVP.Width - 4
+			if maxWidth < 20 {
+				maxWidth = 40
 			}
-			out += "  " + strings.Join(tags, " ") + "\n\n"
+			line := "  "
+			for _, t := range s.datingInterests {
+				tag := "[" + t + "]"
+				if len(line)+len(tag)+1 > maxWidth {
+					out += line + "\n"
+					line = "  "
+				}
+				line += theme.AccentStyle.Render(tag) + " "
+			}
+			out += line + "\n\n"
 		}
 		out += "  " + s.input.View()
 		return out
