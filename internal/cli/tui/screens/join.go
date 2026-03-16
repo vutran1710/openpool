@@ -115,7 +115,6 @@ type JoinScreen struct {
 	editingDating   bool   // true when typing in the dating profile name
 
 	// dating profile creation
-	datingInterests  components.Checkbox
 	datingLookingFor components.Checkbox
 	datingAbout      string
 	datingCreateStep int // 0=interests, 1=looking_for, 2=about, 3=confirm
@@ -220,11 +219,15 @@ func (s JoinScreen) Update(msg tea.Msg) (JoinScreen, tea.Cmd) {
 				return s, func() tea.Msg { return JoinDoneMsg{} }
 			}
 			switch s.datingCreateStep {
-			case 0: // interests
+			case 0: // interests (text input, comma-separated)
+				if msg.String() == "enter" {
+					s.datingCreateStep = 1
+					return s, nil
+				}
 				var cmd tea.Cmd
-				s.datingInterests, cmd = s.datingInterests.Update(msg)
+				s.input, cmd = s.input.Update(msg)
 				return s, cmd
-			case 1: // looking for
+			case 1: // looking for (checkbox)
 				var cmd tea.Cmd
 				s.datingLookingFor, cmd = s.datingLookingFor.Update(msg)
 				return s, cmd
@@ -292,11 +295,6 @@ func (s JoinScreen) Update(msg tea.Msg) (JoinScreen, tea.Cmd) {
 		return s, cmd
 
 	case components.CheckboxSubmitMsg:
-		if s.step == joinCreateDating && s.datingCreateStep == 0 {
-			// Interests selected → move to looking_for
-			s.datingCreateStep = 1
-			return s, nil
-		}
 		if s.step == joinCreateDating && s.datingCreateStep == 1 {
 			// Looking for selected → move to about text
 			s.datingCreateStep = 2
@@ -344,7 +342,14 @@ func (s JoinScreen) Update(msg tea.Msg) (JoinScreen, tea.Cmd) {
 		} else {
 			s.addLog(theme.GreenStyle.Render("✓ ") + "Dating profile created: " + s.username + "/dating/" + s.datingProfile + ".md")
 			// Merge the dating data into profile
-			s.profile.Interests = s.datingInterests.SelectedValues()
+			var interests []string
+			for _, item := range strings.Split(s.input.Value(), ",") {
+				trimmed := strings.TrimSpace(item)
+				if trimmed != "" {
+					interests = append(interests, trimmed)
+				}
+			}
+			s.profile.Interests = interests
 			s.profile.LookingFor = s.datingLookingFor.SelectedValues()
 			s.profile.About = s.datingAbout
 		}
@@ -697,7 +702,10 @@ func (s *JoinScreen) applyFieldSelection(selected []components.CheckboxItem) {
 func (s JoinScreen) datingCreationView() string {
 	switch s.datingCreateStep {
 	case 0:
-		return s.datingInterests.View()
+		out := theme.BoldStyle.Render("Your interests") + "\n"
+		out += theme.DimStyle.Render("Type comma-separated interests, enter to continue") + "\n\n"
+		out += s.input.View()
+		return out
 	case 1:
 		return s.datingLookingFor.View()
 	case 2:
@@ -723,7 +731,14 @@ func (s JoinScreen) createDatingRepo() tea.Msg {
 		return datingCreatedMsg{err: err}
 	}
 
-	interests := s.datingInterests.SelectedValues()
+	// Parse interests from comma-separated text input
+	var interests []string
+	for _, item := range strings.Split(s.input.Value(), ",") {
+		trimmed := strings.TrimSpace(item)
+		if trimmed != "" {
+			interests = append(interests, trimmed)
+		}
+	}
 	lookingFor := s.datingLookingFor.SelectedValues()
 
 	// Generate README content
@@ -792,33 +807,41 @@ func (s JoinScreen) createDatingRepo() tea.Msg {
 }
 
 func (s *JoinScreen) initDatingCreation() {
-	commonInterests := []components.CheckboxItem{
-		{ID: "coding", Label: "coding"},
-		{ID: "open-source", Label: "open-source"},
-		{ID: "gaming", Label: "gaming"},
-		{ID: "music", Label: "music"},
-		{ID: "hiking", Label: "hiking"},
-		{ID: "coffee", Label: "coffee"},
-		{ID: "reading", Label: "reading"},
-		{ID: "travel", Label: "travel"},
-		{ID: "cooking", Label: "cooking"},
-		{ID: "fitness", Label: "fitness"},
-		{ID: "art", Label: "art"},
-		{ID: "photography", Label: "photography"},
+	// Load saved profile if exists
+	var saved gh.DatingProfile
+	if data, err := os.ReadFile(config.ProfilePath()); err == nil {
+		json.Unmarshal(data, &saved)
+	}
+
+	// Pre-fill interests from saved profile
+	if len(saved.Interests) > 0 {
+		s.input.SetValue(strings.Join(saved.Interests, ", "))
+	}
+	s.input.Placeholder = "coding, music, hiking, coffee..."
+	s.input.EchoMode = textinput.EchoNormal
+	s.input.Focus()
+
+	// Pre-fill looking_for from saved profile
+	savedLF := make(map[string]bool)
+	for _, lf := range saved.LookingFor {
+		savedLF[lf] = true
 	}
 
 	lookingForItems := []components.CheckboxItem{
-		{ID: "friendship", Label: "friendship"},
-		{ID: "dating", Label: "dating"},
-		{ID: "relationship", Label: "relationship"},
-		{ID: "networking", Label: "networking"},
-		{ID: "open", Label: "open to anything"},
+		{ID: "friendship", Label: "friendship", Checked: savedLF["friendship"]},
+		{ID: "dating", Label: "dating", Checked: savedLF["dating"]},
+		{ID: "relationship", Label: "relationship", Checked: savedLF["relationship"]},
+		{ID: "networking", Label: "networking", Checked: savedLF["networking"]},
+		{ID: "open", Label: "open to anything", Checked: savedLF["open"]},
 	}
 
-	s.datingInterests = components.NewCheckbox("Select your interests", commonInterests)
-	s.datingInterests.Subtitle = "Pick what you're into — space to toggle, enter to continue"
 	s.datingLookingFor = components.NewCheckbox("What are you looking for?", lookingForItems)
 	s.datingLookingFor.Subtitle = "Select one or more — space to toggle, enter to continue"
+
+	// Pre-fill about
+	if saved.About != "" {
+		s.aboutTA.SetValue(saved.About)
+	}
 }
 
 func (s JoinScreen) savePending() {
