@@ -74,7 +74,18 @@ func (s *realPolling) PollOnce(ctx context.Context) *StatusUpdate {
 		cancel()
 
 		if err != nil {
-			continue
+			// Issue not found (404) or API error — clear stale data, reset to unjoined
+			cfg, _ := s.config.Load()
+			if cfg != nil {
+				for i, pool := range cfg.Pools {
+					if pool.Name == p.Name {
+						cfg.Pools = append(cfg.Pools[:i], cfg.Pools[i+1:]...)
+						break
+					}
+				}
+				s.config.Save(cfg)
+			}
+			return nil
 		}
 
 		if state == "closed" {
