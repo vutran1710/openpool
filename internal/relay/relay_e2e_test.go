@@ -521,3 +521,195 @@ func TestE2E_MultiPool_Isolation(t *testing.T) {
 		t.Errorf("error = %q, want user_not_found", err)
 	}
 }
+
+func TestE2E_EncryptedMessage_Delivered(t *testing.T) {
+	env := newTestEnv(t)
+	pubA, privA := genKeys(t)
+	pubB, privB := genKeys(t)
+	hidA := env.addUser("owner/pool", "alice", "github", pubA)
+	hidB := env.addUser("owner/pool", "bob", "github", pubB)
+	env.addMatch(hidA, hidB)
+
+	clientA := connectClient(t, env, "owner/pool", "alice", "github", pubA, privA)
+	clientB := connectClient(t, env, "owner/pool", "bob", "github", pubB, privB)
+
+	msgCh := make(chan protocol.Message, 1)
+	clientB.OnMessage(func(msg protocol.Message) { msgCh <- msg })
+
+	if err := clientA.SendMessage(hidB, "secret hello!"); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+
+	select {
+	case msg := <-msgCh:
+		if msg.Body != "secret hello!" {
+			t.Errorf("body = %q, want 'secret hello!'", msg.Body)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for encrypted message")
+	}
+}
+
+func TestE2E_EncryptedMessage_RelayCannotRead(t *testing.T) {
+	env := newTestEnv(t)
+	pubA, privA := genKeys(t)
+	pubB, privB := genKeys(t)
+	hidA := env.addUser("owner/pool", "alice", "github", pubA)
+	hidB := env.addUser("owner/pool", "bob", "github", pubB)
+	env.addMatch(hidA, hidB)
+
+	clientA := connectClient(t, env, "owner/pool", "alice", "github", pubA, privA)
+	clientB := connectClient(t, env, "owner/pool", "bob", "github", pubB, privB)
+
+	rawCh := make(chan protocol.Message, 1)
+	clientB.OnRawMessage(func(msg protocol.Message) { rawCh <- msg })
+
+	if err := clientA.SendMessage(hidB, "top secret"); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+
+	select {
+	case raw := <-rawCh:
+		if !raw.Encrypted {
+			t.Error("message should be marked encrypted")
+		}
+		if raw.Body == "top secret" {
+			t.Error("relay forwarded plaintext — encryption not working")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+}
+
+func TestE2E_EncryptedConversation_Bidirectional(t *testing.T) {
+	env := newTestEnv(t)
+	pubA, privA := genKeys(t)
+	pubB, privB := genKeys(t)
+	hidA := env.addUser("owner/pool", "alice", "github", pubA)
+	hidB := env.addUser("owner/pool", "bob", "github", pubB)
+	env.addMatch(hidA, hidB)
+
+	clientA := connectClient(t, env, "owner/pool", "alice", "github", pubA, privA)
+	clientB := connectClient(t, env, "owner/pool", "bob", "github", pubB, privB)
+
+	msgsA := make(chan protocol.Message, 10)
+	msgsB := make(chan protocol.Message, 10)
+	clientA.OnMessage(func(msg protocol.Message) { msgsA <- msg })
+	clientB.OnMessage(func(msg protocol.Message) { msgsB <- msg })
+
+	turns := []struct {
+		from   *relay.Client
+		target string
+		body   string
+		ch     chan protocol.Message
+	}{
+		{clientA, hidB, "hey bob!", msgsB},
+		{clientB, hidA, "hey alice!", msgsA},
+		{clientA, hidB, "how are you?", msgsB},
+		{clientB, hidA, "great!", msgsA},
+	}
+
+	for i, turn := range turns {
+		if err := turn.from.SendMessage(turn.target, turn.body); err != nil {
+			t.Fatalf("turn %d: %v", i, err)
+		}
+		select {
+		case msg := <-turn.ch:
+			if msg.Body != turn.body {
+				t.Errorf("turn %d: body = %q, want %q", i, msg.Body, turn.body)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("turn %d: timeout", i)
+		}
+	}
+}
+
+func TestE2E_KeyRequest_NotMatched(t *testing.T) {
+	env := newTestEnv(t)
+	pubA, privA := genKeys(t)
+	pubB, _ := genKeys(t)
+	env.addUser("owner/pool", "alice", "github", pubA)
+	hidB := env.addUser("owner/pool", "bob", "github", pubB)
+	// No match!
+
+	clientA := connectClient(t, env, "owner/pool", "alice", "github", pubA, privA)
+
+	errCh := make(chan protocol.Error, 1)
+	clientA.OnError(func(e protocol.Error) { errCh <- e })
+
+	go clientA.SendMessage(hidB, "hello")
+
+	select {
+	case e := <-errCh:
+		if e.Code != protocol.ErrNotMatched {
+			t.Errorf("code = %q, want not_matched", e.Code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for not_matched error")
+	}
+}
+
+func TestE2E_KeyRequest_TargetNotFound(t *testing.T) {
+	env := newTestEnv(t)
+	pubA, privA := genKeys(t)
+	hidA := env.addUser("owner/pool", "alice", "github", pubA)
+	fakeHash := "nonexistent12345"
+	env.addMatch(hidA, fakeHash)
+
+	clientA := connectClient(t, env, "owner/pool", "alice", "github", pubA, privA)
+
+	errCh := make(chan protocol.Error, 1)
+	clientA.OnError(func(e protocol.Error) { errCh <- e })
+
+	go clientA.SendMessage(fakeHash, "hello")
+
+	select {
+	case e := <-errCh:
+		if e.Code != protocol.ErrUserNotFound {
+			t.Errorf("code = %q, want user_not_found", e.Code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for user_not_found error")
+	}
+}
+
+func TestE2E_MixedEncryptedUnencrypted(t *testing.T) {
+	env := newTestEnv(t)
+	pubA, privA := genKeys(t)
+	pubB, privB := genKeys(t)
+	hidA := env.addUser("owner/pool", "alice", "github", pubA)
+	hidB := env.addUser("owner/pool", "bob", "github", pubB)
+	env.addMatch(hidA, hidB)
+
+	clientA := connectClient(t, env, "owner/pool", "alice", "github", pubA, privA)
+	clientB := connectClient(t, env, "owner/pool", "bob", "github", pubB, privB)
+
+	msgCh := make(chan protocol.Message, 2)
+	clientB.OnMessage(func(msg protocol.Message) { msgCh <- msg })
+
+	// Plain message
+	if err := clientA.SendMessagePlain(hidB, "plain hello"); err != nil {
+		t.Fatalf("plain send: %v", err)
+	}
+	select {
+	case msg := <-msgCh:
+		if msg.Body != "plain hello" {
+			t.Errorf("plain body = %q", msg.Body)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout for plain message")
+	}
+
+	// Encrypted message
+	if err := clientA.SendMessage(hidB, "encrypted hello"); err != nil {
+		t.Fatalf("encrypted send: %v", err)
+	}
+	select {
+	case msg := <-msgCh:
+		if msg.Body != "encrypted hello" {
+			t.Errorf("encrypted body = %q", msg.Body)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout for encrypted message")
+	}
+}
