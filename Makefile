@@ -1,4 +1,4 @@
-.PHONY: build cli relay seedpool test coverage clean lint
+.PHONY: build cli relay test coverage clean lint
 
 build: cli relay
 
@@ -7,9 +7,6 @@ cli:
 
 relay:
 	go build -o bin/relay ./cmd/relay
-
-seedpool:
-	go run ./cmd/seedpool -out ../dating-test-pool -registry-out ../dating-test-registry/pools/test-pool
 
 test:
 	go test ./...
