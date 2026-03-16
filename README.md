@@ -166,13 +166,52 @@ All cryptographic operations use a single **ed25519 key pair** per user:
 
 The pubkey is embedded in the `.bin` file (first 32 bytes). The relay reads it from the file and challenges the user to sign a nonce — proving they own the corresponding private key. No pubkey is sent separately in registration payloads.
 
-### Relay Environment Variables
+### Environment Variables
+
+#### CLI
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATING_HOME` | `~/.dating` | Local data directory (config, keys, profiles, repos) |
+| `DEBUG` | off | Set to `1` or `true` to show debug logs in TUI status bar |
+
+#### Relay
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `POOL_TOKEN` | Yes | GitHub PAT for pool repo API access (avoids 60 req/hr anonymous limit) |
 | `OPERATOR_PRIVATE_KEY` | Yes | Hex-encoded ed25519 private key for profile decryption + re-encryption |
+| `POOL_SALT` | Yes | Secret salt for computing user filenames |
 | `PORT` | No | Server port (default: 8081) |
+
+### Local Data
+
+All local data is stored under `$DATING_HOME` (default `~/.dating/`):
+
+```
+~/.dating/
+├── setting.toml              # Config: user identity, pools, registries, encrypted token
+├── profile.json              # Complete profile (all sources merged)
+├── keys/
+│   ├── identity.pub          # ed25519 public key (hex)
+│   └── identity.key          # ed25519 private key (hex, 0600 perms)
+├── pools/{name}/
+│   └── profile.json          # Per-pool profile (filtered fields)
+├── repos/                    # Shallow git clones (cache, deletable)
+└── archive/                  # Backups from `dating reset`
+```
+
+## Development
+
+```bash
+make build    # builds bin/dating + bin/relay
+make cli      # builds bin/dating only
+make test     # runs tests with isolated DATING_HOME (temp dir)
+make coverage # test coverage report
+make lint     # golangci-lint
+```
+
+Tests use `DATING_HOME` set to a temp directory — they never touch real config.
 
 ## Project Structure
 
@@ -180,10 +219,15 @@ The pubkey is embedded in the `.bin` file (first 32 bytes). The relay reads it f
 cmd/dating/         CLI entry point
 cmd/relay/          WebSocket relay server
 internal/
-  cli/              CLI commands, TUI, config, OAuth
-  relay/            Relay server (auth, hub, client, protocol)
-  crypto/           ed25519 keys, NaCl encryption, Merkle tree, hashing
-  github/           GitHub API client, pool, registry, PR templates
+  cli/              CLI commands, TUI screens, services
+  cli/svc/          Service interfaces (Config, Crypto, Git, GitHub, Profile, Persistence, Polling)
+  cli/tui/          Bubbletea TUI (app, screens, components, theme)
+  cli/config/       Config file management (setting.toml)
+  relay/            Relay server (auth, hub, client, protocol, discovery)
+  crypto/           ed25519 keys, NaCl box encryption, signing
+  github/           GitHub API client, pool, registry, profile, templates
+  gitrepo/          Local git clone management, raw content fetcher
+  debug/            Debug logger (DEBUG=1)
 web/                Next.js documentation site
 ```
 
