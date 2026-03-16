@@ -31,14 +31,24 @@ type ProfileScreen struct {
 	err     string
 	Width   int
 	Height  int
+
+	// Pre-rendered cache (avoids re-running glamour on every tab)
+	cachedFull     string
+	cachedShort    string
+	cachedCompact  string
+	cachedShowcase string
+	cacheWidth     int
 }
 
 func NewProfileScreen() ProfileScreen {
-	return ProfileScreen{
+	s := ProfileScreen{
 		mode:    components.ProfileFull,
 		leftVP:  viewport.New(40, 20),
 		rightVP: viewport.New(40, 20),
 	}
+	// Load synchronously — it's a local file, instant
+	s.loadLocal()
+	return s
 }
 
 func (s *ProfileScreen) SetProfile(p *gh.DatingProfile) {
@@ -102,22 +112,57 @@ func (s ProfileScreen) Update(msg tea.Msg) (ProfileScreen, tea.Cmd) {
 	return s, cmd
 }
 
+func (s *ProfileScreen) buildCache() {
+	if s.profile == nil {
+		return
+	}
+	w := s.leftVP.Width
+	if w < 20 {
+		w = 40
+	}
+	s.cachedCompact = components.RenderProfile(*s.profile, w, components.ProfileCompact)
+	s.cachedShort = components.RenderProfile(*s.profile, w, components.ProfileShort)
+	s.cachedFull = components.RenderProfile(*s.profile, w, components.ProfileFull)
+	s.cacheWidth = w
+
+	if components.HasShowcase(*s.profile) {
+		rw := s.rightVP.Width
+		if rw < 20 {
+			rw = 40
+		}
+		s.cachedShowcase = renderShowcaseClean(*s.profile, rw)
+	} else {
+		s.cachedShowcase = theme.DimStyle.Render("\n  No showcase available.\n\n  Create a README.md in your\n  GitHub identity repo.")
+	}
+}
+
 func (s *ProfileScreen) updateContent() {
 	if s.profile == nil {
 		return
 	}
 
-	leftContent := components.RenderProfile(*s.profile, s.leftVP.Width, s.mode)
-	s.leftVP.SetContent(leftContent)
+	// Rebuild cache if width changed
+	w := s.leftVP.Width
+	if w < 20 {
+		w = 40
+	}
+	if s.cacheWidth != w || s.cachedFull == "" {
+		s.buildCache()
+	}
+
+	// Swap cached content — instant, no re-rendering
+	switch s.mode {
+	case components.ProfileFull:
+		s.leftVP.SetContent(s.cachedFull)
+	case components.ProfileShort:
+		s.leftVP.SetContent(s.cachedShort)
+	case components.ProfileCompact:
+		s.leftVP.SetContent(s.cachedCompact)
+	}
 	s.leftVP.GotoTop()
 
-	if components.HasShowcase(*s.profile) {
-		rightContent := renderShowcaseClean(*s.profile, s.rightVP.Width)
-		s.rightVP.SetContent(rightContent)
-		s.rightVP.GotoTop()
-	} else {
-		s.rightVP.SetContent(theme.DimStyle.Render("\n  No showcase available.\n\n  Create a README.md in your\n  GitHub identity repo."))
-	}
+	s.rightVP.SetContent(s.cachedShowcase)
+	s.rightVP.GotoTop()
 }
 
 func (s ProfileScreen) View() string {

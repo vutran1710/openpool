@@ -11,11 +11,9 @@ import (
 
 func TestProfileScreen_InitialState(t *testing.T) {
 	s := NewProfileScreen()
-	if s.IsLoaded() {
-		t.Error("should not be loaded initially")
-	}
-	if s.profile != nil {
-		t.Error("profile should be nil")
+	// Loads synchronously from local file — may or may not have a profile
+	if !s.IsLoaded() {
+		t.Error("should be loaded after NewProfileScreen (reads local file)")
 	}
 }
 
