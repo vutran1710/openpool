@@ -455,7 +455,7 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if cmd != nil {
 		// Don't forward to input during onboarding (it steals key events)
-		if a.screen == screenOnboarding || a.screen == screenJoin {
+		if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenProfile {
 			return a, cmd
 		}
 		var inputCmd tea.Cmd
@@ -463,7 +463,7 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(cmd, inputCmd)
 	}
 
-	if a.screen == screenOnboarding || a.screen == screenJoin {
+	if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenProfile {
 		return a, nil
 	}
 

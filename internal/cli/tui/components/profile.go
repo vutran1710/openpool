@@ -135,8 +135,6 @@ func renderFull(p gh.DatingProfile, width int) string {
 	}
 
 	card := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(theme.Violet).
 		Padding(1, 2).
 		Width(width)
 
