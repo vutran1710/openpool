@@ -735,7 +735,7 @@ func (s JoinScreen) datingCreationView() string {
 	switch s.datingCreateStep {
 	case 0:
 		out := theme.BoldStyle.Render("Your interests") + "\n"
-		out += theme.DimStyle.Render("Type to add, enter to confirm, backspace to remove, ctrl+d when done") + "\n\n"
+		out += theme.DimStyle.Render("enter add · backspace remove · ctrl+d done") + "\n\n"
 		// Show existing tags
 		if len(s.datingInterests) > 0 {
 			var tags []string
