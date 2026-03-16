@@ -167,16 +167,39 @@ func TestRenderIssueBody(t *testing.T) {
 
 	body := RenderIssueBody(tmpl, values, "deadbeef")
 
-	if !strings.Contains(body, "<!-- registration-request -->") {
-		t.Error("missing registration marker")
+	lines := strings.Split(strings.TrimSpace(body), "\n")
+	if len(lines) < 1 {
+		t.Fatal("body is empty")
 	}
-	if !strings.Contains(body, "**Name:**\nAlice") {
-		t.Error("missing name field")
+
+	// First line = blob
+	if lines[0] != "deadbeef" {
+		t.Errorf("first line should be blob, got %q", lines[0])
 	}
-	if !strings.Contains(body, "<!-- blob:deadbeef -->") {
-		t.Error("missing blob")
+
+	// key:value pairs
+	if !strings.Contains(body, "name:Alice") {
+		t.Error("missing name:Alice")
 	}
-	if strings.Contains(body, "Empty") {
+	if !strings.Contains(body, "age:26-35") {
+		t.Error("missing age:26-35")
+	}
+
+	// Empty fields should not appear
+	if strings.Contains(body, "empty:") {
 		t.Error("empty field should not appear")
+	}
+}
+
+func TestRenderIssueBody_NoFields(t *testing.T) {
+	tmpl := DefaultTemplate()
+	body := RenderIssueBody(tmpl, nil, "aabbccdd")
+
+	lines := strings.Split(strings.TrimSpace(body), "\n")
+	if lines[0] != "aabbccdd" {
+		t.Errorf("expected blob on first line, got %q", lines[0])
+	}
+	if len(lines) != 1 {
+		t.Errorf("expected only 1 line (blob), got %d", len(lines))
 	}
 }

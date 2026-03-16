@@ -80,23 +80,22 @@ func DefaultTemplate() *RegistrationTemplate {
 	}
 }
 
-// RenderIssueBody builds the GitHub Issue body from template field values and the encrypted blob.
+// RenderIssueBody builds the GitHub Issue body.
+// Format: first line = hex blob, remaining lines = key:value pairs.
 func RenderIssueBody(tmpl *RegistrationTemplate, values map[string]string, blobHex string) string {
 	var body strings.Builder
 
-	body.WriteString("<!-- registration-request -->\n\n")
+	// Line 1: blob
+	body.WriteString(blobHex + "\n")
 
+	// Remaining lines: template field values
 	for _, f := range tmpl.Fields {
 		val := values[f.ID]
 		if val == "" {
 			continue
 		}
-		body.WriteString(fmt.Sprintf("**%s:**\n%s\n\n", f.Label, val))
+		body.WriteString(fmt.Sprintf("%s:%s\n", f.ID, val))
 	}
-
-	body.WriteString("**Profile Blob:**\n")
-	body.WriteString(fmt.Sprintf("```\n%s\n```\n", blobHex))
-	body.WriteString(fmt.Sprintf("\n<!-- blob:%s -->", blobHex))
 
 	return body.String()
 }
