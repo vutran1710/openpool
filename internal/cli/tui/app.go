@@ -368,8 +368,8 @@ func (a app) handleMenuSelect(key string) (tea.Model, tea.Cmd) {
 	case "profile":
 		dbg.Log("navigate → profile")
 		a.screen = screenProfile
-		a.profile.Width = a.width
-		a.profile.Height = a.height
+		// Send WindowSizeMsg to initialize viewport dimensions
+		a.profile, _ = a.profile.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 		if !a.profile.IsLoaded() {
 			return a, a.profile.LoadCmd
 		}
@@ -407,8 +407,7 @@ func (a app) handleSubmit(msg components.SubmitMsg) (tea.Model, tea.Cmd) {
 			a.updateHelp()
 		case "/profile":
 			a.screen = screenProfile
-			a.profile.Width = a.width
-			a.profile.Height = a.height
+			a.profile, _ = a.profile.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 			a.updateHelp()
 		case "/exit":
 			if a.screen == screenChat {
