@@ -286,6 +286,20 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.pools = screens.NewPoolsScreen(a.registry, ps)
 				a.pools.Width = a.width
 				a.pools.Height = a.height
+
+				// If currently on pools screen, trigger re-fetch
+				if a.screen == screenPools {
+					var cmd tea.Cmd
+					a.pools, cmd = a.pools.Update(screens.PoolsInitMsg{})
+					if cmd != nil {
+						return a, tea.Batch(cmd, func() tea.Msg {
+							return components.ToastMsg{
+								Text:  "Registration " + msg.status + " for " + msg.poolName,
+								Level: components.ToastSuccess,
+							}
+						})
+					}
+				}
 			}
 
 			if msg.status == "active" {
