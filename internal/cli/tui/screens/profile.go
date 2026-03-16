@@ -168,7 +168,15 @@ func (s ProfileScreen) View() string {
 		theme.DimStyle.Render("  mode: ") + theme.AccentStyle.Render(modeLabel) +
 		theme.DimStyle.Render("  tab to switch")
 
-	return header + "\n\n" + s.vp.View()
+	var content string
+	switch s.mode {
+	case components.ProfileNormal:
+		content = s.cachedNormal
+	case components.ProfileCompact:
+		content = s.cachedCompact
+	}
+
+	return header + "\n\n" + content
 }
 
 func (s ProfileScreen) loadLocalCmd() tea.Msg {
