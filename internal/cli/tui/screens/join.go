@@ -115,6 +115,7 @@ type JoinScreen struct {
 	editingDating   bool   // true when typing in the dating profile name
 
 	// dating profile creation
+	datingInterests  []string // collected tags
 	datingLookingFor components.Checkbox
 	datingAbout      string
 	datingCreateStep int // 0=interests, 1=looking_for, 2=about, 3=confirm
@@ -219,10 +220,29 @@ func (s JoinScreen) Update(msg tea.Msg) (JoinScreen, tea.Cmd) {
 				return s, func() tea.Msg { return JoinDoneMsg{} }
 			}
 			switch s.datingCreateStep {
-			case 0: // interests (text input, comma-separated)
-				if msg.String() == "enter" {
+			case 0: // interests (tag input)
+				switch msg.String() {
+				case "ctrl+d":
 					s.datingCreateStep = 1
 					return s, nil
+				case "enter":
+					val := strings.TrimSpace(s.input.Value())
+					if val != "" {
+						// Add comma-separated or single tag
+						for _, tag := range strings.Split(val, ",") {
+							t := strings.TrimSpace(tag)
+							if t != "" {
+								s.datingInterests = append(s.datingInterests, t)
+							}
+						}
+						s.input.SetValue("")
+					}
+					return s, nil
+				case "backspace":
+					if s.input.Value() == "" && len(s.datingInterests) > 0 {
+						s.datingInterests = s.datingInterests[:len(s.datingInterests)-1]
+						return s, nil
+					}
 				}
 				var cmd tea.Cmd
 				s.input, cmd = s.input.Update(msg)
@@ -341,15 +361,7 @@ func (s JoinScreen) Update(msg tea.Msg) (JoinScreen, tea.Cmd) {
 			s.addLog(theme.AmberStyle.Render("⚠ ") + "Could not create dating profile: " + msg.err.Error())
 		} else {
 			s.addLog(theme.GreenStyle.Render("✓ ") + "Dating profile created: " + s.username + "/dating/" + s.datingProfile + ".md")
-			// Merge the dating data into profile
-			var interests []string
-			for _, item := range strings.Split(s.input.Value(), ",") {
-				trimmed := strings.TrimSpace(item)
-				if trimmed != "" {
-					interests = append(interests, trimmed)
-				}
-			}
-			s.profile.Interests = interests
+			s.profile.Interests = s.datingInterests
 			s.profile.LookingFor = s.datingLookingFor.SelectedValues()
 			s.profile.About = s.datingAbout
 		}
@@ -703,8 +715,16 @@ func (s JoinScreen) datingCreationView() string {
 	switch s.datingCreateStep {
 	case 0:
 		out := theme.BoldStyle.Render("Your interests") + "\n"
-		out += theme.DimStyle.Render("Type comma-separated interests, enter to continue") + "\n\n"
-		out += s.input.View()
+		out += theme.DimStyle.Render("Type to add, enter to confirm, backspace to remove, ctrl+d when done") + "\n\n"
+		// Show existing tags
+		if len(s.datingInterests) > 0 {
+			var tags []string
+			for _, t := range s.datingInterests {
+				tags = append(tags, theme.AccentStyle.Render("["+t+"]"))
+			}
+			out += "  " + strings.Join(tags, " ") + "\n\n"
+		}
+		out += "  " + s.input.View()
 		return out
 	case 1:
 		return s.datingLookingFor.View()
@@ -731,14 +751,7 @@ func (s JoinScreen) createDatingRepo() tea.Msg {
 		return datingCreatedMsg{err: err}
 	}
 
-	// Parse interests from comma-separated text input
-	var interests []string
-	for _, item := range strings.Split(s.input.Value(), ",") {
-		trimmed := strings.TrimSpace(item)
-		if trimmed != "" {
-			interests = append(interests, trimmed)
-		}
-	}
+	interests := s.datingInterests
 	lookingFor := s.datingLookingFor.SelectedValues()
 
 	// Generate README content
@@ -815,9 +828,10 @@ func (s *JoinScreen) initDatingCreation() {
 
 	// Pre-fill interests from saved profile
 	if len(saved.Interests) > 0 {
-		s.input.SetValue(strings.Join(saved.Interests, ", "))
+		s.datingInterests = append([]string{}, saved.Interests...)
 	}
-	s.input.Placeholder = "coding, music, hiking, coffee..."
+	s.input.SetValue("")
+	s.input.Placeholder = "type an interest..."
 	s.input.EchoMode = textinput.EchoNormal
 	s.input.Focus()
 
