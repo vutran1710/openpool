@@ -265,6 +265,22 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case pendingPollResultMsg:
 		if msg.poolName != "" {
+			// Refresh pools screen with updated statuses
+			cfg, _ := config.Load()
+			if cfg != nil {
+				ps := make(map[string]string)
+				for _, p := range cfg.Pools {
+					s := p.Status
+					if s == "" {
+						s = "active"
+					}
+					ps[p.Name] = s
+				}
+				a.pools = screens.NewPoolsScreen(a.registry, ps)
+				a.pools.Width = a.width
+				a.pools.Height = a.height
+			}
+
 			if msg.status == "active" {
 				return a, func() tea.Msg {
 					return components.ToastMsg{
