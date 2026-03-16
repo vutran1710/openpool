@@ -144,9 +144,14 @@ func (c *Config) DecryptToken(privKey ed25519.PrivateKey) (string, error) {
 	return string(plaintext), nil
 }
 
-// ProfilePath returns the path to the local profile cache.
+// ProfilePath returns the path to the complete local profile.
 func ProfilePath() string {
 	return filepath.Join(Dir(), "profile.json")
+}
+
+// PoolProfilePath returns the path to a pool-specific profile.
+func PoolProfilePath(poolName string) string {
+	return filepath.Join(Dir(), "pools", poolName, "profile.json")
 }
 
 func (c *Config) RemovePool(name string) bool {

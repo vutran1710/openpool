@@ -76,17 +76,17 @@ func (s *ProfileScreen) updateContent() {
 		return
 	}
 
-	width := s.Width
+	width := s.viewport.Width
 	if width < 40 {
-		width = 60
+		width = 56
 	}
 
 	var content string
 	switch s.page {
 	case 0:
-		content = components.RenderProfile(*s.profile, width-4, components.ProfileFull)
+		content = components.RenderProfile(*s.profile, width-2, components.ProfileFull)
 	case 1:
-		content = components.RenderShowcase(*s.profile, width-4)
+		content = components.RenderShowcase(*s.profile, width-2)
 	}
 
 	s.viewport.SetContent(content)

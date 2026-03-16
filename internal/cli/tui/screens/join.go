@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -1014,9 +1015,14 @@ func (s JoinScreen) encrypt() tea.Msg {
 		return issueCreatedMsg{err: fmt.Errorf("serializing profile: %w", err)}
 	}
 
-	// Save profile locally
+	// Save complete profile locally
 	os.MkdirAll(config.Dir(), 0700)
 	os.WriteFile(config.ProfilePath(), profileJSON, 0600)
+
+	// Save pool-specific profile (only the fields user chose to share)
+	poolProfileDir := filepath.Dir(config.PoolProfilePath(s.poolName))
+	os.MkdirAll(poolProfileDir, 0700)
+	os.WriteFile(config.PoolProfilePath(s.poolName), profileJSON, 0600)
 
 	// Pack binary
 	operatorPubBytes, err := hex.DecodeString(s.operatorPub)
