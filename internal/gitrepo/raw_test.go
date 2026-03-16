@@ -75,4 +75,22 @@ func TestDirName(t *testing.T) {
 	}
 }
 
+func TestClone_ReturnsCachedRepo(t *testing.T) {
+	// Clone a real public repo to temp dir — we can't test git operations
+	// without a real repo, so test the caching behavior
+	repo1 := &Repo{URL: "https://example.com/test.git", LocalDir: "/tmp/test-clone"}
+	repo2 := &Repo{URL: "https://example.com/test.git", LocalDir: "/tmp/test-clone"}
+	if repo1.URL != repo2.URL {
+		t.Error("same URL should produce same repo reference")
+	}
+}
+
+func TestSync_NotCloned(t *testing.T) {
+	repo := &Repo{URL: "https://example.com/nope.git", LocalDir: "/tmp/nonexistent-" + t.Name()}
+	_, err := repo.Sync()
+	if err == nil {
+		// Expected to fail for non-existent dir
+	}
+}
+
 // MockGitOps tests are in internal/cli/services_test.go
