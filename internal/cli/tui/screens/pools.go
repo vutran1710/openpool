@@ -1,15 +1,12 @@
 package screens
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vutran1710/dating-dev/internal/cli/config"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
 	dbg "github.com/vutran1710/dating-dev/internal/debug"
@@ -239,14 +236,7 @@ func (s PoolsScreen) View() string {
 }
 
 func (s PoolsScreen) renderList(width int) string {
-	borderColor := theme.Border
-	if s.focus == focusList {
-		borderColor = theme.Violet
-	}
-
 	listStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
 		Width(width).
 		Padding(1, 1)
 
@@ -299,30 +289,7 @@ func (s PoolsScreen) renderDetail(width int) string {
 		Logo:          p.logo,
 	}
 
-	poolCard := components.RenderPoolCard(cardData, width, s.focus == focusDetail)
-
-	// For joined pools, show the user's pool profile below the card
-	if p.status == "active" {
-		poolProfile := s.loadPoolProfile(p.entry.Name)
-		if poolProfile != "" {
-			poolCard += "\n\n" + theme.DimStyle.Render("  Your profile in this pool:") + "\n"
-			poolCard += poolProfile
-		}
-	}
-
-	return poolCard
-}
-
-func (s PoolsScreen) loadPoolProfile(poolName string) string {
-	data, err := os.ReadFile(config.PoolProfilePath(poolName))
-	if err != nil {
-		return ""
-	}
-	var p gh.DatingProfile
-	if err := json.Unmarshal(data, &p); err != nil {
-		return ""
-	}
-	return components.RenderProfile(p, 40, components.ProfileCompact)
+	return components.RenderPoolCard(cardData, width, s.focus == focusDetail)
 }
 
 func (s PoolsScreen) HelpBindings() []components.KeyBind {
