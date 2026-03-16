@@ -3,12 +3,14 @@
 package gitrepo
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Repo represents a locally cloned git repository.
@@ -61,26 +63,12 @@ func CloneRegistry(repoURL string) (*Repo, error) {
 		return &Repo{URL: repoURL, LocalDir: localDir}, nil
 	}
 
-	if err := os.MkdirAll(filepath.Dir(localDir), 0755); err != nil {
-		return nil, fmt.Errorf("creating repos dir: %w", err)
-	}
+	// Step 1: validate registry.json via raw content (instant, no rate limit)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 
-	// Step 1: sparse clone — only fetches tree metadata, no file blobs
-	cmd := exec.Command("git", "clone", "--depth=1", "--filter=blob:none", "--sparse", "-q", repoURL, localDir)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		os.RemoveAll(localDir)
-		return nil, fmt.Errorf("cannot access %s: %s", repoURL, strings.TrimSpace(string(out)))
-	}
-
-	// Step 2: sparse-checkout registry.json and pools/ only (--no-cone for file+dir mix)
-	cmd = exec.Command("git", "-C", localDir, "sparse-checkout", "set", "--no-cone", "/registry.json", "pools/")
-	cmd.Run()
-
-	// Step 3: validate registry.json exists and has required fields
-	registryPath := filepath.Join(localDir, "registry.json")
-	regData, err := os.ReadFile(registryPath)
+	regData, err := FetchRaw(ctx, repoURL, "main", "registry.json")
 	if err != nil {
-		os.RemoveAll(localDir)
 		return nil, fmt.Errorf("not a valid registry: missing registry.json")
 	}
 
@@ -89,20 +77,19 @@ func CloneRegistry(repoURL string) (*Repo, error) {
 		Version int    `json:"version"`
 	}
 	if err := json.Unmarshal(regData, &regMeta); err != nil || regMeta.Name == "" || regMeta.Version == 0 {
-		os.RemoveAll(localDir)
 		return nil, fmt.Errorf("not a valid registry: invalid registry.json (requires name and version)")
 	}
 
-	// Step 4: validate pools/ directory exists
-	poolsDir := filepath.Join(localDir, "pools")
-	if info, err := os.Stat(poolsDir); err != nil || !info.IsDir() {
-		os.RemoveAll(localDir)
-		return nil, fmt.Errorf("not a valid registry: missing pools/ directory")
+	// Step 2: validated — do a normal shallow clone
+	if err := os.MkdirAll(filepath.Dir(localDir), 0755); err != nil {
+		return nil, fmt.Errorf("creating repos dir: %w", err)
 	}
 
-	// Step 5: valid registry — disable sparse checkout and fetch all files
-	cmd = exec.Command("git", "-C", localDir, "sparse-checkout", "disable")
-	cmd.Run()
+	cmd := exec.Command("git", "clone", "--depth=1", "-q", repoURL, localDir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		os.RemoveAll(localDir)
+		return nil, fmt.Errorf("cloning %s: %s", repoURL, strings.TrimSpace(string(out)))
+	}
 
 	return &Repo{URL: repoURL, LocalDir: localDir}, nil
 }
