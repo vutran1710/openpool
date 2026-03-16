@@ -26,14 +26,11 @@ func CloneDir() string {
 }
 
 // Clone clones a repo (shallow) into ~/.dating/repos/{hash}/.
-// If already cloned, pulls latest changes instead.
+// If already cloned, returns immediately (use Sync() to update).
 func Clone(repoURL string) (*Repo, error) {
 	localDir := filepath.Join(CloneDir(), dirName(repoURL))
 
 	if isCloned(localDir) {
-		// Pull latest
-		cmd := exec.Command("git", "-C", localDir, "pull", "--ff-only", "-q")
-		cmd.Run() // best-effort, don't fail if offline
 		return &Repo{URL: repoURL, LocalDir: localDir}, nil
 	}
 
@@ -131,7 +128,40 @@ func (r *Repo) FileExists(path string) bool {
 	return err == nil
 }
 
-// Pull fetches the latest changes.
+// Sync checks if the remote has new commits and pulls only if needed.
+// Returns true if updates were pulled, false if already up to date.
+func (r *Repo) Sync() (bool, error) {
+	// Get local HEAD
+	localCmd := exec.Command("git", "-C", r.LocalDir, "rev-parse", "HEAD")
+	localOut, err := localCmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("getting local HEAD: %w", err)
+	}
+	localHead := strings.TrimSpace(string(localOut))
+
+	// Get remote HEAD (fast — only fetches refs, no objects)
+	remoteCmd := exec.Command("git", "-C", r.LocalDir, "ls-remote", "--heads", "origin", "main")
+	remoteOut, err := remoteCmd.Output()
+	if err != nil {
+		return false, nil // offline, skip
+	}
+	parts := strings.Fields(string(remoteOut))
+	if len(parts) == 0 {
+		return false, nil
+	}
+	remoteHead := parts[0]
+
+	if localHead == remoteHead {
+		return false, nil // already up to date
+	}
+
+	// Pull
+	pullCmd := exec.Command("git", "-C", r.LocalDir, "pull", "--ff-only", "-q")
+	pullCmd.Run()
+	return true, nil
+}
+
+// Pull fetches the latest changes (always pulls, use Sync for smart update).
 func (r *Repo) Pull() error {
 	cmd := exec.Command("git", "-C", r.LocalDir, "pull", "--ff-only", "-q")
 	if out, err := cmd.CombinedOutput(); err != nil {

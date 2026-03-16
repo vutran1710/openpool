@@ -80,10 +80,16 @@ func NewPoolsScreen(registry string, poolStatuses map[string]string, poolIssues 
 func (s PoolsScreen) fetchPools() tea.Msg {
 	done := dbg.Timer("PoolsScreen.fetchPools")
 	defer done()
+
+	// Clone registry (instant if already cloned)
 	regRepo, err := gitrepo.CloneRegistry(gitrepo.EnsureGitURL(s.registry))
 	if err != nil {
 		return poolsFetchedMsg{err: err}
 	}
+
+	// Only sync registry if it has updates
+	regRepo.Sync()
+
 	reg := gh.NewLocalRegistry(regRepo)
 	entries, err := reg.ListPools()
 	if err != nil {
@@ -92,22 +98,25 @@ func (s PoolsScreen) fetchPools() tea.Msg {
 
 	var pools []poolItem
 	for _, e := range entries {
-		// Derive operator from repo owner if not set
 		if e.Operator == "" {
 			if parts := strings.SplitN(e.Repo, "/", 2); len(parts) == 2 {
 				e.Operator = parts[0]
 			}
 		}
 
-		// Get stats from cloned pool repo
+		// Only fetch stats for joined pools (skip unjoined — saves clone time)
 		var stats gh.PoolStats
-		poolURL := gitrepo.EnsureGitURL(e.Repo)
-		if poolRepo, err := gitrepo.Clone(poolURL); err == nil {
-			pool := gh.NewLocalPool(poolRepo)
-			stats = pool.Stats()
+		isJoined := s.poolStatus[e.Name] == "active" || s.poolStatus[e.Name] == "pending"
+		if isJoined {
+			poolURL := gitrepo.EnsureGitURL(e.Repo)
+			if poolRepo, err := gitrepo.Clone(poolURL); err == nil {
+				poolRepo.Sync() // smart sync — skip if no changes
+				pool := gh.NewLocalPool(poolRepo)
+				stats = pool.Stats()
+			}
 		}
 
-		// Get logo (image → ASCII, cached as logo.txt)
+		// Get logo (cached as logo.txt — instant after first render)
 		logo := components.PoolLogoFromRepo(regRepo, e.Name)
 
 		pools = append(pools, poolItem{
