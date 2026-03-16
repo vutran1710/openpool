@@ -1,70 +1,87 @@
 package relay
 
 import (
-	"crypto/ed25519"
-	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
-	"os"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
 
+// Server is the relay WebSocket + HTTP server.
 type Server struct {
-	hub            *Hub
-	poolToken      string
-	operatorPrivKey ed25519.PrivateKey
-	upgrader       websocket.Upgrader
+	hub      *Hub
+	tokens   *TokenStore
+	store    *Store
+	upgrader websocket.Upgrader
 }
 
-func NewServer() *Server {
-	s := &Server{
-		hub:       NewHub(),
-		poolToken: os.Getenv("POOL_TOKEN"),
+// ServerConfig holds relay server configuration.
+type ServerConfig struct {
+	TokenTTL time.Duration
+}
+
+// NewServer creates a relay server with the given config.
+func NewServer(cfg ServerConfig) *Server {
+	if cfg.TokenTTL == 0 {
+		cfg.TokenTTL = 15 * time.Minute
+	}
+	return &Server{
+		hub:    NewHub(),
+		tokens: NewTokenStore(cfg.TokenTTL),
+		store:  NewStore(),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
 	}
-
-	// Load operator private key for discovery re-encryption
-	if keyHex := os.Getenv("OPERATOR_PRIVATE_KEY"); keyHex != "" {
-		keyBytes, err := hex.DecodeString(keyHex)
-		if err != nil {
-			log.Printf("warning: invalid OPERATOR_PRIVATE_KEY: %v", err)
-		} else {
-			s.operatorPrivKey = ed25519.PrivateKey(keyBytes)
-			log.Printf("operator key loaded for discovery")
-		}
-	}
-
-	return s
 }
 
+// Store returns the server's user/match store for seeding data.
+func (s *Server) Store() *Store {
+	return s.store
+}
+
+// Handler returns an http.Handler with all routes.
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /ws", s.HandleWS)
+	mux.HandleFunc("GET /health", s.HandleHealth)
+	return mux
+}
+
+// HandleWS upgrades to WebSocket and starts a session.
 func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("upgrade error: %v", err)
+		log.Printf("upgrade: %v", err)
 		return
 	}
 
-	client := NewClient(conn, s.hub, s.poolToken)
-	go client.WritePump()
-	go client.ReadPump()
+	sess := newSession(conn, s)
+	go sess.run()
 }
 
+// HandleHealth returns server status.
 func (s *Server) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"status":"ok","online":` + itoa(s.hub.OnlineCount()) + `}`))
+	json.NewEncoder(w).Encode(map[string]any{
+		"status": "ok",
+		"online": s.hub.OnlineCount(),
+	})
 }
 
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
+// ListenAndServe starts the relay server on the given address.
+func (s *Server) ListenAndServe(addr string) error {
+	log.Printf("relay server listening on %s", addr)
+	return http.ListenAndServe(addr, s.Handler())
+}
+
+// Addr returns the listen address string for a given port.
+func Addr(port string) string {
+	if port == "" {
+		port = "8081"
 	}
-	s := ""
-	for n > 0 {
-		s = string(rune('0'+n%10)) + s
-		n /= 10
-	}
-	return s
+	return fmt.Sprintf(":%s", port)
 }

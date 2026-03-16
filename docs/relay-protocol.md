@@ -333,16 +333,49 @@ routes {
 
 ---
 
-## 10. Implementation Notes
+## 10. Implementation Status
 
-### Go Native
+### What's Built
+
+| Component | Package | Status |
+|-----------|---------|--------|
+| Protocol types | `internal/protocol/types.go` | Done — 10 frame types, data model structs, error codes |
+| MessagePack codec | `internal/protocol/codec.go` | Done — `Encode`, `Decode`, `DecodeType`, `DecodeFrame` |
+| Codec tests | `internal/protocol/codec_test.go` | Done — encode/decode all types, size comparison |
+| CLI relay client | `internal/cli/relay/client.go` | Done — connect, auth handshake, send/receive, token refresh |
+| Client unit tests | `internal/cli/relay/client_test.go` | Done — 17 tests (no network) |
+| Client integration tests | `internal/cli/relay/client_integration_test.go` | Done — 20 tests (mock WS server) |
+
+### What's NOT Built Yet
+
+| Component | Package | Notes |
+|-----------|---------|-------|
+| Relay server (new protocol) | `cmd/relay/`, `internal/relay/` | Old server exists but uses JSON, no tokens, no refresh, no ack, no identity — needs full rewrite to new MessagePack protocol |
+| Repo sync | — | Server must periodically sync pool repos to build user index |
+| Token management | — | JWT or opaque token issuance + validation |
+| Message queue | — | Durable storage for offline delivery |
+| Match verification | — | Check matches before routing messages |
+| Discovery endpoint | `internal/relay/discover.go` | Exists (old) — re-encrypt profile for requester, needs update to new auth model |
+
+### Old Server (to be replaced)
+
+The current `internal/relay/` server is a prototype that:
+- Uses **JSON** over WebSocket (not MessagePack)
+- Has no token-based auth (just challenge-response, no session token)
+- Has no token refresh, ack, identity query
+- Checks matches via GitHub API on every message (no local index)
+- Has no message queue for offline users
+- Discovery endpoint works but uses JSON + direct signature auth
+
+### Go Server (target)
 
 - WebSocket: `gorilla/websocket`
-- MessagePack: `vmihailenco/msgpack`
+- MessagePack: `vmihailenco/msgpack/v5`
 - Storage: SQLite (user index, matches, message queue)
-- In-memory: connection routing map
+- In-memory: connection routing map (`hash_id → *websocket.Conn`)
+- Auth: ed25519 challenge-response → short-lived token
 
-### Cloudflare Workers
+### Cloudflare Workers (future)
 
 - WebSocket: Durable Objects (per-pool actor)
 - MessagePack: `@msgpack/msgpack` (JS)
@@ -353,9 +386,10 @@ routes {
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `OPERATOR_PRIVATE_KEY` | Yes | Hex-encoded ed25519 private key |
-| `POOL_SALT` | Yes | Secret salt for hash_id computation |
-| `POOL_REPOS` | Yes | Comma-separated list of pool repo URLs to sync |
-| `SYNC_INTERVAL` | No | Repo sync interval (default: 2m) |
-| `TOKEN_TTL` | No | Token lifetime in seconds (default: 900) |
-| `PORT` | No | Server port (default: 8081) |
+| `OPERATOR_PRIVATE_KEY` | Yes | Hex-encoded ed25519 private key for profile decryption + re-encryption |
+| `POOL_SALT` | Yes | Secret salt for hash_id computation: `SHA256(salt:pool_url:provider:user_id)[:16]` |
+| `POOL_TOKEN` | Yes | GitHub PAT for pool repo API access (avoids 60 req/hr anonymous limit) |
+| `POOL_REPOS` | Yes | Comma-separated list of pool repo URLs to sync (e.g. `owner/pool-a,owner/pool-b`) |
+| `PORT` | No | Server port (default: `8081`) |
+| `TOKEN_TTL` | No | Auth token lifetime in seconds (default: `900` = 15 min) |
+| `SYNC_INTERVAL` | No | Repo sync interval (default: `2m`) |
