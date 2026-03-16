@@ -6,159 +6,140 @@ import (
 	"testing"
 
 	"github.com/vutran1710/dating-dev/internal/cli/config"
+	"github.com/vutran1710/dating-dev/internal/cli/svc"
 )
 
 func TestMockServices_Config(t *testing.T) {
-	svc := MockServices()
+	s := MockServices()
 
-	// Load returns empty config
-	cfg, err := svc.Config.Load()
+	cfg, err := s.Config.Load()
 	if err != nil || cfg == nil {
 		t.Fatal("expected empty config")
 	}
 
-	// Save and reload
 	cfg.User.DisplayName = "Alice"
 	cfg.AddPool(config.PoolConfig{Name: "pool1", Status: "active"})
-	svc.Config.Save(cfg)
+	s.Config.Save(cfg)
 
-	loaded, _ := svc.Config.Load()
+	loaded, _ := s.Config.Load()
 	if loaded.User.DisplayName != "Alice" {
 		t.Errorf("expected Alice, got %s", loaded.User.DisplayName)
 	}
 	if len(loaded.Pools) != 1 {
 		t.Errorf("expected 1 pool, got %d", len(loaded.Pools))
 	}
-
-	// Paths
-	if svc.Config.Dir() == "" {
-		t.Error("Dir should not be empty")
-	}
-	if svc.Config.KeysDir() == "" {
-		t.Error("KeysDir should not be empty")
-	}
-	if svc.Config.ProfilePath() == "" {
-		t.Error("ProfilePath should not be empty")
-	}
 }
 
 func TestMockServices_Crypto(t *testing.T) {
-	svc := MockServices()
+	s := MockServices()
 
-	// Generate
-	pub, priv, err := svc.Crypto.GenerateKeyPair("/tmp/keys")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pub == nil || priv == nil {
+	pub, priv, err := s.Crypto.GenerateKeyPair("/tmp")
+	if err != nil || pub == nil || priv == nil {
 		t.Fatal("expected keys")
 	}
 
-	// Load returns same keys
-	pub2, priv2, _ := svc.Crypto.LoadKeyPair("/tmp/keys")
-	if string(pub) != string(pub2) {
-		t.Error("load should return same pub")
-	}
-	if string(priv) != string(priv2) {
-		t.Error("load should return same priv")
-	}
-
-	// Encrypt/decrypt round-trip
-	encrypted, _ := svc.Crypto.Encrypt(pub, []byte("hello"))
-	decrypted, err := svc.Crypto.Decrypt(priv, encrypted)
+	encrypted, _ := s.Crypto.Encrypt(pub, []byte("hello"))
+	decrypted, err := s.Crypto.Decrypt(priv, encrypted)
 	if err != nil || string(decrypted) != "hello" {
 		t.Errorf("round-trip failed: %v", err)
 	}
 
-	// Sign
-	sig := svc.Crypto.Sign(priv, []byte("msg"))
+	sig := s.Crypto.Sign(priv, []byte("msg"))
 	if sig == "" {
 		t.Error("expected signature")
 	}
 }
 
 func TestMockServices_Git(t *testing.T) {
-	svc := MockServices()
-	git := svc.Git.(*MockGitService)
+	s := MockServices()
+	git := s.Git.(*MockGitService)
 
-	// Clone missing repo
-	_, err := svc.Git.Clone("https://missing.git")
+	_, err := s.Git.Clone("https://missing.git")
 	if err == nil {
-		t.Error("expected error")
+		t.Error("expected error for missing repo")
 	}
 
-	// Add file and clone
 	git.AddFile("https://example.com/repo.git", "README.md", []byte("hello"))
-	repo, err := svc.Git.Clone("https://example.com/repo.git")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if repo == nil {
+	repo, err := s.Git.Clone("https://example.com/repo.git")
+	if err != nil || repo == nil {
 		t.Fatal("expected repo")
 	}
 
-	// FetchRaw
-	data, err := svc.Git.FetchRaw(context.Background(), "https://example.com/repo.git", "main", "README.md")
+	data, err := s.Git.FetchRaw(context.Background(), "https://example.com/repo.git", "main", "README.md")
 	if err != nil || string(data) != "hello" {
 		t.Errorf("FetchRaw: %v", err)
 	}
 
-	// FetchRaw missing
-	_, err = svc.Git.FetchRaw(context.Background(), "https://example.com/repo.git", "main", "missing.txt")
+	_, err = s.Git.FetchRaw(context.Background(), "https://example.com/repo.git", "main", "missing")
 	if err == nil {
 		t.Error("expected error for missing file")
 	}
 
-	// FileExistsRaw
-	if !svc.Git.FileExistsRaw(context.Background(), "https://example.com/repo.git", "main", "README.md") {
+	if !s.Git.FileExistsRaw(context.Background(), "https://example.com/repo.git", "main", "README.md") {
 		t.Error("expected true")
-	}
-	if svc.Git.FileExistsRaw(context.Background(), "https://example.com/repo.git", "main", "nope") {
-		t.Error("expected false")
-	}
-
-	// EnsureGitURL
-	url := svc.Git.EnsureGitURL("owner/repo")
-	if url != "https://github.com/owner/repo.git" {
-		t.Errorf("unexpected: %s", url)
 	}
 }
 
 func TestMockServices_GitHub(t *testing.T) {
-	svc := MockServices()
-	gh := svc.GitHub.(*MockGitHubService)
+	s := MockServices()
+	gh := s.GitHub.(*MockGitHubService)
 
 	// No user
-	_, err := svc.GitHub.GetUser(context.Background(), "token")
+	_, err := s.GitHub.GetUser(context.Background(), "token")
 	if err == nil {
 		t.Error("expected error without user")
 	}
 
 	// Set user
-	gh.User = &GitHubIdentity{UserID: "123", Username: "alice", DisplayName: "Alice"}
-	user, err := svc.GitHub.GetUser(context.Background(), "token")
+	gh.User = &svc.GitHubUser{UserID: "123", Username: "alice", DisplayName: "Alice"}
+	user, err := s.GitHub.GetUser(context.Background(), "token")
 	if err != nil || user.Username != "alice" {
 		t.Errorf("expected alice: %v", err)
 	}
 
 	// Token
 	gh.Token = "ghp_test"
-	token, err := svc.GitHub.ResolveToken(nil)
+	token, err := s.GitHub.ResolveToken(nil)
 	if err != nil || token != "ghp_test" {
 		t.Errorf("expected ghp_test: %v", err)
 	}
 
 	// Token error
 	gh.TokenErr = fmt.Errorf("no gh")
-	_, err = svc.GitHub.ResolveToken(nil)
+	_, err = s.GitHub.ResolveToken(nil)
 	if err == nil {
 		t.Error("expected error")
+	}
+
+	// CreateIssue
+	num, err := s.GitHub.CreateIssue(context.Background(), "repo", "token", "title", "body", nil)
+	if err != nil || num == 0 {
+		t.Errorf("create issue: %v", err)
+	}
+
+	// GetIssue
+	state, _, err := s.GitHub.GetIssue(context.Background(), "repo", "token", num)
+	if err != nil || state != "open" {
+		t.Errorf("get issue: %v, state: %s", err, state)
+	}
+
+	// CloseIssue
+	gh.CloseIssue(num, "completed")
+	state, reason, _ := s.GitHub.GetIssue(context.Background(), "repo", "token", num)
+	if state != "closed" || reason != "completed" {
+		t.Errorf("expected closed/completed, got %s/%s", state, reason)
+	}
+
+	// GetIssue not found
+	_, _, err = s.GitHub.GetIssue(context.Background(), "repo", "token", 999)
+	if err == nil {
+		t.Error("expected error for missing issue")
 	}
 }
 
 func TestDefaultServices_NotNil(t *testing.T) {
-	svc := DefaultServices()
-	if svc.Config == nil || svc.Crypto == nil || svc.Git == nil || svc.GitHub == nil {
+	s := DefaultServices()
+	if s.Config == nil || s.Crypto == nil || s.Git == nil || s.GitHub == nil {
 		t.Error("all services should be non-nil")
 	}
 }

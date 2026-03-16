@@ -5,20 +5,22 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
+	"sync"
 
 	"github.com/vutran1710/dating-dev/internal/cli/config"
+	"github.com/vutran1710/dating-dev/internal/cli/svc"
 	"github.com/vutran1710/dating-dev/internal/crypto"
 	"github.com/vutran1710/dating-dev/internal/gitrepo"
 )
 
 // MockServices creates a fully mocked Services for testing.
-func MockServices() *Services {
+func MockServices() *svc.Services {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
-	return &Services{
+	return &svc.Services{
 		Config: &MockConfigService{Cfg: &config.Config{}},
 		Crypto: &MockCryptoService{Pub: pub, Priv: priv},
 		Git:    &MockGitService{Repos: make(map[string]map[string][]byte)},
-		GitHub: &MockGitHubService{},
+		GitHub: &MockGitHubService{Issues: make(map[int]*mockIssue)},
 	}
 }
 
@@ -64,7 +66,7 @@ func (m *MockCryptoService) Sign(priv ed25519.PrivateKey, message []byte) string
 // --- Mock Git ---
 
 type MockGitService struct {
-	Repos map[string]map[string][]byte // repoURL → path → content
+	Repos map[string]map[string][]byte
 }
 
 func (m *MockGitService) AddFile(repoURL, path string, content []byte) {
@@ -80,54 +82,73 @@ func (m *MockGitService) Clone(repoURL string) (*gitrepo.Repo, error) {
 	}
 	return &gitrepo.Repo{URL: repoURL, LocalDir: "/mock/" + repoURL}, nil
 }
-
-func (m *MockGitService) CloneRegistry(repoURL string) (*gitrepo.Repo, error) {
-	return m.Clone(repoURL)
-}
-
-func (m *MockGitService) EnsureGitURL(input string) string {
-	return gitrepo.EnsureGitURL(input)
-}
-
+func (m *MockGitService) CloneRegistry(repoURL string) (*gitrepo.Repo, error) { return m.Clone(repoURL) }
+func (m *MockGitService) EnsureGitURL(input string) string                    { return gitrepo.EnsureGitURL(input) }
 func (m *MockGitService) FetchRaw(_ context.Context, repoRef, _, path string) ([]byte, error) {
 	files, ok := m.Repos[repoRef]
-	if !ok {
-		return nil, fmt.Errorf("not found")
-	}
+	if !ok { return nil, fmt.Errorf("not found") }
 	data, ok := files[path]
-	if !ok {
-		return nil, fmt.Errorf("not found: %s", path)
-	}
+	if !ok { return nil, fmt.Errorf("not found: %s", path) }
 	return data, nil
 }
-
 func (m *MockGitService) FileExistsRaw(_ context.Context, repoRef, _, path string) bool {
 	files, ok := m.Repos[repoRef]
-	if !ok {
-		return false
-	}
+	if !ok { return false }
 	_, ok = files[path]
 	return ok
 }
 
 // --- Mock GitHub ---
 
+type mockIssue struct {
+	State  string
+	Reason string
+}
+
 type MockGitHubService struct {
-	User     *GitHubIdentity
+	mu       sync.Mutex
+	User     *svc.GitHubUser
 	Token    string
 	TokenErr error
+	Issues   map[int]*mockIssue
+	Files    map[string][]byte
+	Repos    map[string]bool
+	nextID   int
 }
 
-func (m *MockGitHubService) GetUser(_ context.Context, _ string) (*GitHubIdentity, error) {
-	if m.User == nil {
-		return nil, fmt.Errorf("no user")
-	}
+func (m *MockGitHubService) GetUser(_ context.Context, _ string) (*svc.GitHubUser, error) {
+	if m.User == nil { return nil, fmt.Errorf("no user") }
 	return m.User, nil
 }
-
 func (m *MockGitHubService) ResolveToken(_ func(string) string) (string, error) {
-	if m.TokenErr != nil {
-		return "", m.TokenErr
-	}
+	if m.TokenErr != nil { return "", m.TokenErr }
 	return m.Token, nil
+}
+func (m *MockGitHubService) CreateIssue(_ context.Context, _, _, _, _ string, _ []string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.nextID++
+	m.Issues[m.nextID] = &mockIssue{State: "open"}
+	return m.nextID, nil
+}
+func (m *MockGitHubService) GetIssue(_ context.Context, _, _ string, number int) (string, string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	issue, ok := m.Issues[number]
+	if !ok { return "", "", fmt.Errorf("issue %d not found", number) }
+	return issue.State, issue.Reason, nil
+}
+func (m *MockGitHubService) StarRepo(_ context.Context, _, _ string) error { return nil }
+func (m *MockGitHubService) CreateRepo(_ context.Context, _, _ string, _ bool) error { return nil }
+func (m *MockGitHubService) CommitFile(_ context.Context, _, _, _, _ string, _ []byte) error { return nil }
+func (m *MockGitHubService) RepoExists(_ context.Context, _, _ string) bool { return false }
+
+// CloseIssue is a test helper.
+func (m *MockGitHubService) CloseIssue(number int, reason string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if issue, ok := m.Issues[number]; ok {
+		issue.State = "closed"
+		issue.Reason = reason
+	}
 }

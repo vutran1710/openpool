@@ -25,6 +25,12 @@ type Branch struct {
 	Ref string `json:"ref"`
 }
 
+type Issue struct {
+	Number      int    `json:"number"`
+	State       string `json:"state"`
+	StateReason string `json:"state_reason"`
+}
+
 type PoolManifest struct {
 	Name             string `json:"name"`
 	Description      string `json:"description"`
