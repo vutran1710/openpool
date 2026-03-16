@@ -306,78 +306,135 @@ func (s JoinScreen) Update(msg tea.Msg) (JoinScreen, tea.Cmd) {
 func (s JoinScreen) View() string {
 	pad := lipgloss.NewStyle().Padding(1, 3)
 
-	header := theme.BoldStyle.Render("Join: "+s.poolName) + "\n"
-	header += theme.DimStyle.Render("  "+s.poolRepo) + "\n\n"
+	// Timeline sidebar
+	timeline := s.renderTimeline()
 
-	// Log area
-	var logContent string
-	for _, line := range s.log {
-		logContent += "  " + line + "\n"
-	}
+	// Main content area
+	var content string
 
-	// Active content
-	var active string
 	switch s.step {
 	case joinConfigSources:
-		active = s.configSourcesView()
+		content = s.configSourcesView()
 	case joinFetchingSources:
-		active = fmt.Sprintf("  %s Fetching profile data...", s.spinner.View())
+		content = s.renderLogWithActive(s.spinner.View() + " Fetching profile data...")
 	case joinToggleFields:
-		active = s.checkbox.View()
+		content = s.renderLogWithActive(s.checkbox.View())
 	case joinFetchTemplate:
-		active = fmt.Sprintf("  %s Loading registration template...", s.spinner.View())
+		content = s.renderLogWithActive(s.spinner.View() + " Loading registration template...")
 	case joinFillTemplate:
-		active = s.templateFieldView()
+		content = s.renderLogWithActive(s.templateFieldView())
 	case joinEncrypting:
-		active = fmt.Sprintf("  %s Encrypting profile...", s.spinner.View())
+		content = s.renderLogWithActive(s.spinner.View() + " Encrypting & submitting...")
 	case joinSubmitting:
-		active = fmt.Sprintf("  %s Submitting registration...", s.spinner.View())
+		content = s.renderLogWithActive(s.spinner.View() + " Submitting registration...")
 	case joinDone:
-		active = ""
+		content = s.renderLogWithActive(
+			theme.GreenStyle.Render("✓ ") + theme.BoldStyle.Render("Registration submitted!") + "\n\n" +
+				theme.DimStyle.Render("  You'll be notified once the pool processes your registration.") + "\n" +
+				theme.DimStyle.Render("  Press enter to go back to home."),
+		)
 	case joinError:
-		active = "\n  " + theme.RedStyle.Render("✗ "+s.errMsg) + "\n\n  " + theme.DimStyle.Render("Press enter to go back")
+		content = s.renderLogWithActive(
+			theme.RedStyle.Render("✗ " + s.errMsg) + "\n\n" +
+				theme.DimStyle.Render("  Press enter to go back"),
+		)
 	}
 
-	return pad.Render(header + logContent + active)
+	// Layout: timeline | content
+	left := lipgloss.NewStyle().Width(26).Render(timeline)
+
+	return pad.Render(lipgloss.JoinHorizontal(lipgloss.Top, left, content))
+}
+
+func (s JoinScreen) renderTimeline() string {
+	type step struct {
+		label string
+		done  bool
+		active bool
+		failed bool
+	}
+
+	steps := []step{
+		{label: "Configure Sources", done: s.step > joinConfigSources, active: s.step == joinConfigSources},
+		{label: "Fetch Profile", done: s.step > joinFetchingSources, active: s.step == joinFetchingSources},
+		{label: "Select Fields", done: s.step > joinToggleFields, active: s.step == joinToggleFields},
+		{label: "Registration Form", done: s.step > joinFillTemplate, active: s.step == joinFetchTemplate || s.step == joinFillTemplate},
+		{label: "Submit", done: s.step == joinDone, active: s.step == joinEncrypting || s.step == joinSubmitting, failed: s.step == joinError},
+	}
+
+	out := theme.BoldStyle.Render("Join: " + s.poolName) + "\n"
+	out += theme.DimStyle.Render(s.poolRepo) + "\n\n"
+
+	for i, st := range steps {
+		icon := theme.DimStyle.Render("○")
+		labelStyle := theme.DimStyle
+		connector := theme.DimStyle.Render("│")
+
+		if st.failed {
+			icon = theme.RedStyle.Render("✗")
+			labelStyle = theme.RedStyle
+		} else if st.done {
+			icon = theme.GreenStyle.Render("✓")
+			labelStyle = theme.TextStyle
+		} else if st.active {
+			icon = s.spinner.View()
+			labelStyle = theme.TextStyle
+		}
+
+		out += fmt.Sprintf("  %s %s\n", icon, labelStyle.Render(st.label))
+		if i < len(steps)-1 {
+			out += fmt.Sprintf("  %s\n", connector)
+		}
+	}
+
+	return out
+}
+
+func (s JoinScreen) renderLogWithActive(active string) string {
+	var out string
+	for _, line := range s.log {
+		out += line + "\n"
+	}
+	if active != "" {
+		out += "\n" + active
+	}
+	return out
 }
 
 func (s JoinScreen) configSourcesView() string {
-	labelCol := lipgloss.NewStyle().Width(20)
+	labelCol := lipgloss.NewStyle().Width(18)
 
-	out := theme.BoldStyle.Render("Configure profile sources") + "\n"
-	out += theme.DimStyle.Render("Your email & user ID will be hidden from discovery") + "\n\n"
+	out := theme.BoldStyle.Render("Profile Sources") + "\n"
+	out += theme.DimStyle.Render("Your email & user ID are never shared") + "\n\n"
 
-	row := func(cursor int, check, label, desc string) string {
-		cur := "    "
-		if s.configCursor == cursor {
-			cur = "  " + theme.Cursor()
+	// Consistent row helper
+	row := func(cursorIdx int, check, label, desc string) string {
+		cur := "  "
+		if s.configCursor == cursorIdx {
+			cur = theme.Cursor()
 		}
-		return fmt.Sprintf("%s%s %s %s\n", cur, check, labelCol.Render(label), theme.DimStyle.Render(desc))
+		return fmt.Sprintf("  %s%s %s %s\n", cur, check, labelCol.Render(label), theme.DimStyle.Render(desc))
 	}
 
-	// GitHub Profile (mandatory, no cursor)
-	out += fmt.Sprintf("    %s %s %s\n",
-		theme.GreenStyle.Render("[✓]"),
-		labelCol.Render("GitHub Profile"),
-		theme.DimStyle.Render("always included"),
-	)
+	// GitHub Profile (mandatory, locked)
+	out += row(-1, theme.GreenStyle.Render("[✓]"), "GitHub Profile", "always included")
 
 	// Showcase toggle
 	showcaseCheck := theme.DimStyle.Render("[ ]")
 	if s.includeShowcase {
 		showcaseCheck = theme.GreenStyle.Render("[✓]")
 	}
-	out += row(0, showcaseCheck, "Showcase", s.username+"/"+s.username+"/README.md")
+	out += row(0, showcaseCheck, "Showcase", s.username+"/"+s.username)
 
 	// Dating profile
 	if s.editingDating {
-		cur := "  " + theme.Cursor()
-		out += fmt.Sprintf("%s%s %s\n", cur, theme.DimStyle.Render("[…]"), labelCol.Render("Dating Profile"))
-		out += "        " + s.input.View() + "\n"
-		out += "        " + theme.DimStyle.Render("→ "+s.username+"/dating/{name}.md") + "\n"
+		cur := theme.Cursor()
+		out += fmt.Sprintf("  %s%s %s\n", cur, theme.AmberStyle.Render("[…]"), labelCol.Render("Dating Profile"))
+		out += "       " + s.input.View() + "\n"
+		out += "       " + theme.DimStyle.Render("→ "+s.username+"/dating/{name}.md") + "\n"
 	} else {
 		datingCheck := theme.DimStyle.Render("[ ]")
-		datingDesc := "skip (leave empty)"
+		datingDesc := "enter to set profile name"
 		if s.datingProfile != "" {
 			datingCheck = theme.GreenStyle.Render("[✓]")
 			datingDesc = s.username + "/dating/" + s.datingProfile + ".md"
@@ -386,15 +443,9 @@ func (s JoinScreen) configSourcesView() string {
 	}
 
 	out += "\n"
-
-	// Continue
-	cur := "    "
-	if s.configCursor == 2 {
-		cur = "  " + theme.Cursor()
-	}
-	out += cur + theme.BoldStyle.Render("Continue →") + "\n\n"
-
-	out += theme.DimStyle.Render("  ↑↓ navigate · space toggle · enter edit · esc cancel")
+	out += row(2, " ", "Continue →", "")
+	out += "\n"
+	out += theme.DimStyle.Render("  You can fine-tune individual fields in the next step")
 
 	return out
 }
