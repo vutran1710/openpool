@@ -142,12 +142,16 @@ func (c Checkbox) SelectedIDs() []string {
 	return ids
 }
 
-// SelectedValues returns the Values of all checked items.
+// SelectedValues returns the Values of all checked items. Falls back to ID if Value is empty.
 func (c Checkbox) SelectedValues() []string {
 	var vals []string
 	for _, item := range c.Items {
 		if item.Checked {
-			vals = append(vals, item.Value)
+			v := item.Value
+			if v == "" {
+				v = item.ID
+			}
+			vals = append(vals, v)
 		}
 	}
 	return vals

@@ -793,32 +793,32 @@ func (s JoinScreen) createDatingRepo() tea.Msg {
 
 func (s *JoinScreen) initDatingCreation() {
 	commonInterests := []components.CheckboxItem{
-		{ID: "coding", Label: "coding", Value: "coding"},
-		{ID: "open-source", Label: "open-source", Value: "open-source"},
-		{ID: "gaming", Label: "gaming", Value: "gaming"},
-		{ID: "music", Label: "music", Value: "music"},
-		{ID: "hiking", Label: "hiking", Value: "hiking"},
-		{ID: "coffee", Label: "coffee", Value: "coffee"},
-		{ID: "reading", Label: "reading", Value: "reading"},
-		{ID: "travel", Label: "travel", Value: "travel"},
-		{ID: "cooking", Label: "cooking", Value: "cooking"},
-		{ID: "fitness", Label: "fitness", Value: "fitness"},
-		{ID: "art", Label: "art", Value: "art"},
-		{ID: "photography", Label: "photography", Value: "photography"},
+		{ID: "coding", Label: "coding"},
+		{ID: "open-source", Label: "open-source"},
+		{ID: "gaming", Label: "gaming"},
+		{ID: "music", Label: "music"},
+		{ID: "hiking", Label: "hiking"},
+		{ID: "coffee", Label: "coffee"},
+		{ID: "reading", Label: "reading"},
+		{ID: "travel", Label: "travel"},
+		{ID: "cooking", Label: "cooking"},
+		{ID: "fitness", Label: "fitness"},
+		{ID: "art", Label: "art"},
+		{ID: "photography", Label: "photography"},
 	}
 
 	lookingForItems := []components.CheckboxItem{
-		{ID: "friendship", Label: "friendship", Value: "friendship"},
-		{ID: "dating", Label: "dating", Value: "dating"},
-		{ID: "relationship", Label: "relationship", Value: "relationship"},
-		{ID: "networking", Label: "networking", Value: "networking"},
-		{ID: "open", Label: "open to anything", Value: "open"},
+		{ID: "friendship", Label: "friendship"},
+		{ID: "dating", Label: "dating"},
+		{ID: "relationship", Label: "relationship"},
+		{ID: "networking", Label: "networking"},
+		{ID: "open", Label: "open to anything"},
 	}
 
 	s.datingInterests = components.NewCheckbox("Select your interests", commonInterests)
-	s.datingInterests.Subtitle = "Space to toggle, enter to continue"
+	s.datingInterests.Subtitle = "Pick what you're into — space to toggle, enter to continue"
 	s.datingLookingFor = components.NewCheckbox("What are you looking for?", lookingForItems)
-	s.datingLookingFor.Subtitle = "Select one or more"
+	s.datingLookingFor.Subtitle = "Select one or more — space to toggle, enter to continue"
 }
 
 func (s JoinScreen) savePending() {
