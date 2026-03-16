@@ -24,6 +24,7 @@ const (
 	screenChat
 	screenPools
 	screenJoin
+	screenProfile
 )
 
 type app struct {
@@ -45,6 +46,7 @@ type app struct {
 	chat       screens.ChatScreen
 	pools      screens.PoolsScreen
 	join       screens.JoinScreen
+	profile    screens.ProfileScreen
 
 	user     string
 	pool     string
@@ -70,6 +72,7 @@ func newApp(userName, userHash, pool, registry string, poolStatuses map[string]s
 		discover:   screens.NewDiscoverScreen(),
 		matches:    screens.NewMatchesScreen(),
 		pools:      screens.NewPoolsScreen(registry, poolStatuses),
+		profile:    screens.NewProfileScreen(),
 	}
 	a.statusBar.User = userName
 	a.statusBar.UserHash = userHash
@@ -104,6 +107,8 @@ func (a *app) updateHelp() {
 		bindings = a.pools.HelpBindings()
 	case screenJoin:
 		bindings = a.join.HelpBindings()
+	case screenProfile:
+		bindings = a.profile.HelpBindings()
 	}
 	a.helpBar = components.NewHelpBar(bindings...)
 }
@@ -123,6 +128,8 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.pools.Height = msg.Height
 		a.onboarding.Width = msg.Width
 		a.onboarding.Height = msg.Height
+		a.profile.Width = msg.Width
+		a.profile.Height = msg.Height
 		return a, nil
 
 	case tea.KeyMsg:
@@ -339,9 +346,9 @@ func (a app) handleMenuSelect(key string) (tea.Model, tea.Cmd) {
 			return components.ToastMsg{Text: "Inbox coming soon", Level: components.ToastInfo}
 		}
 	case "profile":
-		return a, func() tea.Msg {
-			return components.ToastMsg{Text: "Run: dating profile edit", Level: components.ToastInfo}
-		}
+		a.screen = screenProfile
+		a.profile.Width = a.width
+		a.profile.Height = a.height
 	case "auth":
 		return a, func() tea.Msg {
 			return components.ToastMsg{Text: "Run: dating auth register", Level: components.ToastInfo}
@@ -373,6 +380,11 @@ func (a app) handleSubmit(msg components.SubmitMsg) (tea.Model, tea.Cmd) {
 			a.updateHelp()
 		case "/pools":
 			a.screen = screenPools
+			a.updateHelp()
+		case "/profile":
+			a.screen = screenProfile
+			a.profile.Width = a.width
+			a.profile.Height = a.height
 			a.updateHelp()
 		case "/exit":
 			if a.screen == screenChat {
@@ -419,6 +431,8 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case screenJoin:
 		a.join, cmd = a.join.Update(msg)
 		a.updateHelp()
+	case screenProfile:
+		a.profile, cmd = a.profile.Update(msg)
 	}
 
 	if cmd != nil {
@@ -462,6 +476,8 @@ func (a app) View() string {
 		content = a.pools.View()
 	case screenJoin:
 		content = a.join.View()
+	case screenProfile:
+		content = a.profile.View()
 	}
 
 	toastView := a.toast.View()

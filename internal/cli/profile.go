@@ -10,7 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
+	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
 	"github.com/vutran1710/dating-dev/internal/crypto"
+	gh "github.com/vutran1710/dating-dev/internal/github"
 )
 
 func newProfileCmd() *cobra.Command {
@@ -131,47 +133,32 @@ func newProfileEditCmd() *cobra.Command {
 func newProfileShowCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "show",
-		Short: "Show your current profile (decrypted locally)",
+		Short: "Show your dating profile",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := cmd.Context()
-
-			cfg, err := config.Load()
+			// Try local profile first
+			data, err := os.ReadFile(config.ProfilePath())
 			if err != nil {
-				return err
-			}
-
-			pool, err := requirePool(cfg)
-			if err != nil {
+				printDim("  No profile found. Join a pool to create one.")
 				return nil
 			}
 
-			_, priv, err := crypto.LoadKeyPair(config.KeysDir())
-			if err != nil {
-				return fmt.Errorf("loading keys: %w", err)
-			}
-
-			userHash := crypto.UserHash(pool.Repo, cfg.User.Provider, cfg.User.ProviderUserID)
-			client := poolClient(pool)
-			bin, err := client.GetUserBlob(ctx, userHash)
-			if err != nil {
-				printDim("  No profile found in this pool. Run: dating profile edit")
-				return nil
-			}
-
-			plaintext, err := crypto.UnpackUserBin(priv, bin)
-			if err != nil {
-				return fmt.Errorf("decrypting profile: %w", err)
-			}
-
-			var profile map[string]any
-			if err := json.Unmarshal(plaintext, &profile); err != nil {
+			var profile gh.DatingProfile
+			if err := json.Unmarshal(data, &profile); err != nil {
 				return fmt.Errorf("parsing profile: %w", err)
 			}
 
+			// Render full profile
 			fmt.Println()
-			for k, v := range profile {
-				fmt.Printf("  %s  %v\n", dim.Render(k+":"), v)
+			fmt.Println(components.RenderProfile(profile, 60, components.ProfileFull))
+
+			// Render showcase if available
+			if components.HasShowcase(profile) {
+				fmt.Println()
+				fmt.Println(dim.Render("  ── Showcase ──"))
+				fmt.Println()
+				fmt.Println(components.RenderShowcase(profile, 60))
 			}
+
 			fmt.Println()
 			return nil
 		},
