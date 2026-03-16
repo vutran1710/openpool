@@ -342,56 +342,59 @@ func (s JoinScreen) View() string {
 }
 
 func (s JoinScreen) configSourcesView() string {
+	labelCol := lipgloss.NewStyle().Width(20)
+
 	out := theme.BoldStyle.Render("Configure profile sources") + "\n"
 	out += theme.DimStyle.Render("Your email & user ID will be hidden from discovery") + "\n\n"
 
-	// GitHub Profile (mandatory)
-	out += "  " + theme.GreenStyle.Render("✓") + " " + theme.TextStyle.Render("GitHub Profile") +
-		theme.DimStyle.Render("      always included (name, bio, location, avatar)") + "\n\n"
+	row := func(cursor int, check, label, desc string) string {
+		cur := "    "
+		if s.configCursor == cursor {
+			cur = "  " + theme.Cursor()
+		}
+		return fmt.Sprintf("%s%s %s %s\n", cur, check, labelCol.Render(label), theme.DimStyle.Render(desc))
+	}
+
+	// GitHub Profile (mandatory, no cursor)
+	out += fmt.Sprintf("    %s %s %s\n",
+		theme.GreenStyle.Render("[✓]"),
+		labelCol.Render("GitHub Profile"),
+		theme.DimStyle.Render("always included"),
+	)
 
 	// Showcase toggle
-	cursor0 := "  "
-	if s.configCursor == 0 {
-		cursor0 = theme.Cursor()
-	}
 	showcaseCheck := theme.DimStyle.Render("[ ]")
 	if s.includeShowcase {
 		showcaseCheck = theme.GreenStyle.Render("[✓]")
 	}
-	out += fmt.Sprintf("  %s%s %s  %s\n\n",
-		cursor0, showcaseCheck,
-		theme.TextStyle.Render("Include Showcase"),
-		theme.DimStyle.Render(s.username+"/"+s.username+"/README.md"),
-	)
+	out += row(0, showcaseCheck, "Showcase", s.username+"/"+s.username+"/README.md")
 
-	// Dating profile name
-	cursor1 := "  "
-	if s.configCursor == 1 {
-		cursor1 = theme.Cursor()
-	}
-
-	datingLabel := theme.TextStyle.Render("Dating Profile")
-	datingValue := theme.DimStyle.Render("  skip (leave empty)")
-	if s.datingProfile != "" {
-		datingValue = theme.AccentStyle.Render("  " + s.username + "/dating/" + s.datingProfile + ".md")
-	}
-
+	// Dating profile
 	if s.editingDating {
-		out += fmt.Sprintf("  %s%s\n", cursor1, datingLabel)
-		out += "      " + s.input.View() + "\n"
-		out += "      " + theme.DimStyle.Render("→ "+s.username+"/dating/{name}.md") + "\n\n"
+		cur := "  " + theme.Cursor()
+		out += fmt.Sprintf("%s%s %s\n", cur, theme.DimStyle.Render("[…]"), labelCol.Render("Dating Profile"))
+		out += "        " + s.input.View() + "\n"
+		out += "        " + theme.DimStyle.Render("→ "+s.username+"/dating/{name}.md") + "\n"
 	} else {
-		out += fmt.Sprintf("  %s%s%s\n\n", cursor1, datingLabel, datingValue)
+		datingCheck := theme.DimStyle.Render("[ ]")
+		datingDesc := "skip (leave empty)"
+		if s.datingProfile != "" {
+			datingCheck = theme.GreenStyle.Render("[✓]")
+			datingDesc = s.username + "/dating/" + s.datingProfile + ".md"
+		}
+		out += row(1, datingCheck, "Dating Profile", datingDesc)
 	}
 
-	// Submit
-	cursor2 := "  "
+	out += "\n"
+
+	// Continue
+	cur := "    "
 	if s.configCursor == 2 {
-		cursor2 = theme.Cursor()
+		cur = "  " + theme.Cursor()
 	}
-	out += fmt.Sprintf("  %s%s\n\n", cursor2, theme.BoldStyle.Render("Continue →"))
+	out += cur + theme.BoldStyle.Render("Continue →") + "\n\n"
 
-	out += theme.DimStyle.Render("  ↑↓ navigate · space toggle · enter select/edit")
+	out += theme.DimStyle.Render("  ↑↓ navigate · space toggle · enter edit · esc cancel")
 
 	return out
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
 )
@@ -88,36 +89,46 @@ func renderCardHeader(p PoolCardData) string {
 }
 
 func renderCardInfo(p PoolCardData) string {
-	labelStyle := theme.DimStyle.Copy().Width(12)
-
-	info := ""
-	info += labelStyle.Render("Operator") + infoValue(p.Operator) + "\n"
-	info += labelStyle.Render("Key") + infoValue(p.OperatorKey) + "\n"
-	info += labelStyle.Render("Repo") + infoValue(p.Repo) + "\n"
-	info += labelStyle.Render("Website") + infoValueAccent(p.Website) + "\n"
-	info += labelStyle.Render("Relay") + infoValue(p.RelayURL) + "\n"
-
 	created := p.CreatedAt
 	if len(created) > 10 {
 		created = created[:10]
 	}
-	info += labelStyle.Render("Created") + infoValue(created) + "\n"
 
-	return info
+	rows := []table.Row{
+		{"Operator", valOrDefault(p.Operator)},
+		{"Key", valOrDefault(p.OperatorKey)},
+		{"Repo", valOrDefault(p.Repo)},
+		{"Website", valOrDefault(p.Website)},
+		{"Relay", valOrDefault(p.RelayURL)},
+		{"Created", valOrDefault(created)},
+	}
+
+	columns := []table.Column{
+		{Title: "", Width: 12},
+		{Title: "", Width: 40},
+	}
+
+	t := table.New(
+		table.WithColumns(columns),
+		table.WithRows(rows),
+		table.WithHeight(len(rows)),
+	)
+
+	s := table.DefaultStyles()
+	s.Header = lipgloss.NewStyle()
+	s.Cell = lipgloss.NewStyle().Foreground(theme.Text)
+	s.Selected = lipgloss.NewStyle().Foreground(theme.Text)
+	t.SetStyles(s)
+
+	// Style the label column
+	return t.View()
 }
 
-func infoValue(v string) string {
+func valOrDefault(v string) string {
 	if v == "" {
-		return theme.DimStyle.Render("unavailable")
+		return "unavailable"
 	}
-	return theme.TextStyle.Render(v)
-}
-
-func infoValueAccent(v string) string {
-	if v == "" {
-		return theme.DimStyle.Render("unavailable")
-	}
-	return theme.AccentStyle.Render(v)
+	return v
 }
 
 func renderCardAction(p PoolCardData) string {
