@@ -53,7 +53,7 @@ type app struct {
 	registry string
 }
 
-func newApp(userName, userHash, pool, registry string, poolStatuses map[string]string, needsOnboarding bool) app {
+func newApp(userName, userHash, pool, registry string, poolStatuses map[string]string, poolIssues map[string]int, needsOnboarding bool) app {
 	startScreen := activeScreen(screenHome)
 	if needsOnboarding {
 		startScreen = screenOnboarding
@@ -71,7 +71,7 @@ func newApp(userName, userHash, pool, registry string, poolStatuses map[string]s
 		home:       screens.NewHomeScreen(),
 		discover:   screens.NewDiscoverScreen(),
 		matches:    screens.NewMatchesScreen(),
-		pools:      screens.NewPoolsScreen(registry, poolStatuses),
+		pools:      screens.NewPoolsScreen(registry, poolStatuses, poolIssues),
 		profile:    screens.NewProfileScreen(),
 	}
 	a.statusBar.User = userName
@@ -276,14 +276,18 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cfg, _ := config.Load()
 			if cfg != nil {
 				ps := make(map[string]string)
+				pi := make(map[string]int)
 				for _, p := range cfg.Pools {
 					s := p.Status
 					if s == "" {
 						s = "active"
 					}
 					ps[p.Name] = s
+					if p.PendingIssue > 0 {
+						pi[p.Name] = p.PendingIssue
+					}
 				}
-				a.pools = screens.NewPoolsScreen(a.registry, ps)
+				a.pools = screens.NewPoolsScreen(a.registry, ps, pi)
 				a.pools.Width = a.width
 				a.pools.Height = a.height
 

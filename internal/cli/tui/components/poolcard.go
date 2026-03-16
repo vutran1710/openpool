@@ -25,6 +25,7 @@ type PoolCardData struct {
 	Matches       int
 	Relationships int
 	Status        string // "active", "pending", "rejected", ""
+	PendingIssue  int
 	Logo          string // pre-rendered ASCII logo
 }
 
@@ -136,7 +137,12 @@ func renderCardAction(p PoolCardData) string {
 	case "active":
 		return theme.GreenStyle.Render("You are a member of this pool")
 	case "pending":
-		return theme.AmberStyle.Render("Registration pending — waiting for pool to process")
+		line := theme.AmberStyle.Render("Registration pending — waiting for pool to process")
+		if p.PendingIssue > 0 && p.Repo != "" {
+			url := fmt.Sprintf("https://github.com/%s/issues/%d", p.Repo, p.PendingIssue)
+			line += "\n" + theme.DimStyle.Render("Issue: ") + theme.AccentStyle.Render(url)
+		}
+		return line
 	case "rejected":
 		return theme.RedStyle.Render("Registration rejected") + theme.DimStyle.Render("  ·  Press enter to join again")
 	default:

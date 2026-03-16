@@ -24,10 +24,11 @@ const (
 )
 
 type poolItem struct {
-	entry  gh.PoolEntry
-	stats  gh.PoolStats
-	logo   string
-	status string // "active", "pending", "rejected", "" (not joined)
+	entry        gh.PoolEntry
+	stats        gh.PoolStats
+	logo         string
+	status       string // "active", "pending", "rejected", "" (not joined)
+	pendingIssue int
 }
 
 // PoolsInitMsg triggers the initial pool fetch.
@@ -45,8 +46,9 @@ type PoolJoinMsg struct {
 }
 
 type PoolsScreen struct {
-	registry    string
-	poolStatus  map[string]string // pool name → status
+	registry     string
+	poolStatus   map[string]string // pool name → status
+	poolIssues   map[string]int    // pool name → pending issue number
 	pools       []poolItem
 	cursor      int
 	focus       poolFocus
@@ -58,9 +60,13 @@ type PoolsScreen struct {
 	Height      int
 }
 
-func NewPoolsScreen(registry string, poolStatuses map[string]string) PoolsScreen {
+func NewPoolsScreen(registry string, poolStatuses map[string]string, poolIssues ...map[string]int) PoolsScreen {
 	if poolStatuses == nil {
 		poolStatuses = make(map[string]string)
+	}
+	issues := make(map[string]int)
+	if len(poolIssues) > 0 && poolIssues[0] != nil {
+		issues = poolIssues[0]
 	}
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
@@ -68,6 +74,7 @@ func NewPoolsScreen(registry string, poolStatuses map[string]string) PoolsScreen
 	return PoolsScreen{
 		registry:   registry,
 		poolStatus: poolStatuses,
+		poolIssues: issues,
 		spinner:    sp,
 	}
 }
@@ -107,7 +114,8 @@ func (s PoolsScreen) fetchPools() tea.Msg {
 			entry:  e,
 			stats:  stats,
 			logo:   logo,
-			status: s.poolStatus[e.Name],
+			status:       s.poolStatus[e.Name],
+			pendingIssue: s.poolIssues[e.Name],
 		})
 	}
 	return poolsFetchedMsg{pools: pools}
@@ -284,6 +292,7 @@ func (s PoolsScreen) renderDetail(width int) string {
 		Matches:       p.stats.Matches,
 		Relationships: p.stats.Relationships,
 		Status:        p.status,
+		PendingIssue:  p.pendingIssue,
 		Logo:          p.logo,
 	}
 

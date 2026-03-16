@@ -27,6 +27,7 @@ func NewRootCmd() *cobra.Command {
 				userHash := cfg.User.PublicID
 				pool := ""
 				poolStatuses := make(map[string]string)
+				poolIssues := make(map[string]int)
 				if cfg.ActivePool() != nil {
 					pool = cfg.ActivePool().Name
 				}
@@ -36,8 +37,11 @@ func NewRootCmd() *cobra.Command {
 						status = "active"
 					}
 					poolStatuses[p.Name] = status
+					if p.PendingIssue > 0 {
+						poolIssues[p.Name] = p.PendingIssue
+					}
 				}
-				tui.RunOrFallback(userName, userHash, pool, registry, poolStatuses, needsOnboarding)
+				tui.RunOrFallback(userName, userHash, pool, registry, poolStatuses, poolIssues, needsOnboarding)
 				return nil
 			}
 			printHeader()
