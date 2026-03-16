@@ -132,10 +132,16 @@ func valOrDefault(v string) string {
 }
 
 func renderCardAction(p PoolCardData) string {
-	if p.Status == "active" {
+	switch p.Status {
+	case "active":
 		return theme.GreenStyle.Render("You are a member of this pool")
+	case "pending":
+		return theme.AmberStyle.Render("Registration pending — waiting for pool to process")
+	case "rejected":
+		return theme.RedStyle.Render("Registration rejected") + theme.DimStyle.Render("  ·  Press enter to join again")
+	default:
+		return theme.DimStyle.Render("Press enter to join  ·  dating pool join " + p.Name)
 	}
-	return theme.DimStyle.Render("Press enter to join  ·  dating pool join " + p.Name)
 }
 
 // RenderStatsBar renders a horizontal stats bar with icons.
@@ -172,7 +178,7 @@ func RenderPoolListItem(name, description, poolStatus string, selected bool, max
 	case "active":
 		status = theme.GreenStyle.Render(" ✓")
 	case "pending":
-		status = theme.AmberStyle.Render(" ⏳")
+		status = theme.AmberStyle.Render(" ⏱")
 	case "rejected":
 		status = theme.RedStyle.Render(" ✗")
 	default:

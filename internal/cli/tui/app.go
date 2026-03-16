@@ -196,7 +196,7 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			userID = cfg.User.ProviderUserID
 		}
-		// Find pool entry for operator key and relay URL
+		// Find pool entry from the pools screen (fetched from registry)
 		opKey := ""
 		relayURL := ""
 		poolRepo := ""
@@ -206,6 +206,22 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				relayURL = p.RelayURL
 				poolRepo = p.Repo
 				break
+			}
+		}
+		// Fallback: check local config (for rejoin)
+		if poolRepo == "" && cfg != nil {
+			for _, p := range cfg.Pools {
+				if p.Name == msg.Name {
+					opKey = p.OperatorPubKey
+					relayURL = p.RelayURL
+					poolRepo = p.Repo
+					break
+				}
+			}
+		}
+		if poolRepo == "" {
+			return a, func() tea.Msg {
+				return components.ToastMsg{Text: "Pool not found: " + msg.Name, Level: components.ToastError}
 			}
 		}
 		a.join = screens.NewJoinScreen(msg.Name, poolRepo, opKey, relayURL, username, userID)
