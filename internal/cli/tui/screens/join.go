@@ -46,8 +46,9 @@ type JoinDoneMsg struct {
 
 // messages
 type sourcesFetchedMsg struct {
-	profile *gh.DatingProfile
-	err     error
+	profile  *gh.DatingProfile
+	ghLogin  string // GitHub login, backfilled if missing from config
+	err      error
 }
 type templateFetchedMsg struct {
 	template *gh.RegistrationTemplate
@@ -252,6 +253,9 @@ func (s JoinScreen) Update(msg tea.Msg) (JoinScreen, tea.Cmd) {
 			return s, nil
 		}
 		s.profile = msg.profile
+		if msg.ghLogin != "" {
+			s.username = msg.ghLogin
+		}
 		s.addLog(theme.GreenStyle.Render("✓ ") + "Profile fetched")
 		// Build field toggle list
 		s.step = joinToggleFields
@@ -341,7 +345,8 @@ func (s JoinScreen) View() string {
 	}
 
 	// Layout: timeline | content
-	left := lipgloss.NewStyle().Width(26).Render(timeline)
+	timelineWidth := 32
+	left := lipgloss.NewStyle().Width(timelineWidth).Render(timeline)
 
 	return pad.Render(lipgloss.JoinHorizontal(lipgloss.Top, left, content))
 }
@@ -424,7 +429,7 @@ func (s JoinScreen) configSourcesView() string {
 	if s.includeShowcase {
 		showcaseCheck = theme.GreenStyle.Render("[✓]")
 	}
-	out += row(0, showcaseCheck, "Showcase", s.username+"/"+s.username)
+	out += row(0, showcaseCheck, "Showcase", s.username+"/README.md")
 
 	// Dating profile
 	if s.editingDating {
@@ -628,11 +633,13 @@ func (s JoinScreen) fetchSources() tea.Msg {
 	s.token = token
 
 	var profiles []*gh.DatingProfile
+	ghLogin := ""
 
 	// GitHub profile (always)
-	p, err := fetchGitHubProfileForJoin(ctx, token)
+	p, login, err := fetchGitHubProfileForJoin(ctx, token)
 	if err == nil {
 		profiles = append(profiles, p)
+		ghLogin = login
 	}
 
 	// Showcase from identity repo
@@ -656,7 +663,7 @@ func (s JoinScreen) fetchSources() tea.Msg {
 	}
 
 	merged := mergeProfilesForJoin(profiles...)
-	return sourcesFetchedMsg{profile: merged}
+	return sourcesFetchedMsg{profile: merged, ghLogin: ghLogin}
 }
 
 func (s JoinScreen) fetchTemplate() tea.Msg {
@@ -814,16 +821,16 @@ type datingReadmeResult struct {
 	about      string
 }
 
-func fetchGitHubProfileForJoin(ctx context.Context, token string) (*gh.DatingProfile, error) {
+func fetchGitHubProfileForJoin(ctx context.Context, token string) (*gh.DatingProfile, string, error) {
 	req, _ := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/user", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("GitHub API %d", resp.StatusCode)
+		return nil, "", fmt.Errorf("GitHub API %d", resp.StatusCode)
 	}
 	var user struct {
 		Name, Login, Bio, Location, AvatarURL, Blog, TwitterUsername string
@@ -840,7 +847,7 @@ func fetchGitHubProfileForJoin(ctx context.Context, token string) (*gh.DatingPro
 	return &gh.DatingProfile{
 		DisplayName: name, Bio: user.Bio, Location: user.Location,
 		AvatarURL: user.AvatarURL, Website: user.Blog, Social: social,
-	}, nil
+	}, user.Login, nil
 }
 
 func fetchIdentityReadmeForJoin(username string) (string, error) {

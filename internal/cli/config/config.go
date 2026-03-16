@@ -22,6 +22,7 @@ type Config struct {
 type UserConfig struct {
 	PublicID       string `toml:"public_id"`
 	DisplayName    string `toml:"display_name"`
+	Username       string `toml:"username"`
 	Provider       string `toml:"provider"`
 	ProviderUserID string `toml:"provider_user_id"`
 	EncryptedToken string `toml:"encrypted_token,omitempty"`

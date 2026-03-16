@@ -185,7 +185,10 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		username := ""
 		userID := ""
 		if cfg != nil {
-			username = cfg.User.DisplayName
+			username = cfg.User.Username
+			if username == "" {
+				username = cfg.User.DisplayName // fallback for old configs
+			}
 			userID = cfg.User.ProviderUserID
 		}
 		// Find pool entry for operator key and relay URL
