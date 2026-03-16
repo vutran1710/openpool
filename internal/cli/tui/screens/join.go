@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
@@ -83,6 +85,8 @@ type JoinScreen struct {
 	Width    int
 	Height   int
 	errMsg   string
+	logVP    viewport.Model
+	aboutTA  textarea.Model
 
 	// pool info
 	poolName    string
@@ -129,6 +133,16 @@ func NewJoinScreen(poolName, poolRepo, operatorPub, relayURL, username, userID s
 	ti.CharLimit = 512
 	ti.Placeholder = "default"
 
+	ta := textarea.New()
+	ta.Placeholder = "Tell others about yourself..."
+	ta.SetWidth(50)
+	ta.SetHeight(4)
+	ta.CharLimit = 500
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	ta.ShowLineNumbers = false
+
+	vp := viewport.New(60, 15)
+
 	return JoinScreen{
 		step:            joinConfigSources,
 		spinner:         sp,
@@ -141,6 +155,8 @@ func NewJoinScreen(poolName, poolRepo, operatorPub, relayURL, username, userID s
 		userID:          userID,
 		templateVals:    make(map[string]string),
 		includeShowcase: true,
+		logVP:           vp,
+		aboutTA:         ta,
 	}
 }
 
@@ -213,15 +229,15 @@ func (s JoinScreen) Update(msg tea.Msg) (JoinScreen, tea.Cmd) {
 				s.datingLookingFor, cmd = s.datingLookingFor.Update(msg)
 				return s, cmd
 			case 2: // about text
-				if msg.String() == "enter" {
-					s.datingAbout = strings.TrimSpace(s.input.Value())
+				if msg.String() == "ctrl+d" || msg.String() == "esc" {
+					s.datingAbout = strings.TrimSpace(s.aboutTA.Value())
 					s.datingCreateStep = 3
 					s.step = joinCreatingDating
 					s.addLog(theme.DimStyle.Render("  Creating dating profile..."))
 					return s, tea.Batch(s.createDatingRepo, s.spinner.Tick)
 				}
 				var cmd tea.Cmd
-				s.input, cmd = s.input.Update(msg)
+				s.aboutTA, cmd = s.aboutTA.Update(msg)
 				return s, cmd
 			}
 			return s, nil
@@ -284,11 +300,8 @@ func (s JoinScreen) Update(msg tea.Msg) (JoinScreen, tea.Cmd) {
 		if s.step == joinCreateDating && s.datingCreateStep == 1 {
 			// Looking for selected → move to about text
 			s.datingCreateStep = 2
-			s.input.SetValue("")
-			s.input.Placeholder = "Tell others about yourself..."
-			s.input.EchoMode = textinput.EchoNormal
-			s.input.Focus()
-			return s, textinput.Blink
+			s.aboutTA.Focus()
+			return s, textarea.Blink
 		}
 		if s.step == joinToggleFields {
 			// Build filtered profile from selected fields
@@ -379,6 +392,9 @@ func (s JoinScreen) Update(msg tea.Msg) (JoinScreen, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		s.Width = msg.Width
 		s.Height = msg.Height
+		s.logVP.Width = msg.Width - 38
+		s.logVP.Height = msg.Height - 10
+		s.aboutTA.SetWidth(msg.Width - 44)
 	}
 
 	return s, nil
@@ -476,15 +492,18 @@ func (s JoinScreen) renderTimeline() string {
 	return out
 }
 
-func (s JoinScreen) renderLogWithActive(active string) string {
-	var out string
+func (s *JoinScreen) renderLogWithActive(active string) string {
+	var logContent string
 	for _, line := range s.log {
-		out += line + "\n"
+		logContent += line + "\n"
 	}
 	if active != "" {
-		out += "\n" + active
+		logContent += "\n" + active
 	}
-	return out
+
+	s.logVP.SetContent(logContent)
+	s.logVP.GotoBottom()
+	return s.logVP.View()
 }
 
 func (s JoinScreen) configSourcesView() string {
@@ -683,8 +702,8 @@ func (s JoinScreen) datingCreationView() string {
 		return s.datingLookingFor.View()
 	case 2:
 		out := theme.BoldStyle.Render("About you") + "\n"
-		out += theme.DimStyle.Render("Write a short intro (enter to submit)") + "\n\n"
-		out += s.input.View()
+		out += theme.DimStyle.Render("Write a short intro (ctrl+d to submit)") + "\n\n"
+		out += s.aboutTA.View()
 		return out
 	}
 	return ""
@@ -813,6 +832,7 @@ func (s JoinScreen) savePending() {
 		OperatorPubKey: s.operatorPub,
 		RelayURL:       s.relayURL,
 		Status:         "pending",
+		PendingIssue:   s.issueNumber,
 	})
 	if cfg.Active == "" {
 		cfg.Active = s.poolName

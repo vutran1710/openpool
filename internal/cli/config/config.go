@@ -35,6 +35,7 @@ type PoolConfig struct {
 	RelayURL       string `toml:"relay_url,omitempty"`
 	Status         string `toml:"status,omitempty"`
 	UserHash       string `toml:"user_hash,omitempty"`
+	PendingIssue   int    `toml:"pending_issue,omitempty"`
 }
 
 func Dir() string {

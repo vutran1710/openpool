@@ -494,13 +494,13 @@ func pollPendingPools() tea.Msg {
 	}
 
 	for i, p := range cfg.Pools {
-		if p.Status != "pending" {
+		if p.Status != "pending" || p.PendingIssue == 0 {
 			continue
 		}
 
-		// Check if .bin exists in pool repo (via API since we have a token)
+		// Poll the actual issue status
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		url := fmt.Sprintf("https://api.github.com/repos/%s/contents/users", p.Repo)
+		url := fmt.Sprintf("https://api.github.com/repos/%s/issues/%d", p.Repo, p.PendingIssue)
 		req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		resp, err := http.DefaultClient.Do(req)
@@ -513,18 +513,27 @@ func pollPendingPools() tea.Msg {
 			continue
 		}
 
-		var entries []struct {
-			Name string `json:"name"`
+		var issue struct {
+			State       string `json:"state"`
+			StateReason string `json:"state_reason"`
 		}
-		json.NewDecoder(resp.Body).Decode(&entries)
+		json.NewDecoder(resp.Body).Decode(&issue)
 		resp.Body.Close()
 
-		// If any .bin file exists and pool was pending, it means Action processed it
-		if len(entries) > 0 {
-			cfg.Pools[i].Status = "active"
+		if issue.State == "closed" {
+			if issue.StateReason == "completed" {
+				cfg.Pools[i].Status = "active"
+				cfg.Pools[i].PendingIssue = 0
+				cfg.Save()
+				return pendingPollResultMsg{poolName: p.Name, status: "active"}
+			}
+			// Rejected
+			cfg.Pools[i].Status = "rejected"
+			cfg.Pools[i].PendingIssue = 0
 			cfg.Save()
-			return pendingPollResultMsg{poolName: p.Name, status: "active"}
+			return pendingPollResultMsg{poolName: p.Name, status: "rejected"}
 		}
+		// Still open — keep polling
 	}
 
 	return pendingPollResultMsg{}
