@@ -175,12 +175,17 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(cmds...)
 
 	case screens.PoolJoinMsg:
-		if msg.Joined {
+		if msg.Status == "active" {
 			return a, func() tea.Msg {
 				return components.ToastMsg{Text: "Already a member of " + msg.Name, Level: components.ToastInfo}
 			}
 		}
-		// Launch join flow
+		if msg.Status == "pending" {
+			return a, func() tea.Msg {
+				return components.ToastMsg{Text: "Registration for " + msg.Name + " is still being processed", Level: components.ToastInfo}
+			}
+		}
+		// Launch join flow (for "" or "rejected")
 		cfg, _ := config.Load()
 		username := ""
 		userID := ""

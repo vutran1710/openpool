@@ -38,7 +38,7 @@ type poolsFetchedMsg struct {
 // PoolJoinMsg is emitted when the user presses enter on a pool.
 type PoolJoinMsg struct {
 	Name   string
-	Joined bool
+	Status string // "active", "pending", "rejected", ""
 }
 
 type PoolsScreen struct {
@@ -142,7 +142,7 @@ func (s PoolsScreen) Update(msg tea.Msg) (PoolsScreen, tea.Cmd) {
 			if s.cursor < len(s.pools) {
 				p := s.pools[s.cursor]
 				return s, func() tea.Msg {
-					return PoolJoinMsg{Name: p.entry.Name, Joined: p.status == "active"}
+					return PoolJoinMsg{Name: p.entry.Name, Status: p.status}
 				}
 			}
 		case "up", "k":
