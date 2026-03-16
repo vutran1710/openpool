@@ -14,7 +14,7 @@ func TestDatingProfile_Serialization(t *testing.T) {
 		Website:     "https://alice.dev",
 		Social:      []string{"https://twitter.com/alice"},
 		Interests:   []string{"rust", "hiking"},
-		LookingFor:  []LookingFor{LookingForDating, LookingForFriendship},
+		Intent:  []Intent{IntentDating, IntentFriendship},
 		About:       "Looking for someone to debug life with",
 	}
 
@@ -31,11 +31,11 @@ func TestDatingProfile_Serialization(t *testing.T) {
 	if decoded.DisplayName != "Alice" {
 		t.Errorf("expected Alice, got %s", decoded.DisplayName)
 	}
-	if len(decoded.LookingFor) != 2 {
-		t.Errorf("expected 2 looking_for, got %d", len(decoded.LookingFor))
+	if len(decoded.Intent) != 2 {
+		t.Errorf("expected 2 intent, got %d", len(decoded.Intent))
 	}
-	if decoded.LookingFor[0] != LookingForDating {
-		t.Errorf("expected dating, got %s", decoded.LookingFor[0])
+	if decoded.Intent[0] != IntentDating {
+		t.Errorf("expected dating, got %s", decoded.Intent[0])
 	}
 }
 
@@ -53,25 +53,43 @@ func TestDatingProfile_OmitEmpty(t *testing.T) {
 
 	// Omitted fields should not appear in JSON
 	s := string(data)
-	for _, field := range []string{"avatar_url", "website", "social", "showcase", "interests", "looking_for", "about"} {
+	for _, field := range []string{"avatar_url", "website", "social", "showcase", "interests", "intent", "about"} {
 		if contains(s, field) {
 			t.Errorf("expected %s to be omitted, but found in JSON", field)
 		}
 	}
 }
 
-func TestDatingProfile_AllLookingForOptions(t *testing.T) {
-	opts := AllLookingForOptions()
-	if len(opts) != 5 {
-		t.Errorf("expected 5 options, got %d", len(opts))
+func TestDatingProfile_AllIntentOptions(t *testing.T) {
+	opts := AllIntentOptions()
+	if len(opts) != 4 {
+		t.Errorf("expected 4 options, got %d", len(opts))
 	}
 
 	expected := map[string]bool{
-		"friendship":   true,
-		"dating":       true,
-		"relationship": true,
-		"networking":   true,
-		"open":         true,
+		"dating":     true,
+		"friendship": true,
+		"yolo":       true,
+		"networking": true,
+	}
+	for _, o := range opts {
+		if !expected[o] {
+			t.Errorf("unexpected option: %s", o)
+		}
+	}
+}
+
+func TestDatingProfile_AllGenderTargetOptions(t *testing.T) {
+	opts := AllGenderTargetOptions()
+	if len(opts) != 4 {
+		t.Errorf("expected 4 options, got %d", len(opts))
+	}
+
+	expected := map[string]bool{
+		"men":        true,
+		"women":      true,
+		"non-binary": true,
+		"dev":        true,
 	}
 	for _, o := range opts {
 		if !expected[o] {

@@ -89,7 +89,8 @@ func FetchIdentityReadme(username string) (string, error) {
 // datingReadmeData holds parsed fields from {username}/dating/README.md
 type datingReadmeData struct {
 	Interests  []string          `yaml:"interests"`
-	LookingFor []gh.LookingFor   `yaml:"looking_for"`
+	Intent       []gh.Intent       `yaml:"intent"`
+	GenderTarget []gh.GenderTarget `yaml:"gender_target"`
 	About      string            // body after frontmatter
 }
 
@@ -178,8 +179,11 @@ func MergeProfiles(profiles ...*gh.DatingProfile) *gh.DatingProfile {
 		if len(p.Interests) > 0 {
 			merged.Interests = p.Interests
 		}
-		if len(p.LookingFor) > 0 {
-			merged.LookingFor = p.LookingFor
+		if len(p.Intent) > 0 {
+			merged.Intent = p.Intent
+		}
+		if len(p.GenderTarget) > 0 {
+			merged.GenderTarget = p.GenderTarget
 		}
 		if p.About != "" {
 			merged.About = p.About
@@ -189,7 +193,7 @@ func MergeProfiles(profiles ...*gh.DatingProfile) *gh.DatingProfile {
 }
 
 // GenerateDatingReadme creates a README.md with YAML frontmatter from user input.
-func GenerateDatingReadme(interests []string, lookingFor []gh.LookingFor, about string) string {
+func GenerateDatingReadme(interests []string, intent []gh.Intent, genderTarget []gh.GenderTarget, about string) string {
 	var b strings.Builder
 	b.WriteString("---\n")
 	if len(interests) > 0 {
@@ -197,9 +201,14 @@ func GenerateDatingReadme(interests []string, lookingFor []gh.LookingFor, about 
 		b.WriteString(strings.Join(interests, ", "))
 		b.WriteString("]\n")
 	}
-	if len(lookingFor) > 0 {
-		b.WriteString("looking_for: [")
-		b.WriteString(strings.Join(lookingFor, ", "))
+	if len(intent) > 0 {
+		b.WriteString("intent: [")
+		b.WriteString(strings.Join(intent, ", "))
+		b.WriteString("]\n")
+	}
+	if len(genderTarget) > 0 {
+		b.WriteString("gender_target: [")
+		b.WriteString(strings.Join(genderTarget, ", "))
 		b.WriteString("]\n")
 	}
 	b.WriteString("---\n\n")

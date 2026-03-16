@@ -1,25 +1,33 @@
 package github
 
-// LookingFor represents what a user is looking for in the pool.
-type LookingFor = string
+// Intent represents what a user is looking for.
+type Intent = string
 
 const (
-	LookingForFriendship   LookingFor = "friendship"
-	LookingForDating       LookingFor = "dating"
-	LookingForRelationship LookingFor = "relationship"
-	LookingForNetworking   LookingFor = "networking"
-	LookingForOpen         LookingFor = "open"
+	IntentDating      Intent = "dating"
+	IntentFriendship  Intent = "friendship"
+	IntentYolo        Intent = "yolo"
+	IntentNetworking  Intent = "networking"
 )
 
-// AllLookingForOptions returns all valid LookingFor values.
-func AllLookingForOptions() []LookingFor {
-	return []LookingFor{
-		LookingForFriendship,
-		LookingForDating,
-		LookingForRelationship,
-		LookingForNetworking,
-		LookingForOpen,
-	}
+// AllIntentOptions returns all valid Intent values.
+func AllIntentOptions() []Intent {
+	return []Intent{IntentDating, IntentFriendship, IntentYolo, IntentNetworking}
+}
+
+// GenderTarget represents who a user is interested in.
+type GenderTarget = string
+
+const (
+	GenderMen       GenderTarget = "men"
+	GenderWomen     GenderTarget = "women"
+	GenderNonBinary GenderTarget = "non-binary"
+	GenderDev       GenderTarget = "dev"
+)
+
+// AllGenderTargetOptions returns all valid GenderTarget values.
+func AllGenderTargetOptions() []GenderTarget {
+	return []GenderTarget{GenderMen, GenderWomen, GenderNonBinary, GenderDev}
 }
 
 // DatingProfile is the user's dating profile data.
@@ -38,10 +46,11 @@ type DatingProfile struct {
 	// From {username}/{username}/README.md
 	Showcase string `json:"showcase,omitempty"` // base64-encoded markdown
 
-	// From {username}/dating/README.md
-	Interests  []string     `json:"interests,omitempty"`
-	LookingFor []LookingFor `json:"looking_for,omitempty"`
-	About      string       `json:"about,omitempty"`
+	// From {username}/dating/{name}.md
+	Interests    []string       `json:"interests,omitempty"`
+	Intent       []Intent       `json:"intent,omitempty"`
+	GenderTarget []GenderTarget `json:"gender_target,omitempty"`
+	About        string         `json:"about,omitempty"`
 }
 
 // ProfileField represents a toggleable field in the profile builder UI.

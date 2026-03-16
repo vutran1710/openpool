@@ -115,10 +115,11 @@ type JoinScreen struct {
 	editingDating   bool   // true when typing in the dating profile name
 
 	// dating profile creation
-	datingInterests  []string // collected tags
-	datingLookingFor components.Checkbox
-	datingAbout      string
-	datingCreateStep int // 0=interests, 1=looking_for, 2=about, 3=confirm
+	datingInterests    []string // collected tags
+	datingIntent       components.Checkbox
+	datingGenderTarget components.Checkbox
+	datingAbout        string
+	datingCreateStep   int // 0=interests, 1=intent, 2=gender_target, 3=about, 4=confirm
 }
 
 func NewJoinScreen(poolName, poolRepo, operatorPub, relayURL, username, userID string) JoinScreen {
@@ -247,14 +248,18 @@ func (s JoinScreen) Update(msg tea.Msg) (JoinScreen, tea.Cmd) {
 				var cmd tea.Cmd
 				s.input, cmd = s.input.Update(msg)
 				return s, cmd
-			case 1: // looking for (checkbox)
+			case 1: // intent (checkbox)
 				var cmd tea.Cmd
-				s.datingLookingFor, cmd = s.datingLookingFor.Update(msg)
+				s.datingIntent, cmd = s.datingIntent.Update(msg)
 				return s, cmd
-			case 2: // about text
+			case 2: // gender target (checkbox)
+				var cmd tea.Cmd
+				s.datingGenderTarget, cmd = s.datingGenderTarget.Update(msg)
+				return s, cmd
+			case 3: // about text
 				if msg.String() == "ctrl+d" || msg.String() == "esc" {
 					s.datingAbout = strings.TrimSpace(s.aboutTA.Value())
-					s.datingCreateStep = 3
+					s.datingCreateStep = 4
 					s.step = joinCreatingDating
 					s.addLog(theme.DimStyle.Render("  Creating dating profile..."))
 					return s, tea.Batch(s.createDatingRepo, s.spinner.Tick)
@@ -316,8 +321,13 @@ func (s JoinScreen) Update(msg tea.Msg) (JoinScreen, tea.Cmd) {
 
 	case components.CheckboxSubmitMsg:
 		if s.step == joinCreateDating && s.datingCreateStep == 1 {
-			// Looking for selected → move to about text
+			// Intent selected → move to gender target
 			s.datingCreateStep = 2
+			return s, nil
+		}
+		if s.step == joinCreateDating && s.datingCreateStep == 2 {
+			// Gender target selected → move to about text
+			s.datingCreateStep = 3
 			s.aboutTA.Focus()
 			return s, textarea.Blink
 		}
@@ -362,7 +372,8 @@ func (s JoinScreen) Update(msg tea.Msg) (JoinScreen, tea.Cmd) {
 		} else {
 			s.addLog(theme.GreenStyle.Render("✓ ") + "Dating profile created: " + s.username + "/dating/" + s.datingProfile + ".md")
 			s.profile.Interests = s.datingInterests
-			s.profile.LookingFor = s.datingLookingFor.SelectedValues()
+			s.profile.Intent = s.datingIntent.SelectedValues()
+			s.profile.GenderTarget = s.datingGenderTarget.SelectedValues()
 			s.profile.About = s.datingAbout
 		}
 		s.step = joinToggleFields
@@ -663,10 +674,15 @@ func (s JoinScreen) buildFieldToggle() components.Checkbox {
 	} else {
 		add("interests", "Interests", "")
 	}
-	if len(p.LookingFor) > 0 {
-		add("looking_for", "Looking for", strings.Join(p.LookingFor, ", "))
+	if len(p.Intent) > 0 {
+		add("intent", "Intent", strings.Join(p.Intent, ", "))
 	} else {
-		add("looking_for", "Looking for", "")
+		add("intent", "Intent", "")
+	}
+	if len(p.GenderTarget) > 0 {
+		add("gender_target", "Interested in", strings.Join(p.GenderTarget, ", "))
+	} else {
+		add("gender_target", "Interested in", "")
 	}
 	add("about", "About", p.About)
 
@@ -703,8 +719,11 @@ func (s *JoinScreen) applyFieldSelection(selected []components.CheckboxItem) {
 	if !enabled["interests"] {
 		s.profile.Interests = nil
 	}
-	if !enabled["looking_for"] {
-		s.profile.LookingFor = nil
+	if !enabled["intent"] {
+		s.profile.Intent = nil
+	}
+	if !enabled["gender_target"] {
+		s.profile.GenderTarget = nil
 	}
 	if !enabled["about"] {
 		s.profile.About = ""
@@ -727,8 +746,10 @@ func (s JoinScreen) datingCreationView() string {
 		out += "  " + s.input.View()
 		return out
 	case 1:
-		return s.datingLookingFor.View()
+		return s.datingIntent.View()
 	case 2:
+		return s.datingGenderTarget.View()
+	case 3:
 		out := theme.BoldStyle.Render("About you") + "\n"
 		out += theme.DimStyle.Render("Write a short intro (ctrl+d to submit)") + "\n\n"
 		out += s.aboutTA.View()
@@ -752,7 +773,8 @@ func (s JoinScreen) createDatingRepo() tea.Msg {
 	}
 
 	interests := s.datingInterests
-	lookingFor := s.datingLookingFor.SelectedValues()
+	intent := s.datingIntent.SelectedValues()
+	genderTarget := s.datingGenderTarget.SelectedValues()
 
 	// Generate README content
 	var b strings.Builder
@@ -760,8 +782,11 @@ func (s JoinScreen) createDatingRepo() tea.Msg {
 	if len(interests) > 0 {
 		b.WriteString("interests: [" + strings.Join(interests, ", ") + "]\n")
 	}
-	if len(lookingFor) > 0 {
-		b.WriteString("looking_for: [" + strings.Join(lookingFor, ", ") + "]\n")
+	if len(intent) > 0 {
+		b.WriteString("intent: [" + strings.Join(intent, ", ") + "]\n")
+	}
+	if len(genderTarget) > 0 {
+		b.WriteString("gender_target: [" + strings.Join(genderTarget, ", ") + "]\n")
 	}
 	b.WriteString("---\n\n")
 	if s.datingAbout != "" {
@@ -835,22 +860,33 @@ func (s *JoinScreen) initDatingCreation() {
 	s.input.EchoMode = textinput.EchoNormal
 	s.input.Focus()
 
-	// Pre-fill looking_for from saved profile
-	savedLF := make(map[string]bool)
-	for _, lf := range saved.LookingFor {
-		savedLF[lf] = true
+	// Pre-fill intent from saved profile
+	savedIntent := make(map[string]bool)
+	for _, i := range saved.Intent {
+		savedIntent[i] = true
 	}
-
-	lookingForItems := []components.CheckboxItem{
-		{ID: "friendship", Label: "friendship", Checked: savedLF["friendship"]},
-		{ID: "dating", Label: "dating", Checked: savedLF["dating"]},
-		{ID: "relationship", Label: "relationship", Checked: savedLF["relationship"]},
-		{ID: "networking", Label: "networking", Checked: savedLF["networking"]},
-		{ID: "open", Label: "open to anything", Checked: savedLF["open"]},
+	intentItems := []components.CheckboxItem{
+		{ID: "dating", Label: "dating", Checked: savedIntent["dating"]},
+		{ID: "friendship", Label: "friendship", Checked: savedIntent["friendship"]},
+		{ID: "yolo", Label: "yolo", Checked: savedIntent["yolo"]},
+		{ID: "networking", Label: "networking", Checked: savedIntent["networking"]},
 	}
+	s.datingIntent = components.NewCheckbox("What's your intent?", intentItems)
+	s.datingIntent.Subtitle = "Select one or more — space to toggle, enter to continue"
 
-	s.datingLookingFor = components.NewCheckbox("What are you looking for?", lookingForItems)
-	s.datingLookingFor.Subtitle = "Select one or more — space to toggle, enter to continue"
+	// Pre-fill gender target from saved profile
+	savedGT := make(map[string]bool)
+	for _, g := range saved.GenderTarget {
+		savedGT[g] = true
+	}
+	genderItems := []components.CheckboxItem{
+		{ID: "men", Label: "men", Checked: savedGT["men"]},
+		{ID: "women", Label: "women", Checked: savedGT["women"]},
+		{ID: "non-binary", Label: "non-binary", Checked: savedGT["non-binary"]},
+		{ID: "dev", Label: "dev", Checked: savedGT["dev"]},
+	}
+	s.datingGenderTarget = components.NewCheckbox("Interested in?", genderItems)
+	s.datingGenderTarget.Subtitle = "Select one or more — space to toggle, enter to continue"
 
 	// Pre-fill about
 	if saved.About != "" {
@@ -923,9 +959,10 @@ func (s JoinScreen) fetchSources() tea.Msg {
 			datingMissing = true
 		} else if data != nil {
 			profiles = append(profiles, &gh.DatingProfile{
-				Interests:  data.interests,
-				LookingFor: data.lookingFor,
-				About:      data.about,
+				Interests:    data.interests,
+				Intent:       data.intent,
+				GenderTarget: data.genderTarget,
+				About:        data.about,
 			})
 		}
 	}
@@ -1084,9 +1121,10 @@ func (s JoinScreen) postRegistration() tea.Msg {
 // --- thin wrappers to avoid import cycles ---
 
 type datingReadmeResult struct {
-	interests  []string
-	lookingFor []gh.LookingFor
-	about      string
+	interests    []string
+	intent       []gh.Intent
+	genderTarget []gh.GenderTarget
+	about        string
 }
 
 func fetchGitHubProfileForJoin(ctx context.Context, token string) (*gh.DatingProfile, string, error) {
@@ -1159,8 +1197,9 @@ func fetchDatingProfileForJoin(username, profileName string) (*datingReadmeResul
 	}
 
 	var fm struct {
-		Interests  []string        `yaml:"interests"`
-		LookingFor []gh.LookingFor `yaml:"looking_for"`
+		Interests    []string          `yaml:"interests"`
+		Intent       []gh.Intent       `yaml:"intent"`
+		GenderTarget []gh.GenderTarget `yaml:"gender_target"`
 	}
 	yaml.Unmarshal([]byte(parts[1]), &fm)
 
@@ -1170,7 +1209,7 @@ func fetchDatingProfileForJoin(username, profileName string) (*datingReadmeResul
 	}
 
 	return &datingReadmeResult{
-		interests: fm.Interests, lookingFor: fm.LookingFor, about: about,
+		interests: fm.Interests, intent: fm.Intent, genderTarget: fm.GenderTarget, about: about,
 	}, nil
 }
 
@@ -1197,7 +1236,8 @@ func fetchDatingReadmeForJoin(username string) (*datingReadmeResult, error) {
 
 	var fm struct {
 		Interests  []string        `yaml:"interests"`
-		LookingFor []gh.LookingFor `yaml:"looking_for"`
+		Intent       []gh.Intent       `yaml:"intent"`
+		GenderTarget []gh.GenderTarget `yaml:"gender_target"`
 	}
 	yaml.Unmarshal([]byte(parts[1]), &fm)
 
@@ -1207,7 +1247,7 @@ func fetchDatingReadmeForJoin(username string) (*datingReadmeResult, error) {
 	}
 
 	return &datingReadmeResult{
-		interests: fm.Interests, lookingFor: fm.LookingFor, about: about,
+		interests: fm.Interests, intent: fm.Intent, genderTarget: fm.GenderTarget, about: about,
 	}, nil
 }
 
@@ -1241,8 +1281,11 @@ func mergeProfilesForJoin(profiles ...*gh.DatingProfile) *gh.DatingProfile {
 		if len(p.Interests) > 0 {
 			merged.Interests = p.Interests
 		}
-		if len(p.LookingFor) > 0 {
-			merged.LookingFor = p.LookingFor
+		if len(p.Intent) > 0 {
+			merged.Intent = p.Intent
+		}
+		if len(p.GenderTarget) > 0 {
+			merged.GenderTarget = p.GenderTarget
 		}
 		if p.About != "" {
 			merged.About = p.About

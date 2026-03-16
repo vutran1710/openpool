@@ -9,7 +9,7 @@ import (
 func TestParseDatingReadme_WithFrontmatter(t *testing.T) {
 	content := `---
 interests: [rust, hiking, coffee]
-looking_for: [dating, friendship]
+intent: [dating, friendship]
 ---
 
 # About
@@ -27,8 +27,8 @@ Looking for someone to debug life with.
 	if result.Interests[0] != "rust" {
 		t.Errorf("expected rust, got %s", result.Interests[0])
 	}
-	if len(result.LookingFor) != 2 {
-		t.Errorf("expected 2 looking_for, got %d", len(result.LookingFor))
+	if len(result.Intent) != 2 {
+		t.Errorf("expected 2 intent, got %d", len(result.Intent))
 	}
 	if result.About != "Looking for someone to debug life with." {
 		t.Errorf("unexpected about: %q", result.About)
@@ -74,7 +74,7 @@ func TestMergeProfiles(t *testing.T) {
 
 	dating := &gh.DatingProfile{
 		Interests:  []string{"rust", "hiking"},
-		LookingFor: []gh.LookingFor{"dating"},
+		Intent: []gh.Intent{"dating"},
 		About:      "looking for fun",
 	}
 
@@ -114,15 +114,19 @@ func TestMergeProfiles_NilSafe(t *testing.T) {
 func TestGenerateDatingReadme(t *testing.T) {
 	readme := GenerateDatingReadme(
 		[]string{"rust", "coffee"},
-		[]gh.LookingFor{"dating", "friendship"},
+		[]gh.Intent{"dating", "friendship"},
+		[]gh.GenderTarget{"dev", "women"},
 		"Looking for someone cool",
 	)
 
 	if !containsStr(readme, "interests: [rust, coffee]") {
 		t.Error("missing interests")
 	}
-	if !containsStr(readme, "looking_for: [dating, friendship]") {
-		t.Error("missing looking_for")
+	if !containsStr(readme, "intent: [dating, friendship]") {
+		t.Error("missing intent")
+	}
+	if !containsStr(readme, "gender_target: [dev, women]") {
+		t.Error("missing gender_target")
 	}
 	if !containsStr(readme, "# About") {
 		t.Error("missing about heading")
@@ -133,7 +137,7 @@ func TestGenerateDatingReadme(t *testing.T) {
 }
 
 func TestGenerateDatingReadme_Empty(t *testing.T) {
-	readme := GenerateDatingReadme(nil, nil, "")
+	readme := GenerateDatingReadme(nil, nil, nil, "")
 	if !containsStr(readme, "---") {
 		t.Error("missing frontmatter delimiters")
 	}
