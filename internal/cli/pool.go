@@ -352,7 +352,7 @@ func newPoolJoinCmd() *cobra.Command {
 				Status:         gh.PoolStatusPending,
 			}
 
-			cfg.User.PublicID = userHash[:12]
+			cfg.User.PublicID = userHash
 			cfg.User.DisplayName = displayName
 			cfg.User.Provider = "github"
 			cfg.User.ProviderUserID = identity.UserID

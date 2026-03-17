@@ -108,7 +108,7 @@ func newFetchCmd() *cobra.Command {
 			}
 
 			fmt.Println()
-			fmt.Printf("  %s\n", bold.Render(result.UserHash[:12]))
+			fmt.Printf("  %s\n", bold.Render(crypto.ShortHash(result.UserHash)))
 			if name, ok := profile["display_name"].(string); ok && name != "" {
 				fmt.Printf("  %s %s\n", dim.Render("Name:"), name)
 			}
@@ -126,7 +126,7 @@ func newFetchCmd() *cobra.Command {
 				fmt.Printf("  %s %s\n", dim.Render("Interests:"), strings.Join(strs, ", "))
 			}
 			fmt.Println()
-			printDim("  Like: dating like " + result.UserHash[:12])
+			printDim("  Like: dating like " + crypto.ShortHash(result.UserHash))
 			fmt.Println()
 			return nil
 		},
@@ -160,7 +160,7 @@ func newViewCmd() *cobra.Command {
 
 			fmt.Println()
 			fmt.Printf("  %s  %s  %d bytes\n",
-				bold.Render(args[0][:12]),
+				bold.Render(crypto.ShortHash(args[0])),
 				dim.Render("encrypted blob"),
 				len(blob),
 			)

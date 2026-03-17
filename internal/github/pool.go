@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vutran1710/dating-dev/internal/crypto"
 	"github.com/vutran1710/dating-dev/internal/gitrepo"
 )
 
@@ -130,16 +131,16 @@ func (p *Pool) IsUserRegistered(ctx context.Context, userHash string) bool {
 func (p *Pool) RegisterUser(ctx context.Context, userHash string, encryptedBlob []byte, signature, identityProof, templateBody string) (int, error) {
 	body := fmt.Sprintf(
 		"New member `%s` wants to join.\n\nSignature: `%s`\n\n**Identity proof** (encrypted for operator):\n```\n%s\n```",
-		userHash[:12], signature, identityProof,
+		crypto.ShortHash(userHash), signature, identityProof,
 	)
 	if templateBody != "" {
 		body = templateBody + "\n\n---\n\n" + body
 	}
 
 	pr := PRRequest{
-		Title:  fmt.Sprintf("Join: %s", userHash[:12]),
+		Title:  fmt.Sprintf("Join: %s", crypto.ShortHash(userHash)),
 		Body:   body,
-		Branch: fmt.Sprintf("join/%s", userHash[:12]),
+		Branch: fmt.Sprintf("join/%s", crypto.LabelHash(userHash)),
 		Files: []PRFile{
 			{Path: fmt.Sprintf("users/%s.bin", userHash), Content: encryptedBlob},
 		},
@@ -170,7 +171,7 @@ func (p *Pool) RegisterUserViaIssue(ctx context.Context, userHash string, encryp
 // A Pool Action will process it and create the actual PR.
 func (p *Pool) CreateLikeIssue(ctx context.Context, likerHash, likedHash, encryptedMsg, signature string) (int, error) {
 	body := fmt.Sprintf("%s\n%s\n%s", likerHash, encryptedMsg, signature)
-	title := fmt.Sprintf("Like: %s", likerHash[:8])
+	title := fmt.Sprintf("Like: %s", crypto.ShortHash(likerHash))
 	return p.client.CreateIssue(ctx, title, body, []string{"like"})
 }
 
@@ -185,10 +186,10 @@ func (p *Pool) CreateLikePR(ctx context.Context, likerHash, likedHash, encrypted
 	matchContent := []byte(fmt.Sprintf(`{"created_at":%d}`, time.Now().Unix()))
 
 	pr := PRRequest{
-		Title:  fmt.Sprintf("Like: %s -> %s", likerHash[:8], likedHash[:8]),
+		Title:  fmt.Sprintf("Like: %s -> %s", crypto.ShortHash(likerHash), crypto.ShortHash(likedHash)),
 		Body:   fmt.Sprintf("%s\n%s\n%s\n%s", likerHash, likedHash, encryptedMsg, signature),
-		Branch: fmt.Sprintf("like/%s_%s", sortedA[:8], sortedB[:8]),
-		Labels: []string{fmt.Sprintf("like:%s", likedHash[:12])},
+		Branch: fmt.Sprintf("like/%s_%s", crypto.LabelHash(sortedA), crypto.LabelHash(sortedB)),
+		Labels: []string{fmt.Sprintf("like:%s", crypto.LabelHash(likedHash))},
 		Files: []PRFile{
 			{Path: matchFile, Content: matchContent},
 		},
@@ -198,7 +199,7 @@ func (p *Pool) CreateLikePR(ctx context.Context, likerHash, likedHash, encrypted
 }
 
 func (p *Pool) ListIncomingLikes(ctx context.Context, userHash string) ([]PullRequest, error) {
-	return p.listPRsByLabel(ctx, "like:"+userHash[:12])
+	return p.listPRsByLabel(ctx, "like:"+crypto.LabelHash(userHash))
 }
 
 func (p *Pool) AcceptLike(ctx context.Context, prNumber int) error {
@@ -226,10 +227,10 @@ func (p *Pool) CreateProposePR(ctx context.Context, proposerHash, targetHash, si
 	}
 
 	pr := PRRequest{
-		Title:  fmt.Sprintf("Propose: %s -> %s", proposerHash[:8], targetHash[:8]),
-		Body:   fmt.Sprintf("`%s` proposes to `%s`\n\nSignature: `%s`", proposerHash[:8], targetHash[:8], signature),
+		Title:  fmt.Sprintf("Propose: %s -> %s", crypto.ShortHash(proposerHash), crypto.ShortHash(targetHash)),
+		Body:   fmt.Sprintf("`%s` proposes to `%s`\n\nSignature: `%s`", crypto.ShortHash(proposerHash), crypto.ShortHash(targetHash), signature),
 		Branch: fmt.Sprintf("propose/%s", ph),
-		Labels: []string{fmt.Sprintf("propose:%s", targetHash[:12])},
+		Labels: []string{fmt.Sprintf("propose:%s", crypto.LabelHash(targetHash))},
 		Files: []PRFile{
 			{Path: fmt.Sprintf("relationships/%s/%s.bin", ph, proposerHash), Content: proposerBlob},
 			{Path: fmt.Sprintf("relationships/%s/%s.bin", ph, targetHash), Content: targetBlob},
@@ -240,7 +241,7 @@ func (p *Pool) CreateProposePR(ctx context.Context, proposerHash, targetHash, si
 }
 
 func (p *Pool) ListIncomingProposals(ctx context.Context, userHash string) ([]PullRequest, error) {
-	return p.listPRsByLabel(ctx, "propose:"+userHash[:12])
+	return p.listPRsByLabel(ctx, "propose:"+crypto.LabelHash(userHash))
 }
 
 func (p *Pool) AcceptPropose(ctx context.Context, prNumber int) error {

@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
+	"github.com/vutran1710/dating-dev/internal/crypto"
 	gh "github.com/vutran1710/dating-dev/internal/github"
 )
 
@@ -173,11 +174,7 @@ func (s InboxScreen) View() string {
 		"  " + counter
 
 	// Liker info
-	likerDisplay := item.LikerHash
-	if len(likerDisplay) > 12 {
-		likerDisplay = likerDisplay[:12]
-	}
-	likerLine := theme.AccentStyle.Render(likerDisplay)
+	likerLine := theme.AccentStyle.Render(crypto.ShortHash(item.LikerHash))
 
 	// Time ago
 	ago := timeAgo(item.PR.CreatedAt)

@@ -119,7 +119,7 @@ func newProfileEditCmd() *cobra.Command {
 				return fmt.Errorf("publishing profile: %w", err)
 			}
 
-			cfg.User.PublicID = userHash[:12]
+			cfg.User.PublicID = userHash
 			if err := cfg.Save(); err != nil {
 				return fmt.Errorf("saving config: %w", err)
 			}

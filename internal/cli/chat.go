@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
+	"github.com/vutran1710/dating-dev/internal/crypto"
 )
 
 func newChatCmd() *cobra.Command {
@@ -34,7 +35,7 @@ func newChatCmd() *cobra.Command {
 			targetHash := args[0]
 
 			fmt.Println()
-			fmt.Printf("  %s\n", bold.Render("dating:"+targetHash[:8]+">"))
+			fmt.Printf("  %s\n", bold.Render("dating:"+crypto.ShortHash(targetHash)+">"))
 			printDim("  Type a message and press Enter. /exit to leave.")
 			fmt.Println()
 
@@ -46,7 +47,7 @@ func newChatCmd() *cobra.Command {
 func runChatLoop(targetHash string) error {
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
-		fmt.Printf("%s ", dim.Render("dating:"+targetHash[:8]+">"))
+		fmt.Printf("%s ", dim.Render("dating:"+crypto.ShortHash(targetHash)+">"))
 		if !scanner.Scan() {
 			break
 		}

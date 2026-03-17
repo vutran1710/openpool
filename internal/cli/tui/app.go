@@ -907,16 +907,9 @@ func submitProfileUpdate(profile *gh.DatingProfile) tea.Cmd {
 		}
 
 		ctx := context.Background()
-		userID := cfg.User.PublicID
-		if len(userID) > 8 {
-			userID = userID[:8]
-		}
-		if userID == "" {
-			userID = cfg.User.Username
-		}
 		num, err := svc.SubmitProfileToPool(ctx, pool.Repo, pool.OperatorPubKey, token,
 			profile, pub, priv,
-			fmt.Sprintf("Profile Update: %s", userID),
+			"Profile Update",
 			[]string{"profile-update"})
 		return profileSubmitResultMsg{issueNum: num, err: err}
 	}

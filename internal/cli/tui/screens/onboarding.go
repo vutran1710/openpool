@@ -277,7 +277,7 @@ func (s OnboardingScreen) Update(msg tea.Msg) (OnboardingScreen, tea.Cmd) {
 			return s, nil
 		}
 		s.pubKey = msg.pub
-		keyID := hex.EncodeToString(s.pubKey[:8]) + "..."
+		keyID := crypto.ShortHash(hex.EncodeToString(s.pubKey))
 		s.setTimelineState(1, stateDone, keyID)
 		s.addLog(theme.GreenStyle.Render("✓ ") + theme.TextStyle.Render("Keypair ready: ") + theme.DimStyle.Render(keyID))
 
