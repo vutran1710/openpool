@@ -1,0 +1,31 @@
+name: Release regcrypt
+
+on:
+  push:
+    tags:
+      - 'regcrypt-v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: GOOS=linux GOARCH=amd64 go build -o regcrypt-linux-amd64 ./cmd/regcrypt
+
+      - name: Upload to vutran1710/regcrypt
+        env:
+          GH_TOKEN: ${{ secrets.REGCRYPT_RELEASE_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" regcrypt-linux-amd64 \
+            --repo vutran1710/regcrypt \
+            --title "$TAG" \
+            --notes "Built from dating-dev ${TAG}"
