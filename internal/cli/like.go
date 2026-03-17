@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
@@ -12,9 +14,9 @@ import (
 
 func newLikeCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "like <public_id>",
+		Use:   "like <public_id> [message]",
 		Short: "Express interest in someone",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
@@ -33,6 +35,24 @@ func newLikeCmd() *cobra.Command {
 				return fmt.Errorf("loading keys: %w", err)
 			}
 
+			// Encrypt initial message to operator
+			message := "Hey! I'd like to connect."
+			if len(args) > 1 {
+				message = strings.Join(args[1:], " ")
+			}
+
+			opKeyHex := pool.OperatorPubKey
+			opPub, err := hex.DecodeString(opKeyHex)
+			if err != nil {
+				return fmt.Errorf("invalid operator key: %w", err)
+			}
+
+			encMsg, err := crypto.Encrypt(opPub, []byte(message))
+			if err != nil {
+				return fmt.Errorf("encrypting message: %w", err)
+			}
+			encMsgHex := hex.EncodeToString(encMsg)
+
 			payload, err := json.Marshal(map[string]string{
 				"action":   "like",
 				"liker_id": cfg.User.PublicID,
@@ -44,12 +64,12 @@ func newLikeCmd() *cobra.Command {
 			signature := crypto.Sign(priv, payload)
 
 			client := poolClient(pool)
-			prNumber, err := client.CreateLikePR(ctx, cfg.User.PublicID, args[0], signature)
+			issueNum, err := client.CreateLikeIssue(ctx, cfg.User.PublicID, args[0], encMsgHex, signature)
 			if err != nil {
 				return fmt.Errorf("sending like: %w", err)
 			}
 
-			printSuccess(fmt.Sprintf("Interest sent to %s (PR #%d)", args[0], prNumber))
+			printSuccess(fmt.Sprintf("Interest sent to %s (Issue #%d)", args[0], issueNum))
 			return nil
 		},
 	}

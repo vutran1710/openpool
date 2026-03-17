@@ -2,7 +2,6 @@ package components
 
 import (
 	"github.com/charmbracelet/lipgloss"
-	figure "github.com/common-nighthawk/go-figure"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
 )
 
@@ -22,64 +21,47 @@ func NewStatusBar() StatusBar {
 }
 
 func (s StatusBar) View() string {
-	// Blocky ASCII title
-	fig := figure.NewFigure("dating.dev", "rectangles", true)
-	title := lipgloss.NewStyle().Foreground(theme.Pink).Render(fig.String())
+	rightAlign := lipgloss.NewStyle().Align(lipgloss.Right)
+	pad := lipgloss.NewStyle().Padding(0, 2)
 
-	// Pulsing heart
+	// Row 1: ♥ dating.dev ... ⬡ User hash
 	heart := s.Heart.Inline()
+	title := lipgloss.NewStyle().Foreground(theme.Pink).Bold(true).Render("dating.dev")
+	leftR1 := heart + " " + title
 
-	left := lipgloss.JoinHorizontal(lipgloss.Center, heart, "  ", title)
-
-	// User info (right-aligned)
-	var infoLines []string
+	rightR1 := ""
 	if s.User != "" {
-		userLine := theme.DimStyle.Render("⬡ ") + theme.AccentStyle.Render(s.User)
+		rightR1 = theme.DimStyle.Render("⬡ ") + theme.AccentStyle.Render(s.User)
 		if s.UserHash != "" {
-			userLine += theme.DimStyle.Render("  ") + theme.DimStyle.Render(s.UserHash)
+			rightR1 += theme.DimStyle.Render("  ") + theme.DimStyle.Render(s.UserHash)
 		}
-		infoLines = append(infoLines, userLine)
 	}
 
-	// Row 2: pool + registry
-	var row2Parts []string
+	gap1 := s.Width - lipgloss.Width(leftR1) - lipgloss.Width(rightR1) - 4
+	if gap1 < 1 {
+		gap1 = 1
+	}
+	row1 := pad.Width(s.Width).Render(leftR1 + spaces(gap1) + rightR1)
+
+	// Row 2: (empty left) ... ◈ pool  ⊞ registry
+	poolPart := theme.DimStyle.Render("◈ no pool")
 	if s.Pool != "" {
-		row2Parts = append(row2Parts, theme.DimStyle.Render("◈ ")+theme.GreenStyle.Render(s.Pool))
-	} else {
-		row2Parts = append(row2Parts, theme.DimStyle.Render("◈ no pool"))
+		poolPart = theme.DimStyle.Render("◈ ") + theme.GreenStyle.Render(s.Pool)
 	}
+	regPart := theme.DimStyle.Render("⊞ no registry")
 	if s.Registry != "" {
-		row2Parts = append(row2Parts, theme.DimStyle.Render("⊞ ")+theme.DimStyle.Render(s.Registry))
-	} else {
-		row2Parts = append(row2Parts, theme.DimStyle.Render("⊞ no registry"))
+		regPart = theme.DimStyle.Render("⊞ ") + theme.DimStyle.Render(s.Registry)
 	}
-	infoLines = append(infoLines, lipgloss.JoinHorizontal(lipgloss.Center, row2Parts[0], "  ", row2Parts[1]))
+	rightR2 := poolPart + "  " + regPart
 
-	rightWidth := s.Width - lipgloss.Width(left) - 6
-	if rightWidth < 10 {
-		rightWidth = 10
-	}
-
-	right := ""
-	for _, l := range infoLines {
-		right += l + "\n"
-	}
-	rightBlock := lipgloss.NewStyle().
-		Align(lipgloss.Right).
-		Width(rightWidth).
-		Render(right)
-
-	bar := lipgloss.NewStyle().
-		Padding(0, 2).
-		Width(s.Width).
-		Render(lipgloss.JoinHorizontal(lipgloss.Bottom, left, rightBlock))
+	row2 := pad.Width(s.Width).Render(rightAlign.Width(s.Width - 4).Render(rightR2))
 
 	separator := lipgloss.NewStyle().
 		Width(s.Width).
 		Foreground(theme.Border).
 		Render(Repeat("─", s.Width))
 
-	return bar + "\n" + separator
+	return row1 + "\n" + row2 + "\n" + separator
 }
 
 func spaces(n int) string {

@@ -203,6 +203,24 @@ func (c *Client) MergePullRequest(ctx context.Context, prNumber int) error {
 	return nil
 }
 
+func (c *Client) ClosePullRequest(ctx context.Context, prNumber int) error {
+	payload, err := json.Marshal(map[string]string{"state": "closed"})
+	if err != nil {
+		return fmt.Errorf("marshaling close payload: %w", err)
+	}
+	url := c.apiURL(fmt.Sprintf("/pulls/%d", prNumber))
+	resp, err := c.do(ctx, "PATCH", url, strings.NewReader(string(payload)))
+	if err != nil {
+		return fmt.Errorf("closing PR: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("close PR failed (%d): %s", resp.StatusCode, body)
+	}
+	return nil
+}
+
 func (c *Client) FileExists(ctx context.Context, path string) bool {
 	resp, err := c.do(ctx, "GET", c.apiURL("/contents/"+path), nil)
 	if err != nil {

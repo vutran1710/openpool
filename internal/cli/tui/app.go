@@ -12,6 +12,7 @@ import (
 	"github.com/vutran1710/dating-dev/internal/cli/config"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/screens"
+	gh "github.com/vutran1710/dating-dev/internal/github"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
 	"github.com/vutran1710/dating-dev/internal/crypto"
 	dbg "github.com/vutran1710/dating-dev/internal/debug"
@@ -29,6 +30,7 @@ const (
 	screenJoin
 	screenProfile
 	screenSettings
+	screenInbox
 )
 
 type app struct {
@@ -52,6 +54,7 @@ type app struct {
 	join       screens.JoinScreen
 	profile    screens.ProfileScreen
 	settings   screens.SettingsScreen
+	inbox      screens.InboxScreen
 
 	user     string
 	pool     string
@@ -79,6 +82,7 @@ func newApp(userName, userHash, pool, registry string, poolStatuses map[string]s
 		pools:      screens.NewPoolsScreen(registry, poolStatuses, poolIssues),
 		profile:    screens.NewProfileScreen(),
 		settings:   screens.NewSettingsScreen(pool, registry, userName, "", poolNames(poolStatuses), registries(registry)),
+		inbox:      screens.NewInboxScreen(),
 	}
 	a.statusBar.User = userName
 	a.statusBar.UserHash = userHash
@@ -118,6 +122,8 @@ func (a *app) updateHelp() {
 		bindings = a.profile.HelpBindings()
 	case screenSettings:
 		bindings = a.settings.HelpBindings()
+	case screenInbox:
+		bindings = a.inbox.HelpBindings()
 	}
 	a.helpBar = components.NewHelpBar(bindings...)
 }
@@ -141,6 +147,8 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.profile.Height = msg.Height
 		a.settings.Width = msg.Width
 		a.settings.Height = msg.Height
+		a.inbox.Width = msg.Width
+		a.inbox.Height = msg.Height
 		return a, nil
 
 	case tea.KeyMsg:
@@ -176,6 +184,12 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Level: components.ToastSuccess,
 			}
 		}
+
+	case screens.InboxAcceptMsg:
+		return a, acceptLike(a.pool, msg.PRNumber)
+
+	case screens.InboxRejectMsg:
+		return a, rejectLike(a.pool, msg.PRNumber)
 
 	case screens.PoolSwitchMsg:
 		a.pool = msg.Name
@@ -399,9 +413,13 @@ func (a app) handleMenuSelect(key string) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 	case "inbox":
-		return a, func() tea.Msg {
-			return components.ToastMsg{Text: "Inbox coming soon", Level: components.ToastInfo}
-		}
+		a.screen = screenInbox
+		a.inbox = screens.NewInboxScreen()
+		a.inbox.Width = a.width
+		a.inbox.Height = a.height
+		a.updateHelp()
+		// Trigger fetch
+		return a, fetchInbox(a.pool, a.registry)
 	case "profile":
 		dbg.Log("navigate → profile")
 		a.screen = screenProfile
@@ -446,6 +464,13 @@ func (a app) handleSubmit(msg components.SubmitMsg) (tea.Model, tea.Cmd) {
 			a.screen = screenProfile
 			a.profile, _ = a.profile.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 			a.updateHelp()
+		case "/inbox":
+			a.screen = screenInbox
+			a.inbox = screens.NewInboxScreen()
+			a.inbox.Width = a.width
+			a.inbox.Height = a.height
+			a.updateHelp()
+			return a, fetchInbox(a.pool, a.registry)
 		case "/settings":
 			a.screen = screenSettings
 			a.settings.Width = a.width
@@ -544,11 +569,13 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.profile, cmd = a.profile.Update(msg)
 	case screenSettings:
 		a.settings, cmd = a.settings.Update(msg)
+	case screenInbox:
+		a.inbox, cmd = a.inbox.Update(msg)
 	}
 
 	if cmd != nil {
 		// Don't forward to input during onboarding (it steals key events)
-		if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenProfile || a.screen == screenSettings {
+		if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenProfile || a.screen == screenSettings || a.screen == screenInbox {
 			return a, cmd
 		}
 		var inputCmd tea.Cmd
@@ -556,7 +583,7 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(cmd, inputCmd)
 	}
 
-	if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenProfile || a.screen == screenSettings {
+	if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenProfile || a.screen == screenSettings || a.screen == screenInbox {
 		return a, nil
 	}
 
@@ -591,6 +618,8 @@ func (a app) View() string {
 		content = a.profile.View()
 	case screenSettings:
 		content = a.settings.View()
+	case screenInbox:
+		content = a.inbox.View()
 	}
 
 	toastView := a.toast.View()
@@ -711,6 +740,96 @@ func pollPendingPools() tea.Msg {
 	}
 
 	return pendingPollResultMsg{}
+}
+
+func fetchInbox(poolName, registry string) tea.Cmd {
+	return func() tea.Msg {
+		cfg, err := config.Load()
+		if err != nil {
+			return screens.InboxFetchedResult{Err: err}
+		}
+
+		pool := cfg.ActivePool()
+		if pool == nil {
+			return screens.InboxFetchedResult{Err: fmt.Errorf("no active pool")}
+		}
+
+		_, priv, err := crypto.LoadKeyPair(config.KeysDir())
+		if err != nil {
+			return screens.InboxFetchedResult{Err: fmt.Errorf("loading keys: %w", err)}
+		}
+
+		token, err := cfg.DecryptToken(priv)
+		if err != nil {
+			return screens.InboxFetchedResult{Err: fmt.Errorf("decrypting token: %w", err)}
+		}
+
+		client := gh.NewPool(pool.Repo, token)
+		prs, err := client.ListIncomingLikes(context.Background(), cfg.User.PublicID)
+		if err != nil {
+			return screens.InboxFetchedResult{Err: err}
+		}
+
+		var items []screens.InboxLikeItem
+		for _, pr := range prs {
+			likerHash, encMsg := screens.ParseLikeFromPR(pr)
+			items = append(items, screens.InboxLikeItem{
+				PR:        pr,
+				LikerHash: likerHash,
+				Message:   encMsg,
+			})
+		}
+
+		return screens.InboxFetchedResult{Likes: items}
+	}
+}
+
+func acceptLike(poolName string, prNumber int) tea.Cmd {
+	return func() tea.Msg {
+		cfg, err := config.Load()
+		if err != nil {
+			return screens.InboxActionResult{Accepted: true, Err: err}
+		}
+		pool := cfg.ActivePool()
+		if pool == nil {
+			return screens.InboxActionResult{Accepted: true, Err: fmt.Errorf("no active pool")}
+		}
+		_, priv, err := crypto.LoadKeyPair(config.KeysDir())
+		if err != nil {
+			return screens.InboxActionResult{Accepted: true, Err: err}
+		}
+		token, err := cfg.DecryptToken(priv)
+		if err != nil {
+			return screens.InboxActionResult{Accepted: true, Err: err}
+		}
+		client := gh.NewPool(pool.Repo, token)
+		err = client.AcceptLike(context.Background(), prNumber)
+		return screens.InboxActionResult{Accepted: true, Err: err}
+	}
+}
+
+func rejectLike(poolName string, prNumber int) tea.Cmd {
+	return func() tea.Msg {
+		cfg, err := config.Load()
+		if err != nil {
+			return screens.InboxActionResult{Accepted: false, Err: err}
+		}
+		pool := cfg.ActivePool()
+		if pool == nil {
+			return screens.InboxActionResult{Accepted: false, Err: fmt.Errorf("no active pool")}
+		}
+		_, priv, err := crypto.LoadKeyPair(config.KeysDir())
+		if err != nil {
+			return screens.InboxActionResult{Accepted: false, Err: err}
+		}
+		token, err := cfg.DecryptToken(priv)
+		if err != nil {
+			return screens.InboxActionResult{Accepted: false, Err: err}
+		}
+		client := gh.NewPool(pool.Repo, token)
+		err = client.RejectLike(context.Background(), prNumber)
+		return screens.InboxActionResult{Accepted: false, Err: err}
+	}
 }
 
 func poolNames(statuses map[string]string) []string {
