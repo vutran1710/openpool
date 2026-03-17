@@ -297,12 +297,20 @@ https://github.com/vutran1710/dating-dev/releases/latest/download/regcrypt-linux
 
 A release workflow in `dating-dev` builds and uploads the binary on tag push.
 
+**Private repo access (temporary):** While `dating-dev` is private (pre-launch), pool repos need a GitHub PAT with `repo` scope stored as `DATING_DEV_TOKEN` secret to download the binary. Once `dating-dev` goes public, remove the PAT — the download URL works without auth for public repos.
+
 ### Updated Workflow
 
 ```yaml
 - name: Download regcrypt
+  env:
+    # DATING_DEV_TOKEN: temporary PAT for private repo access, remove when dating-dev goes public
+    GH_TOKEN: ${{ secrets.DATING_DEV_TOKEN }}
   run: |
-    curl -sL https://github.com/vutran1710/dating-dev/releases/latest/download/regcrypt-linux-amd64 -o regcrypt
+    curl -sL -H "Authorization: token $GH_TOKEN" \
+      "https://api.github.com/repos/vutran1710/dating-dev/releases/latest" \
+      | jq -r '.assets[] | select(.name=="regcrypt-linux-amd64") | .url' \
+      | xargs curl -sL -H "Authorization: token $GH_TOKEN" -H "Accept: application/octet-stream" -o regcrypt
     chmod +x regcrypt
 
 - name: Compute and encrypt hashes
@@ -344,10 +352,11 @@ A release workflow in `dating-dev` builds and uploads the binary on tag push.
 
 ### Action Secrets Required
 
-| Secret | Purpose |
-|--------|---------|
-| `POOL_SALT` | Derives bin_hash and match_hash (already exists) |
-| `OPERATOR_PRIVKEY` | NaCl box encryption — sender's private key (**new**) |
+| Secret | Purpose | Notes |
+|--------|---------|-------|
+| `POOL_SALT` | Derives bin_hash and match_hash | Already exists |
+| `OPERATOR_PRIVKEY` | NaCl box encryption — sender's private key | **New** |
+| `DATING_DEV_TOKEN` | PAT to download regcrypt from private repo | **Temporary** — remove when dating-dev goes public |
 
 ### Failure Handling
 
