@@ -239,7 +239,7 @@ match_hash = "def456..."
 | `cmd/relay/main.go` | Remove operator key env vars. Keep `POOL_URL`, `POOL_SALT`. |
 | `internal/relay/relay_e2e_test.go` | Rewrite: no auth handshake, connect with `?bin=&sig=`. Add `MatchHash` to test `UserEntry`. |
 | `internal/cli/relay/client_test.go` | Update for new `Config` shape. Remove token/auth tests. |
-| **New**: `internal/cli/tunnel/tunnel.go` | Cloudflare tunnel management: start `cloudflared`, capture URL, run callback server, shutdown. |
+| **New**: `internal/cli/gatekeeper/` | Cloudflare tunnel management, callback server (`/health`, `/callback`), self-verify, hash decryption + persistence. |
 
 ---
 
