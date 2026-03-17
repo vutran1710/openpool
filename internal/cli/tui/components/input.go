@@ -25,9 +25,12 @@ var commands = []commandEntry{
 	{Cmd: "/home", Desc: "go to home screen", Syntax: "/home"},
 	{Cmd: "/discover", Desc: "find new people nearby", Syntax: "/discover  ·  alias: /fetch"},
 	{Cmd: "/matches", Desc: "view your matches and chat", Syntax: "/matches"},
-	{Cmd: "/pools", Desc: "browse & manage dating pools", Syntax: "/pools"},
+	{Cmd: "/pools", Desc: "browse & join dating pools", Syntax: "/pools"},
 	{Cmd: "/profile", Desc: "edit your dating profile", Syntax: "/profile edit | /profile show"},
 	{Cmd: "/inbox", Desc: "view incoming interests", Syntax: "/inbox"},
+	{Cmd: "/settings", Desc: "app settings", Syntax: "/settings"},
+	{Cmd: "/pool", Desc: "switch active pool", Syntax: "/pool <name>"},
+	{Cmd: "/registry", Desc: "switch active registry", Syntax: "/registry <owner/repo>"},
 	{Cmd: "/quit", Desc: "exit the app", Syntax: "/quit  ·  alias: /q"},
 }
 

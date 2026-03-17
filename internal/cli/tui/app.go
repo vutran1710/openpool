@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -27,6 +28,7 @@ const (
 	screenPools
 	screenJoin
 	screenProfile
+	screenSettings
 )
 
 type app struct {
@@ -49,6 +51,7 @@ type app struct {
 	pools      screens.PoolsScreen
 	join       screens.JoinScreen
 	profile    screens.ProfileScreen
+	settings   screens.SettingsScreen
 
 	user     string
 	pool     string
@@ -75,10 +78,12 @@ func newApp(userName, userHash, pool, registry string, poolStatuses map[string]s
 		matches:    screens.NewMatchesScreen(),
 		pools:      screens.NewPoolsScreen(registry, poolStatuses, poolIssues),
 		profile:    screens.NewProfileScreen(),
+		settings:   screens.NewSettingsScreen(pool, registry, userName, "", poolNames(poolStatuses), registries(registry)),
 	}
 	a.statusBar.User = userName
 	a.statusBar.UserHash = userHash
 	a.statusBar.Pool = pool
+	a.statusBar.Registry = registry
 	a.updateHelp()
 	return a
 }
@@ -111,6 +116,8 @@ func (a *app) updateHelp() {
 		bindings = a.join.HelpBindings()
 	case screenProfile:
 		bindings = a.profile.HelpBindings()
+	case screenSettings:
+		bindings = a.settings.HelpBindings()
 	}
 	a.helpBar = components.NewHelpBar(bindings...)
 }
@@ -132,6 +139,8 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.onboarding.Height = msg.Height
 		a.profile.Width = msg.Width
 		a.profile.Height = msg.Height
+		a.settings.Width = msg.Width
+		a.settings.Height = msg.Height
 		return a, nil
 
 	case tea.KeyMsg:
@@ -166,6 +175,34 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Text:  "Welcome, " + msg.DisplayName + "!",
 				Level: components.ToastSuccess,
 			}
+		}
+
+	case screens.PoolSwitchMsg:
+		a.pool = msg.Name
+		a.statusBar.Pool = msg.Name
+		// Save to config
+		if cfg, err := config.Load(); err == nil {
+			cfg.Active = msg.Name
+			cfg.Save()
+		}
+		return a, func() tea.Msg {
+			return components.ToastMsg{Text: "Switched to pool: " + msg.Name, Level: components.ToastSuccess}
+		}
+
+	case screens.RegistrySwitchMsg:
+		a.registry = msg.Repo
+		a.statusBar.Registry = msg.Repo
+		// Save to config
+		if cfg, err := config.Load(); err == nil {
+			cfg.ActiveRegistry = msg.Repo
+			cfg.Save()
+		}
+		// Refresh pools screen with new registry
+		a.pools = screens.NewPoolsScreen(msg.Repo, nil)
+		a.pools.Width = a.width
+		a.pools.Height = a.height
+		return a, func() tea.Msg {
+			return components.ToastMsg{Text: "Switched to registry: " + msg.Repo, Level: components.ToastSuccess}
 		}
 
 	case components.MenuSelectMsg:
@@ -373,10 +410,10 @@ func (a app) handleMenuSelect(key string) (tea.Model, tea.Cmd) {
 		if !a.profile.IsLoaded() {
 			return a, a.profile.LoadCmd
 		}
-	case "auth":
-		return a, func() tea.Msg {
-			return components.ToastMsg{Text: "Run: dating auth register", Level: components.ToastInfo}
-		}
+	case "settings":
+		a.screen = screenSettings
+		a.settings.Width = a.width
+		a.settings.Height = a.height
 	default:
 		if a.screen == screenMatches {
 			a.chat = screens.NewChatScreen(key, a.width, a.height)
@@ -409,12 +446,61 @@ func (a app) handleSubmit(msg components.SubmitMsg) (tea.Model, tea.Cmd) {
 			a.screen = screenProfile
 			a.profile, _ = a.profile.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 			a.updateHelp()
+		case "/settings":
+			a.screen = screenSettings
+			a.settings.Width = a.width
+			a.settings.Height = a.height
+			a.updateHelp()
 		case "/exit":
 			if a.screen == screenChat {
 				a.screen = screenMatches
 				a.updateHelp()
 			}
 		default:
+			// Handle /pool <name> and /registry <name>
+			if strings.HasPrefix(msg.Value, "/pool ") {
+				name := strings.TrimSpace(strings.TrimPrefix(msg.Value, "/pool "))
+				if name != "" {
+					// Check pool exists in config
+					cfg, _ := config.Load()
+					found := false
+					if cfg != nil {
+						for _, p := range cfg.Pools {
+							if p.Name == name && (p.Status == "active" || p.Status == "") {
+								found = true
+								break
+							}
+						}
+					}
+					if found {
+						return a, func() tea.Msg { return screens.PoolSwitchMsg{Name: name} }
+					}
+					return a, func() tea.Msg {
+						return components.ToastMsg{Text: "Pool not found or not active: " + name, Level: components.ToastError}
+					}
+				}
+			}
+			if strings.HasPrefix(msg.Value, "/registry ") {
+				repo := strings.TrimSpace(strings.TrimPrefix(msg.Value, "/registry "))
+				if repo != "" {
+					cfg, _ := config.Load()
+					found := false
+					if cfg != nil {
+						for _, r := range cfg.Registries {
+							if r == repo {
+								found = true
+								break
+							}
+						}
+					}
+					if found {
+						return a, func() tea.Msg { return screens.RegistrySwitchMsg{Repo: repo} }
+					}
+					return a, func() tea.Msg {
+						return components.ToastMsg{Text: "Registry not found: " + repo, Level: components.ToastError}
+					}
+				}
+			}
 			return a, func() tea.Msg {
 				return components.ToastMsg{
 					Text:  "Unknown command: " + msg.Value,
@@ -456,11 +542,13 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.updateHelp()
 	case screenProfile:
 		a.profile, cmd = a.profile.Update(msg)
+	case screenSettings:
+		a.settings, cmd = a.settings.Update(msg)
 	}
 
 	if cmd != nil {
 		// Don't forward to input during onboarding (it steals key events)
-		if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenProfile {
+		if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenProfile || a.screen == screenSettings {
 			return a, cmd
 		}
 		var inputCmd tea.Cmd
@@ -468,7 +556,7 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(cmd, inputCmd)
 	}
 
-	if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenProfile {
+	if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenProfile || a.screen == screenSettings {
 		return a, nil
 	}
 
@@ -501,6 +589,8 @@ func (a app) View() string {
 		content = a.join.View()
 	case screenProfile:
 		content = a.profile.View()
+	case screenSettings:
+		content = a.settings.View()
 	}
 
 	toastView := a.toast.View()
@@ -621,6 +711,27 @@ func pollPendingPools() tea.Msg {
 	}
 
 	return pendingPollResultMsg{}
+}
+
+func poolNames(statuses map[string]string) []string {
+	var names []string
+	for name, status := range statuses {
+		if status == "active" || status == "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func registries(active string) []string {
+	if active == "" {
+		return nil
+	}
+	cfg, _ := config.Load()
+	if cfg != nil && len(cfg.Registries) > 0 {
+		return cfg.Registries
+	}
+	return []string{active}
 }
 
 func padToHeight(s string, height int) string {

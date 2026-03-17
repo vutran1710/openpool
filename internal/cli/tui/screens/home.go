@@ -16,7 +16,7 @@ func NewHomeScreen() HomeScreen {
 		{Key: "inbox", Label: "Inbox", Desc: "incoming interests"},
 		{Key: "pools", Label: "Pools", Desc: "browse & manage pools"},
 		{Key: "profile", Label: "Profile", Desc: "edit your profile"},
-		{Key: "auth", Label: "Identity", Desc: "keys & registration"},
+		{Key: "settings", Label: "Settings", Desc: "pool, registry, identity"},
 	}
 	return HomeScreen{
 		Menu: components.NewMenu("", items),

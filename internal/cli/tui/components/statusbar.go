@@ -10,6 +10,7 @@ type StatusBar struct {
 	User     string
 	UserHash string
 	Pool     string
+	Registry string
 	Width    int
 	Heart    HeartBeat
 }
@@ -39,9 +40,20 @@ func (s StatusBar) View() string {
 		}
 		infoLines = append(infoLines, userLine)
 	}
+
+	// Row 2: pool + registry
+	var row2Parts []string
 	if s.Pool != "" {
-		infoLines = append(infoLines, theme.DimStyle.Render("◈ ") + theme.GreenStyle.Render(s.Pool))
+		row2Parts = append(row2Parts, theme.DimStyle.Render("◈ ")+theme.GreenStyle.Render(s.Pool))
+	} else {
+		row2Parts = append(row2Parts, theme.DimStyle.Render("◈ no pool"))
 	}
+	if s.Registry != "" {
+		row2Parts = append(row2Parts, theme.DimStyle.Render("⊞ ")+theme.DimStyle.Render(s.Registry))
+	} else {
+		row2Parts = append(row2Parts, theme.DimStyle.Render("⊞ no registry"))
+	}
+	infoLines = append(infoLines, lipgloss.JoinHorizontal(lipgloss.Center, row2Parts[0], "  ", row2Parts[1]))
 
 	rightWidth := s.Width - lipgloss.Width(left) - 6
 	if rightWidth < 10 {
