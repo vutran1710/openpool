@@ -1,4 +1,4 @@
-# TOTP-Style Relay Auth + Cloudflare Tunnel Registration
+# TOTP-Style Relay Auth + Issue-Based Registration
 
 **Status**: Spec
 **Supersedes**: `2026-03-17-relay-jwt-auth-design.md`, `2026-03-17-per-pool-relay-refactor-design.md` (auth sections)
@@ -9,7 +9,7 @@
 
 Replace the relay's challenge/response WebSocket auth and JWT token system with a stateless TOTP-style scheme. The relay verifies a deterministic signature on every WebSocket connect — no login endpoint, no token issuance, no refresh loop.
 
-Registration delivers `bin_hash` + `match_hash` to the CLI via a Cloudflare Tunnel callback from the GitHub Actions registration workflow. The hashes are encrypted to the user's public key, so only the CLI can decrypt them.
+Registration delivers `bin_hash` + `match_hash` to the CLI via an encrypted issue comment from the GitHub Actions registration workflow. The blob is encrypted using NaCl box (operator's private key + user's public key), so only the user's private key can decrypt it. No external dependencies (no tunnel, no cloudflared).
 
 ---
 
@@ -25,41 +25,6 @@ Registration delivers `bin_hash` + `match_hash` to the CLI via a Cloudflare Tunn
 
 ## 1. Registration Flow (One-Time)
 
-### CLI Side
-
-#### Step 1: Start Callback Server + Tunnel
-
-On CLI startup (before any pool join logic):
-
-1. Bind a local HTTP server on a random port (loop-try `30000–40000` until one binds)
-2. Start `cloudflared tunnel --url http://localhost:PORT` — parse public URL from stderr
-3. **Self-verify** before proceeding:
-   - HTTP GET the tunnel URL `/health` through the public internet
-   - Expect `200 OK` with `{"status":"ready"}`
-   - Retry up to 5 times with 1s backoff (tunnel takes ~2s to establish)
-   - If verify fails after retries → abort with error, do not submit join issue
-4. Only after verification passes: the callback server is confirmed reachable
-
-This ensures the Action will always have a live endpoint to deliver to. The join issue is never created unless the tunnel is proven healthy.
-
-#### Step 2: Join Flow
-
-5. CLI submits pool join issue (includes tunnel URL + user's ed25519 public key)
-6. CLI waits for POST callback on `/callback` (max 5 minutes timeout)
-7. On receiving the encrypted blob:
-   - Decrypt with private key
-   - Extract `bin_hash` + `match_hash`
-   - **Persist to local config** (`~/.dating/setting.toml`)
-   - Only after successful persist: reply `200 OK` to the Action
-8. Tunnel + callback server shut down
-
-#### Callback Server Endpoints
-
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/health` | GET | Self-verify: returns `{"status":"ready"}` |
-| `/callback` | POST | Receives encrypted `{bin_hash, match_hash}` from Action |
-
 ### GitHub Actions Side
 
 1. Registration Action triggers on join issue
@@ -67,24 +32,64 @@ This ensures the Action will always have a live endpoint to deliver to. The join
    - `id_hash = sha256(pool_url:provider:user_id)`
    - `bin_hash = sha256(salt:id_hash)[:16]`
    - `match_hash = sha256(salt:bin_hash)[:16]`
-3. Action encrypts `{bin_hash, match_hash}` with user's ed25519 pubkey (NaCl box, ed25519→curve25519)
-4. Action POSTs encrypted blob to CLI's tunnel URL `/callback`
-5. If CLI replies `200 OK`:
-   - Action commits registration to pool repo (pubkey + bin_hash in user index)
-   - Action closes issue as completed
-6. If POST fails (timeout, non-200, tunnel down):
-   - Action closes issue as `not planned`
-   - No registration committed — clean failure, user retries
+3. Action encrypts `{bin_hash, match_hash}` as msgpack, sealed with NaCl box:
+   - Sender: operator's ed25519 private key (from GitHub secrets, converted to curve25519)
+   - Recipient: user's ed25519 public key (from issue body, converted to curve25519)
+4. Action posts encrypted blob as base64 issue comment
+5. Action commits registration to pool repo (pubkey + bin_hash in user index)
+6. Action closes issue as completed
+
+If any step fails → Action closes issue as `not planned`.
+
+### CLI Side (Gatekeeper)
+
+After submitting join issue:
+
+1. CLI polls issue comments every 5s (max 5 minutes)
+2. For each comment by `github-actions[bot]`:
+   - Base64-decode the comment body
+   - Attempt NaCl box open with `user_priv_key` + `operator_pub_key`
+   - `operator_pub_key` is already in pool config (`operator_public_key` field)
+3. On successful decryption:
+   - Msgpack-decode → extract `bin_hash` + `match_hash`
+   - Persist to local config (`~/.dating/setting.toml` under pool entry)
+   - Done ✓
+4. On timeout → "Registration timed out. Check issue status on GitHub."
+
+### Crypto: NaCl Box (Diffie-Hellman)
+
+```
+Encrypt (Action):  nacl_box_seal(plaintext, operator_priv → curve25519, user_pub → curve25519)
+Decrypt (CLI):     nacl_box_open(ciphertext, user_priv → curve25519, operator_pub → curve25519)
+
+Both sides compute the same shared secret:
+  ECDH(operator_priv, user_pub) == ECDH(user_priv, operator_pub)
+```
+
+An attacker who sees the issue comment has:
+- The ciphertext (public)
+- The operator's public key (public)
+- The user's public key (public)
+
+But cannot decrypt without the user's **private** key. The project already uses this construction in `internal/crypto/encrypt.go`.
 
 ### Failure Semantics
 
 | Scenario | Result | User Action |
 |----------|--------|-------------|
-| Tunnel up, CLI persists, Action commits | Registered + hashes delivered | None |
-| Tunnel down before Action runs | Issue closed `not planned` | Retry join |
-| CLI crashes before persist | No 200 → issue closed `not planned` | Retry join |
-| CLI persists, 200 sent, Action fails to commit | CLI has hashes, not registered | Retry join — Action overwrites with same values |
-| Network blip on POST | Issue closed `not planned` | Retry join |
+| Action succeeds, CLI polls + decrypts | Registered + hashes delivered | None |
+| Action fails at any step | Issue closed `not planned` | Retry join |
+| CLI polls but issue closed `not planned` | CLI sees closed status, aborts | Retry join |
+| CLI timeout (Action slow/stuck) | CLI aborts with message | Check issue, retry |
+| CLI decrypts but can't persist | CLI retries persist, then aborts | Fix disk, retry join |
+
+### No External Dependencies
+
+- No tunnel (cloudflared, ngrok, etc.)
+- No port binding
+- No callback server
+- Works behind any firewall/NAT
+- Only needs GitHub API access (which the CLI already has)
 
 ---
 
@@ -239,67 +244,43 @@ match_hash = "def456..."
 | `cmd/relay/main.go` | Remove operator key env vars. Keep `POOL_URL`, `POOL_SALT`. |
 | `internal/relay/relay_e2e_test.go` | Rewrite: no auth handshake, connect with `?bin=&sig=`. Add `MatchHash` to test `UserEntry`. |
 | `internal/cli/relay/client_test.go` | Update for new `Config` shape. Remove token/auth tests. |
-| **New**: `internal/cli/gatekeeper/` | Cloudflare tunnel management, callback server (`/health`, `/callback`), self-verify, hash decryption + persistence. |
+| **New**: `internal/cli/gatekeeper/` | Poll issue comments, decrypt NaCl box blob, persist hashes to config. |
 
 ---
 
-## 8. Registration Callback Protocol
+## 8. Gatekeeper Package
 
-### CLI Callback Server
+`internal/cli/gatekeeper/` — handles registration credential delivery.
 
-```
-POST /callback
-Content-Type: application/octet-stream
-Body: NaCl box encrypted {bin_hash, match_hash} as msgpack
-```
+### Responsibilities
 
-CLI decrypts with its private key, persists to config, replies `200 OK`.
+1. Poll GitHub issue comments for encrypted blob
+2. Decrypt with NaCl box (user_priv + operator_pub)
+3. Decode msgpack → `{bin_hash, match_hash}`
+4. Persist to pool config in `setting.toml`
 
-Any other status → Action treats as failure.
-
-### Tunnel Startup + Self-Verify
+### Interface
 
 ```go
-// 1. Bind random port
-listener, port := tryBindRandom(30000, 40000)
-
-// 2. Start callback server (goroutine)
-srv := &http.Server{Handler: callbackHandler(privKey, persistFn)}
-go srv.Serve(listener)
-
-// 3. Start cloudflared
-cmd := exec.Command("cloudflared", "tunnel", "--url", fmt.Sprintf("http://localhost:%d", port))
-tunnelURL := parseTunnelURL(cmd.Stderr) // blocks until URL printed
-
-// 4. Self-verify: hit tunnel URL through public internet
-verified := false
-for i := 0; i < 5; i++ {
-    resp, err := http.Get(tunnelURL + "/health")
-    if err == nil && resp.StatusCode == 200 {
-        verified = true
-        break
-    }
-    time.Sleep(time.Duration(i+1) * time.Second)
-}
-if !verified {
-    // Abort — do not submit join issue
-    return fmt.Errorf("tunnel not reachable after retries")
+// Result holds the hashes delivered during registration.
+type Result struct {
+    BinHash   string
+    MatchHash string
 }
 
-// 5. Safe to submit join issue with tunnelURL
-```
+// Await polls the join issue for the encrypted hash delivery.
+// Returns when hashes are received and persisted, or on timeout.
+func Await(ctx context.Context, cfg AwaitConfig) (*Result, error)
 
-### Timeout
-
-CLI waits max 5 minutes for the `/callback` POST. If no callback arrives, CLI exits with: "Waiting for registration... if this takes too long, check the issue status on GitHub."
-
-### Dependency: cloudflared
-
-CLI checks for `cloudflared` in PATH before starting. If not found:
-```
-Error: cloudflared not found. Install it:
-  brew install cloudflare/cloudflare/cloudflared
-  # or: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
+type AwaitConfig struct {
+    GitHubClient  *github.Client
+    IssueNumber   int
+    PoolRepo      string          // "owner/repo"
+    UserPrivKey   ed25519.PrivateKey
+    OperatorPub   ed25519.PublicKey
+    PollInterval  time.Duration   // default 5s
+    Timeout       time.Duration   // default 5min
+}
 ```
 
 ---
