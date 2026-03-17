@@ -27,16 +27,38 @@ Registration delivers `bin_hash` + `match_hash` to the CLI via a Cloudflare Tunn
 
 ### CLI Side
 
-1. CLI starts a local HTTP server on a random port (loop-try until one binds)
-2. CLI starts `cloudflared tunnel --url http://localhost:PORT` — captures the public URL from stdout
-3. CLI submits pool join issue (includes tunnel URL + user's ed25519 public key)
-4. CLI waits for POST callback on `/callback`
-5. On receiving the encrypted blob:
+#### Step 1: Start Callback Server + Tunnel
+
+On CLI startup (before any pool join logic):
+
+1. Bind a local HTTP server on a random port (loop-try `30000–40000` until one binds)
+2. Start `cloudflared tunnel --url http://localhost:PORT` — parse public URL from stderr
+3. **Self-verify** before proceeding:
+   - HTTP GET the tunnel URL `/health` through the public internet
+   - Expect `200 OK` with `{"status":"ready"}`
+   - Retry up to 5 times with 1s backoff (tunnel takes ~2s to establish)
+   - If verify fails after retries → abort with error, do not submit join issue
+4. Only after verification passes: the callback server is confirmed reachable
+
+This ensures the Action will always have a live endpoint to deliver to. The join issue is never created unless the tunnel is proven healthy.
+
+#### Step 2: Join Flow
+
+5. CLI submits pool join issue (includes tunnel URL + user's ed25519 public key)
+6. CLI waits for POST callback on `/callback` (max 5 minutes timeout)
+7. On receiving the encrypted blob:
    - Decrypt with private key
    - Extract `bin_hash` + `match_hash`
    - **Persist to local config** (`~/.dating/setting.toml`)
    - Only after successful persist: reply `200 OK` to the Action
-6. Tunnel shuts down
+8. Tunnel + callback server shut down
+
+#### Callback Server Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/health` | GET | Self-verify: returns `{"status":"ready"}` |
+| `/callback` | POST | Receives encrypted `{bin_hash, match_hash}` from Action |
 
 ### GitHub Actions Side
 
@@ -235,21 +257,50 @@ CLI decrypts with its private key, persists to config, replies `200 OK`.
 
 Any other status → Action treats as failure.
 
-### Tunnel Startup
+### Tunnel Startup + Self-Verify
 
 ```go
-// Try random ports until one binds
-listener, port := tryBindRandom(minPort=30000, maxPort=40000)
+// 1. Bind random port
+listener, port := tryBindRandom(30000, 40000)
 
-// Start cloudflared
+// 2. Start callback server (goroutine)
+srv := &http.Server{Handler: callbackHandler(privKey, persistFn)}
+go srv.Serve(listener)
+
+// 3. Start cloudflared
 cmd := exec.Command("cloudflared", "tunnel", "--url", fmt.Sprintf("http://localhost:%d", port))
-// Parse tunnel URL from stderr (cloudflared prints it there)
-tunnelURL := parseTunnelURL(cmd.Stderr)
+tunnelURL := parseTunnelURL(cmd.Stderr) // blocks until URL printed
+
+// 4. Self-verify: hit tunnel URL through public internet
+verified := false
+for i := 0; i < 5; i++ {
+    resp, err := http.Get(tunnelURL + "/health")
+    if err == nil && resp.StatusCode == 200 {
+        verified = true
+        break
+    }
+    time.Sleep(time.Duration(i+1) * time.Second)
+}
+if !verified {
+    // Abort — do not submit join issue
+    return fmt.Errorf("tunnel not reachable after retries")
+}
+
+// 5. Safe to submit join issue with tunnelURL
 ```
 
 ### Timeout
 
-CLI waits max 5 minutes for the callback. If no callback arrives (Action hasn't run yet), CLI exits with a message: "Waiting for registration... if this takes too long, check the issue status on GitHub."
+CLI waits max 5 minutes for the `/callback` POST. If no callback arrives, CLI exits with: "Waiting for registration... if this takes too long, check the issue status on GitHub."
+
+### Dependency: cloudflared
+
+CLI checks for `cloudflared` in PATH before starting. If not found:
+```
+Error: cloudflared not found. Install it:
+  brew install cloudflare/cloudflare/cloudflared
+  # or: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
+```
 
 ---
 
