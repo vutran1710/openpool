@@ -245,10 +245,105 @@ match_hash = "def456..."
 | `internal/relay/relay_e2e_test.go` | Rewrite: no auth handshake, connect with `?bin=&sig=`. Add `MatchHash` to test `UserEntry`. |
 | `internal/cli/relay/client_test.go` | Update for new `Config` shape. Remove token/auth tests. |
 | **New**: `internal/cli/gatekeeper/` | Poll issue comments, decrypt NaCl box blob, persist hashes to config. |
+| **New**: `cmd/regcrypt/` | Standalone CLI tool for GitHub Actions — computes hashes, NaCl box encrypts, outputs base64. |
+| `.github/workflows/register.yml` | Update to compute id_hash→bin_hash→match_hash, call `regcrypt`, post encrypted comment. |
+| `dating-test-pool/.github/workflows/register.yml` | Same changes as above (pool repo copy). |
 
 ---
 
-## 8. Gatekeeper Package
+## 8. GitHub Actions: Registration Workflow Changes
+
+### Current Flow
+1. Extract blob from issue body
+2. Compute hash for filename: `sha256(salt:repo:github:author_id)[:16]`
+3. Write `.bin` file, commit, close issue
+
+### New Flow
+1. Extract blob + pubkey from issue body
+2. Build `cmd/regcrypt` tool (Go, same crypto as the rest of the project)
+3. Run `regcrypt` with inputs → outputs base64 encrypted blob
+4. Post encrypted blob as issue comment
+5. Write `.bin` file (with bin_hash filename), commit, close issue
+
+### `cmd/regcrypt/` Tool
+
+Standalone Go CLI used by GitHub Actions. Keeps all crypto in Go — same NaCl box implementation as `internal/crypto/encrypt.go`.
+
+```
+Usage: regcrypt \
+  --pool-url <owner/repo> \
+  --provider <github> \
+  --user-id <issue_author_id> \
+  --salt <pool_salt> \
+  --user-pubkey <hex_ed25519_pubkey> \
+  --operator-privkey <hex_ed25519_privkey>
+
+Output (stdout):
+  Line 1: bin_hash (16 hex chars)
+  Line 2: base64 NaCl box encrypted {bin_hash, match_hash}
+```
+
+The Action captures both lines:
+- `bin_hash` → used for `.bin` filename
+- Encrypted blob → posted as issue comment
+
+### Updated Workflow
+
+```yaml
+- name: Build regcrypt
+  run: go build -o regcrypt ./cmd/regcrypt
+
+- name: Compute and encrypt hashes
+  env:
+    POOL_SALT: ${{ secrets.POOL_SALT }}
+    OPERATOR_PRIVKEY: ${{ secrets.OPERATOR_PRIVKEY }}
+  run: |
+    # Extract pubkey from issue body
+    PUB_KEY=$(echo "$ISSUE_BODY" | ...)
+
+    # regcrypt computes id_hash → bin_hash → match_hash,
+    # encrypts {bin_hash, match_hash} with NaCl box
+    OUTPUT=$(./regcrypt \
+      --pool-url "${{ github.repository }}" \
+      --provider "github" \
+      --user-id "$ISSUE_AUTHOR_ID" \
+      --salt "$POOL_SALT" \
+      --user-pubkey "$PUB_KEY" \
+      --operator-privkey "$OPERATOR_PRIVKEY")
+
+    BIN_HASH=$(echo "$OUTPUT" | head -1)
+    ENCRYPTED_BLOB=$(echo "$OUTPUT" | tail -1)
+
+    echo "BIN_HASH=$BIN_HASH" >> $GITHUB_ENV
+    echo "ENCRYPTED_BLOB=$ENCRYPTED_BLOB" >> $GITHUB_ENV
+
+- name: Post encrypted hashes as comment
+  run: |
+    gh issue comment "$ISSUE_NUMBER" --body "$ENCRYPTED_BLOB"
+
+- name: Commit registration
+  run: |
+    # Write .bin file, commit, push (same as before but with BIN_HASH)
+    echo "$BLOB_HEX" | xxd -r -p > "users/${BIN_HASH}.bin"
+    git add "users/${BIN_HASH}.bin"
+    git commit -m "Register user ${BIN_HASH}"
+    git push
+```
+
+### Action Secrets Required
+
+| Secret | Purpose |
+|--------|---------|
+| `POOL_SALT` | Derives bin_hash and match_hash (already exists) |
+| `OPERATOR_PRIVKEY` | NaCl box encryption — sender's private key (**new**) |
+
+### Failure Handling
+
+If `regcrypt` fails, or the comment post fails, or the commit fails → close issue as `not planned`. The Action already has this pattern. `regcrypt` exits non-zero on any crypto error, which triggers `set -euo pipefail`.
+
+---
+
+## 9. Gatekeeper Package (CLI)
 
 `internal/cli/gatekeeper/` — handles registration credential delivery.
 
