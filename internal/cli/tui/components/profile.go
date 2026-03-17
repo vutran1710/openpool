@@ -129,7 +129,7 @@ func renderNormal(p gh.DatingProfile, width int) string {
 	}
 
 	if p.About != "" {
-		lines := wordWrap(p.About, inner)
+		lines := WordWrap(p.About, inner)
 		sections = append(sections, theme.DimStyle.Render("About")+"\n"+theme.TextStyle.Render(strings.Join(lines, "\n")))
 	}
 
@@ -238,7 +238,9 @@ func truncate(s string, max int) string {
 	return s[:max-3] + "..."
 }
 
-func wordWrap(s string, width int) []string {
+// WordWrap wraps text to the given width, preserving newlines.
+// Force-breaks words longer than width.
+func WordWrap(s string, width int) []string {
 	if width <= 0 {
 		return []string{s}
 	}
@@ -251,6 +253,18 @@ func wordWrap(s string, width int) []string {
 		words := strings.Fields(paragraph)
 		line := ""
 		for _, w := range words {
+			// Force-break words longer than width
+			for len(w) > width {
+				if line != "" {
+					result = append(result, line)
+					line = ""
+				}
+				result = append(result, w[:width])
+				w = w[width:]
+			}
+			if w == "" {
+				continue
+			}
 			if line == "" {
 				line = w
 			} else if len(line)+1+len(w) <= width {

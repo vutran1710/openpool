@@ -188,20 +188,20 @@ func TestTruncate(t *testing.T) {
 }
 
 func TestWordWrap(t *testing.T) {
-	lines := wordWrap("hello world foo bar baz", 12)
+	lines := WordWrap("hello world foo bar baz", 12)
 	if len(lines) < 2 {
 		t.Errorf("expected wrapping, got %d lines", len(lines))
 	}
 
 	// Preserves newlines
-	lines = wordWrap("line1\n\nline3", 40)
+	lines = WordWrap("line1\n\nline3", 40)
 	if len(lines) != 3 {
 		t.Errorf("expected 3 lines (with blank), got %d", len(lines))
 	}
 }
 
 func TestWordWrap_ZeroWidth(t *testing.T) {
-	lines := wordWrap("hello", 0)
+	lines := WordWrap("hello", 0)
 	if len(lines) != 1 || lines[0] != "hello" {
 		t.Error("zero width should return original")
 	}

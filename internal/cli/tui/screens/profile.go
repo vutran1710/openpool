@@ -161,10 +161,10 @@ func (s *ProfileScreen) startEdit() {
 
 	// Init about textarea
 	ta := textarea.New()
-	ta.Placeholder = "Tell people about yourself (500 chars max)"
-	ta.CharLimit = 500
-	ta.SetWidth(50)
-	ta.SetHeight(5)
+	ta.Placeholder = "Tell people about yourself (1000 chars max)"
+	ta.CharLimit = 1000
+	ta.SetWidth(60)
+	ta.SetHeight(12)
 	if s.profile.About != "" {
 		ta.SetValue(s.profile.About)
 	}
@@ -457,7 +457,7 @@ func (s ProfileScreen) editView() string {
 
 	case editAbout:
 		content = theme.BoldStyle.Render("About You") + "\n" +
-			theme.DimStyle.Render("500 chars max. Ctrl+D when done.") + "\n\n" +
+			theme.DimStyle.Render("1000 chars max. Ctrl+D when done.") + "\n\n" +
 			s.aboutInput.View()
 
 	case editConfirm:
