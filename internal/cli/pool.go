@@ -363,7 +363,7 @@ Prerequisites:
 				if err := cfg.Save(); err != nil {
 					return err
 				}
-				printDim("  Skipping poll (--no-wait). Run pool join again to retrieve hashes.")
+				printDim("  Skipping poll (--no-wait). Run: dating pool list — it will auto-check for hashes.")
 				return nil
 			}
 
@@ -464,15 +464,40 @@ func newPoolListCmd() *cobra.Command {
 				return nil
 			}
 
+			// Try to load keys for hash polling (best-effort)
+			_, priv, keyErr := crypto.LoadKeyPair(config.KeysDir())
+
 			updated := false
 			fmt.Println()
 			for i, p := range cfg.Pools {
 				if p.Status == gh.PoolStatusPending {
-					pool := gh.NewPool(p.Repo, "")
-					if pool.IsUserRegistered(ctx, cfg.User.IDHash) {
-						cfg.Pools[i].Status = gh.PoolStatusActive
-						updated = true
-						p.Status = gh.PoolStatusActive
+					// Try polling for encrypted hashes if we have a pending issue
+					if p.PendingIssue > 0 && p.BinHash == "" && keyErr == nil {
+						ghToken, tokenErr := resolveGitHubTokenNonInteractive()
+						if tokenErr == nil {
+							poolGH := gh.NewPool(p.Repo, ghToken)
+							pollCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+							binHash, matchHash, pollErr := poolGH.PollRegistrationResult(pollCtx, p.PendingIssue, priv)
+							cancel()
+							if pollErr == nil {
+								cfg.Pools[i].BinHash = binHash
+								cfg.Pools[i].MatchHash = matchHash
+								cfg.Pools[i].Status = gh.PoolStatusActive
+								updated = true
+								p = cfg.Pools[i]
+								printSuccess(fmt.Sprintf("  %s: hashes received!", p.Name))
+							}
+						}
+					}
+
+					// Fallback: check if .bin file exists (old flow)
+					if p.Status == gh.PoolStatusPending {
+						pool := gh.NewPool(p.Repo, "")
+						if pool.IsUserRegistered(ctx, cfg.User.IDHash) {
+							cfg.Pools[i].Status = gh.PoolStatusActive
+							updated = true
+							p = cfg.Pools[i]
+						}
 					}
 				}
 
