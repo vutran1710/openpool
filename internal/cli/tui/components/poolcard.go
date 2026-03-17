@@ -136,7 +136,7 @@ func renderCardAction(p PoolCardData) string {
 	var line string
 	switch p.Status {
 	case "active":
-		line = theme.GreenStyle.Render("You are a member of this pool")
+		line = theme.GreenStyle.Render("✓ Member") + theme.DimStyle.Render("  ·  Press enter to activate")
 	case "pending":
 		line = theme.AmberStyle.Render("Registration pending — waiting for pool to process")
 	case "rejected":
