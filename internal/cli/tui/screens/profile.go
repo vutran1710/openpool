@@ -141,6 +141,7 @@ func (s ProfileScreen) Update(msg tea.Msg) (ProfileScreen, tea.Cmd) {
 }
 
 func (s *ProfileScreen) startEdit() {
+	dbg.Log("profile: entering edit mode")
 	s.editing = true
 	s.editStep = editInterests
 
@@ -237,24 +238,7 @@ func (s ProfileScreen) updateEdit(msg tea.Msg) (ProfileScreen, tea.Cmd) {
 			}
 			var cmd tea.Cmd
 			s.intentCheckbox, cmd = s.intentCheckbox.Update(msg)
-			if cmd != nil {
-				// Check if checkbox submitted
-				return s, func() tea.Msg {
-					result := cmd()
-					if submit, ok := result.(components.CheckboxSubmitMsg); ok {
-						var intents []gh.Intent
-						for _, item := range submit.Selected {
-							if item.Checked {
-								intents = append(intents, item.Label)
-							}
-						}
-						s.editProfile.Intent = intents
-						return profileEditAdvanceMsg{}
-					}
-					return result
-				}
-			}
-			return s, nil
+			return s, cmd
 
 		case editGenderTarget:
 			switch msg.String() {
@@ -264,23 +248,7 @@ func (s ProfileScreen) updateEdit(msg tea.Msg) (ProfileScreen, tea.Cmd) {
 			}
 			var cmd tea.Cmd
 			s.genderCheckbox, cmd = s.genderCheckbox.Update(msg)
-			if cmd != nil {
-				return s, func() tea.Msg {
-					result := cmd()
-					if submit, ok := result.(components.CheckboxSubmitMsg); ok {
-						var targets []gh.GenderTarget
-						for _, item := range submit.Selected {
-							if item.Checked {
-								targets = append(targets, item.Label)
-							}
-						}
-						s.editProfile.GenderTarget = targets
-						return profileEditAdvanceMsg{}
-					}
-					return result
-				}
-			}
-			return s, nil
+			return s, cmd
 
 		case editAbout:
 			switch msg.String() {
@@ -299,25 +267,35 @@ func (s ProfileScreen) updateEdit(msg tea.Msg) (ProfileScreen, tea.Cmd) {
 		case editConfirm:
 			switch msg.String() {
 			case "enter", "y":
-				// Save locally
+				dbg.Log("profile: saving edited profile")
 				s.profile = s.editProfile
 				s.editing = false
 				s.cacheWidth = 0 // force rebuild
 				s.updateContent()
 				// Save to disk
-				profileJSON, _ := json.Marshal(s.profile)
+				profileJSON, err := json.Marshal(s.profile)
+				if err != nil {
+					dbg.Log("profile: marshal error: %v", err)
+					return s, nil
+				}
 				os.MkdirAll(config.Dir(), 0700)
-				os.WriteFile(config.ProfilePath(), profileJSON, 0600)
+				if err := os.WriteFile(config.ProfilePath(), profileJSON, 0600); err != nil {
+					dbg.Log("profile: write error: %v", err)
+				}
+				dbg.Log("profile: saved to %s", config.ProfilePath())
 				// Also save to active pool profile
 				cfg, _ := config.Load()
 				if cfg != nil && cfg.Active != "" {
-					poolDir := config.PoolProfilePath(cfg.Active)
-					os.MkdirAll(poolDir[:strings.LastIndex(poolDir, "/")], 0700)
-					os.WriteFile(poolDir, profileJSON, 0600)
+					poolPath := config.PoolProfilePath(cfg.Active)
+					dir := poolPath[:strings.LastIndex(poolPath, "/")]
+					os.MkdirAll(dir, 0700)
+					os.WriteFile(poolPath, profileJSON, 0600)
+					dbg.Log("profile: saved pool profile to %s", poolPath)
 				}
 				// Emit update message for app.go to submit to pool
+				profile := s.profile
 				return s, func() tea.Msg {
-					return ProfileUpdateMsg{Profile: s.profile}
+					return ProfileUpdateMsg{Profile: profile}
 				}
 			case "esc", "n":
 				s.editing = false
@@ -336,6 +314,7 @@ func (s ProfileScreen) updateEdit(msg tea.Msg) (ProfileScreen, tea.Cmd) {
 		return s, nil
 
 	case components.CheckboxSubmitMsg:
+		dbg.Log("profile: checkbox submit at step %d, %d selected", s.editStep, len(msg.Selected))
 		switch s.editStep {
 		case editIntent:
 			var intents []gh.Intent
@@ -345,6 +324,7 @@ func (s ProfileScreen) updateEdit(msg tea.Msg) (ProfileScreen, tea.Cmd) {
 				}
 			}
 			s.editProfile.Intent = intents
+			dbg.Log("profile: intent set to %v", intents)
 			s.editStep = editGenderTarget
 			return s, nil
 		case editGenderTarget:
@@ -355,6 +335,7 @@ func (s ProfileScreen) updateEdit(msg tea.Msg) (ProfileScreen, tea.Cmd) {
 				}
 			}
 			s.editProfile.GenderTarget = targets
+			dbg.Log("profile: gender target set to %v", targets)
 			s.editStep = editAbout
 			s.aboutInput.Focus()
 			return s, nil

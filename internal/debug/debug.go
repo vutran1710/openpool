@@ -18,10 +18,29 @@ var (
 type logger struct {
 	mu      sync.Mutex
 	entries []string
+	file    *os.File
 }
 
 func init() {
 	log.entries = make([]string, 0, 100)
+	if Enabled {
+		home := os.Getenv("DATING_HOME")
+		if home == "" {
+			home = os.ExpandEnv("$HOME/.dating")
+		}
+		os.MkdirAll(home, 0700)
+		f, err := os.OpenFile(home+"/debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		if err == nil {
+			log.file = f
+		}
+	}
+}
+
+// Close flushes and closes the log file.
+func Close() {
+	if log.file != nil {
+		log.file.Close()
+	}
 }
 
 // Log records a debug message with timestamp.
@@ -37,6 +56,9 @@ func Log(format string, args ...any) {
 	log.entries = append(log.entries, msg)
 	if len(log.entries) > 100 {
 		log.entries = log.entries[len(log.entries)-100:]
+	}
+	if log.file != nil {
+		log.file.WriteString(msg + "\n")
 	}
 }
 
