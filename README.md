@@ -2,6 +2,14 @@
 
 Decentralized, terminal-native dating. GitHub repos as the database, encrypted profiles, and the command line.
 
+## Philosophy
+
+- **GitHub is the database** — pools are repos, registration is an issue, matches are merged PRs
+- **No central server owns your data** — your profile is encrypted, only the pool operator can decrypt it
+- **Terminal-first** — TUI for everyday use, CLI flags for automation
+- **Single key pair** — one ed25519 keypair handles signing, encryption (via curve25519), and identity
+- **Zero trust relay** — relay routes messages but can't read them (E2E encrypted)
+
 ## Architecture
 
 ```
@@ -15,40 +23,39 @@ Decentralized, terminal-native dating. GitHub repos as the database, encrypted p
 │          │              ▲
 │          │──────▶┌──────┴───────────┐
 │          │       │  Relay Server    │
-└──────────┘       │  WS + Discovery  │
+└──────────┘       │  (per-pool)      │
                    └──────────────────┘
 ```
 
-- **Pools** are GitHub repos — like Discord servers, but decentralized
-- **Profiles** are encrypted to the operator — only the relay can decrypt and serve them
-- **Registration** via GitHub Issues — a GitHub Action commits the `.bin` file
-- **Discovery** via relay — relay picks a random profile, re-encrypts it for you
-- **Likes** are Pull Requests — matches are merged PRs
-- **Relay** handles real-time chat (WebSocket) and profile discovery (HTTP)
-- **CLI** is the only user interface — TUI for non-tech, commands for power users
-- **Auth** via GitHub/Google OAuth — each pool brings its own OAuth app
+- **Pools** — GitHub repos, like Discord servers but decentralized
+- **Profiles** — encrypted to the operator's pubkey, stored as `.bin` files
+- **Registration** — GitHub Issue → Action computes hashes, posts encrypted reply, commits `.bin`
+- **Relay** — per-pool WebSocket server. TOTP auth, E2E encrypted chat, profile discovery
+- **CLI** — the only user interface. TUI for interactive use, flags for scripting
 
 ## Install
 
 ```bash
-curl -sSL https://dating.dev/install.sh | sh
-```
-
-Or build from source:
-
-```bash
+# From source
 git clone https://github.com/vutran1710/dating-dev
 cd dating-dev
-make build    # builds bin/dating + bin/relay
+make build    # builds bin/dating + bin/relay + bin/regcrypt
 ```
 
 ## Quick Start
 
 ```bash
-# Join a pool (OAuth → keys → profile → registration issue)
+# Set up registry
+dating registry add owner/dating-registry
+
+# Create a profile for a pool
+dating profile create berlin-singles
+# Edit ~/.dating/pools/berlin-singles/profile.json with your editor
+
+# Join the pool (submits registration, polls for hashes)
 dating pool join berlin-singles
 
-# Discover profiles (fetched and decrypted via relay)
+# Discover profiles
 dating fetch
 
 # Like someone
@@ -57,186 +64,197 @@ dating like abc123def
 # Check inbox
 dating inbox
 
-# Accept a match
-dating accept 14
-
-# Chat
+# Chat with a match (E2E encrypted)
 dating chat abc123def
 ```
 
 ## CLI Commands
 
 ```
-dating pool browse              Browse available pools
-dating pool join <name>         Join a pool (OAuth → keys → profile → issue)
-dating pool create <name>       Create and register a new pool
-dating pool list                List joined pools
-dating pool switch <name>       Set active pool
-dating pool leave <name>        Leave a pool
+Profile
+  dating profile create <pool>   Create local profile for a pool
+  dating profile edit <pool>     Show profile path for editing
+  dating profile show <pool>     Display profile in terminal
 
-dating fetch                    Discover profiles (via relay, decrypted)
-dating view <hash>              View a user's encrypted blob size
-dating like <hash>              Express interest (creates PR)
-dating inbox                    View incoming interests
-dating accept <pr>              Accept interest (merges PR = match)
+Pools
+  dating pool browse             Browse available pools from registry
+  dating pool join <name>        Submit registration (reads profile, polls for hashes)
+    --profile <path>               Use custom profile JSON
+    --no-wait                      Submit without polling for hashes
+  dating pool list               List joined pools (auto-checks pending registrations)
+  dating pool switch <name>      Set active pool
+  dating pool leave <name>       Leave a pool
 
-dating chat <hash>              Chat with a match
-dating commit propose <hash>    Propose a relationship (PR to relationships/)
-dating commit proposals         View incoming proposals
-dating commit accept <pr>       Accept proposal
-dating commit status            Check relationship status
+Discovery & Matching
+  dating fetch                   Discover profiles (via relay)
+  dating like <hash>             Express interest (creates issue)
+  dating inbox                   View incoming interests
+  dating accept <pr>             Accept interest (match)
 
-dating profile edit             Edit and publish profile
-dating profile show             Show your profile (decrypted locally)
-dating auth whoami              Show current identity
+Chat
+  dating chat <hash>             Chat with a match (E2E encrypted via relay)
+
+Relationships
+  dating commit propose <hash>   Propose a relationship
+  dating commit proposals        View incoming proposals
+  dating commit accept <pr>      Accept proposal
+
+Auth
+  dating auth whoami             Show current identity
 ```
 
 ## How It Works
 
+### Hash Derivation
+
+Three hashes derived from a user's identity, each adding a layer of privacy:
+
+| Hash | Derivation | Purpose |
+|------|-----------|---------|
+| `id_hash` | `sha256(pool_url:provider:user_id)` — 64 hex | Public identity for registration |
+| `bin_hash` | `sha256(salt:id_hash)[:16]` — 16 hex | Relay routing key, `.bin` filename |
+| `match_hash` | `sha256(salt:bin_hash)[:16]` — 16 hex | TOTP auth shared secret |
+
+The salt is a pool secret (GitHub Actions secret). Without it, you can't derive `bin_hash` from `id_hash`.
+
 ### Registration
 
-1. CLI authenticates via OAuth (GitHub/Google)
-2. CLI generates ed25519 keypair locally
-3. CLI encrypts profile to **operator's pubkey** (NaCl box)
-4. CLI creates a GitHub Issue with the encrypted blob + pubkey
-5. GitHub Action commits `users/{hash}.bin` and closes the issue
-6. No fork, no PR, no shared PAT — user just needs a GitHub account to open an issue
+1. User creates profile locally: `dating profile create <pool>`
+2. User submits: `dating pool join <pool>` → creates GitHub Issue with encrypted profile blob
+3. GitHub Action runs `regcrypt` → computes `id_hash` → `bin_hash` → `match_hash`
+4. Action encrypts `{bin_hash, match_hash}` to user's pubkey (ephemeral NaCl box)
+5. Action posts encrypted blob as issue comment
+6. Action commits `users/{bin_hash}.bin` to pool repo, closes issue
+7. CLI polls issue comments, decrypts, persists hashes to local config
 
-### Discovery
+### Relay Auth (TOTP)
 
-1. CLI sends signed request to relay's `POST /discover`
-2. Relay picks a random `.bin` from the pool repo via GitHub API
-3. Relay decrypts profile with operator private key
-4. Relay re-encrypts profile to the requester's pubkey
-5. CLI decrypts and displays the profile
+No login endpoint. No JWT. No tokens. Stateless.
 
-Users can only see profiles the relay gives them — cloning the repo yields only opaque encrypted blobs.
+```
+time_window = floor(unix_timestamp / 300)
+message     = sha256(bin_hash + match_hash + time_window)
+sig         = ed25519.Sign(priv_key, message)
 
-### Matching & Chat
+ws://relay/ws?bin=<bin_hash>&sig=<hex(sig)>
+```
 
-1. `dating like <hash>` creates a PR (like = open PR, match = merged PR)
-2. `dating accept <pr>` merges the PR
-3. `dating chat <hash>` connects via WebSocket relay (authenticated by nonce challenge)
+Relay verifies inline at WebSocket upgrade — checks ±1 time window for clock drift.
+
+### E2E Encrypted Chat
+
+Messages are encrypted with NaCl secretbox using a conversation key derived via:
+1. ECDH shared secret (ed25519→curve25519 conversion)
+2. HKDF key derivation with pool context
+
+The relay routes ciphertext — it cannot read message content.
+
+## Binaries
+
+| Binary | Purpose |
+|--------|---------|
+| `dating` | CLI app (`cmd/dating/`) |
+| `relay` | Per-pool WebSocket relay server (`cmd/relay/`) |
+| `regcrypt` | Registration hash computation for GitHub Actions (`cmd/regcrypt/`) |
 
 ## Pool Structure
 
 ```
 pool-repo/
   pool.json                    Pool metadata + operator public key
-  users/{hash}.bin             [32B ed25519 pubkey][profile encrypted to operator]
-  matches/{pair_hash}/         Matched pairs (.bin files)
-  relationships/{pair_hash}/   Committed pairs (.bin + meta.json)
+  users/{bin_hash}.bin         [32B ed25519 pubkey][profile encrypted to operator]
+  matches/{pair_hash}/         Matched pairs
+  relationships/{pair_hash}/   Committed relationships
+  .github/workflows/
+    register.yml               Registration Action (uses regcrypt)
 ```
+
+Template Action: `templates/actions/pool-register.yml`
 
 ## Security
 
 | Layer | Mechanism |
 |-------|-----------|
 | Identity | ed25519 key pairs, generated locally |
-| Signing | ed25519 signatures (native) |
-| Encryption | NaCl box (Curve25519 + XSalsa20-Poly1305) with ed25519→curve25519 conversion |
-| User hash | `SHA256(pool_salt:pool_repo:github:user_id)` — computed by Action, salt is secret |
-| Profile data | Encrypted to **operator pubkey** — only relay decrypts |
-| Discovery | Relay re-encrypts per-request — users can't browse the whole DB |
-| Registration | GitHub Issue → Action commits (no identity in issue body) |
-| Relay auth | Pubkey extracted from `.bin`, nonce challenge-response |
-| Token storage | GitHub PAT encrypted with user's ed25519 pubkey, stored locally |
+| Signing | ed25519 signatures |
+| Encryption | NaCl box (Curve25519 + XSalsa20-Poly1305) with ed25519→curve25519 |
+| Hash derivation | `id_hash` → `bin_hash` → `match_hash` (salt-protected) |
+| Profile data | Encrypted to operator pubkey — only relay decrypts |
+| Relay auth | TOTP: `ed25519.Sign(sha256(bin_hash + match_hash + time_window))` |
+| Chat | E2E encrypted (NaCl secretbox, ECDH-derived key) |
+| Registration | Ephemeral NaCl box encrypted hash delivery via issue comment |
 | Anti-spam | GitHub account required (issue rate limits) |
 
 ### Cryptography
 
-All cryptographic operations use a single **ed25519 key pair** per user:
+Single **ed25519 key pair** per user:
 
-- **Encryption**: NaCl box with automatic ed25519 → curve25519 key conversion
-  - Public key: Edwards→Montgomery point conversion (`filippo.io/edwards25519`)
-  - Private key: SHA-512 seed derivation with clamping (RFC 8032)
-  - Same approach as libsodium, Signal Protocol, and other established systems
-- **Signing**: ed25519 (RFC 8032) — used only for relay WebSocket authentication
-- **Wire format**: `[32B ephemeral curve25519 pubkey][24B nonce][ciphertext + Poly1305 tag]`
+- **Encryption**: NaCl box with ed25519→curve25519 conversion
+- **Signing**: ed25519 (TOTP auth, identity proof)
+- **Key exchange**: ECDH via curve25519 (chat keys)
+- **Wire format**: `[32B ephemeral pubkey][24B nonce][ciphertext + Poly1305 tag]`
 - **`.bin` format**: `[32B ed25519 pubkey][encrypted profile]`
 
-### Authentication Model
+## Environment Variables
 
-| Operation | Auth Method | Why |
-|-----------|-----------|-----|
-| Registration (issue) | GitHub token | GitHub authenticates the user; Action derives identity from issue author |
-| Likes, proposals (PRs) | GitHub token | GitHub authenticates who created the PR |
-| Relay WebSocket | ed25519 signature | Nonce challenge-response proves private key ownership without exposing tokens |
-| Profile discovery | Relay auth | Already authenticated via WebSocket before requesting profiles |
-
-The pubkey is embedded in the `.bin` file (first 32 bytes). The relay reads it from the file and challenges the user to sign a nonce — proving they own the corresponding private key. No pubkey is sent separately in registration payloads.
-
-### Environment Variables
-
-#### CLI
+### CLI
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATING_HOME` | `~/.dating` | Local data directory (config, keys, profiles, repos) |
-| `DEBUG` | off | Set to `1` or `true` to show debug logs in TUI status bar |
+| `DATING_HOME` | `~/.dating` | Local data directory |
+| `DEBUG` | off | `1` for debug logs in TUI |
 
-#### Relay
+### Relay
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `OPERATOR_PRIVATE_KEY` | Yes | Hex-encoded ed25519 private key for profile decryption + re-encryption |
-| `POOL_SALT` | Yes | Secret salt for hash_id computation: `SHA256(salt:pool_url:provider:user_id)[:16]` |
-| `POOL_TOKEN` | Yes | GitHub PAT for pool repo API access (avoids 60 req/hr anonymous limit) |
-| `POOL_REPOS` | Yes | Comma-separated pool repo URLs to sync (e.g. `owner/pool-a,owner/pool-b`) |
+| `POOL_URL` | Yes | Pool repo (e.g. `owner/pool-name`) |
+| `POOL_SALT` | Yes | Secret salt for hash derivation |
 | `PORT` | No | Server port (default: `8081`) |
-| `TOKEN_TTL` | No | Auth token lifetime in seconds (default: `900` = 15 min) |
-| `SYNC_INTERVAL` | No | Repo sync interval (default: `2m`) |
 
-### Local Data
-
-All local data is stored under `$DATING_HOME` (default `~/.dating/`):
+## Local Data
 
 ```
 ~/.dating/
-├── setting.toml              # Config: user identity, pools, registries, encrypted token
-├── profile.json              # Complete profile (all sources merged)
+├── setting.toml              Config: user identity, pools, registries
 ├── keys/
-│   ├── identity.pub          # ed25519 public key (hex)
-│   └── identity.key          # ed25519 private key (hex, 0600 perms)
+│   ├── identity.pub          ed25519 public key (hex)
+│   └── identity.key          ed25519 private key (hex, 0600)
 ├── pools/{name}/
-│   └── profile.json          # Per-pool profile (filtered fields)
-├── repos/                    # Shallow git clones (cache, deletable)
-└── archive/                  # Backups from `dating reset`
+│   └── profile.json          Per-pool profile
+└── repos/                    Git clones (cache)
 ```
 
 ## Development
 
 ```bash
-make build    # builds bin/dating + bin/relay
-make cli      # builds bin/dating only
-make test     # runs tests with isolated DATING_HOME (temp dir)
-make coverage # test coverage report
+make build    # bin/dating + bin/relay
+make test     # tests with isolated DATING_HOME
+make coverage # coverage report
 make lint     # golangci-lint
 ```
-
-Tests use `DATING_HOME` set to a temp directory — they never touch real config.
 
 ## Project Structure
 
 ```
-cmd/dating/         CLI entry point
-cmd/relay/          WebSocket relay server
+cmd/
+  dating/           CLI entry point
+  relay/            WebSocket relay server
+  regcrypt/         Registration hash tool for GitHub Actions
 internal/
-  cli/              CLI commands, TUI screens, services
-  cli/svc/          Service interfaces (Config, Crypto, Git, GitHub, Profile, Persistence, Polling)
-  cli/tui/          Bubbletea TUI (app, screens, components, theme)
-  cli/config/       Config file management (setting.toml)
-  relay/            Relay server (auth, hub, client, protocol, discovery)
-  crypto/           ed25519 keys, NaCl box encryption, signing
-  github/           GitHub API client, pool, registry, profile, templates
-  gitrepo/          Local git clone management, raw content fetcher
-  debug/            Debug logger (DEBUG=1)
-web/                Next.js documentation site
+  cli/              CLI commands + TUI app
+  cli/svc/          Service interfaces (DI layer)
+  cli/tui/          Bubbletea screens, components, theme
+  cli/config/       Config management (setting.toml)
+  relay/            Relay server (TOTP auth, hub, sessions)
+  crypto/           ed25519, NaCl box, TOTP, key derivation
+  github/           GitHub API, pool, registry, profile types
+  gitrepo/          Git clone management
+  debug/            Debug logger
+templates/
+  actions/          GitHub Action templates for pool repos
+web/                Next.js docs site
 ```
-
-## Tech Stack
-
-Go, Cobra, Bubbletea, Lipgloss, ed25519, NaCl box, gorilla/websocket
 
 ## License
 
