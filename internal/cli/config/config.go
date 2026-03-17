@@ -20,7 +20,7 @@ type Config struct {
 }
 
 type UserConfig struct {
-	PublicID       string `toml:"public_id"`
+	IDHash         string `toml:"id_hash"`
 	DisplayName    string `toml:"display_name"`
 	Username       string `toml:"username"`
 	Provider       string `toml:"provider"`
@@ -36,6 +36,8 @@ type PoolConfig struct {
 	Status         string `toml:"status,omitempty"`
 	UserHash       string `toml:"user_hash,omitempty"`
 	PendingIssue   int    `toml:"pending_issue,omitempty"`
+	BinHash        string `toml:"bin_hash,omitempty"`
+	MatchHash      string `toml:"match_hash,omitempty"`
 }
 
 func Dir() string {
@@ -83,7 +85,7 @@ func (c *Config) Save() error {
 }
 
 func (c *Config) IsRegistered() bool {
-	return c.User.PublicID != ""
+	return c.User.IDHash != ""
 }
 
 func (c *Config) ActivePool() *PoolConfig {

@@ -5,20 +5,20 @@ import (
 	"encoding/hex"
 )
 
-// PublicID is a client-computed pseudonymous identity. Full SHA256 (64 hex chars), never truncated.
-// Conversion to string is explicit: string(id) at storage boundaries.
-type PublicID string
+// IDHash is a client-computed pseudonymous identity: sha256(pool_url:provider:user_id).
+// Full SHA256 (64 hex chars), never truncated.
+type IDHash string
 
 // String implements fmt.Stringer for natural use in fmt.Sprintf etc.
-func (id PublicID) String() string { return string(id) }
+func (id IDHash) String() string { return string(id) }
 
 // Short returns a display-friendly truncated form with "..." suffix.
-func (id PublicID) Short() string { return ShortHash(string(id)) }
+func (id IDHash) Short() string { return ShortHash(string(id)) }
 
-// UserHash computes the PublicID for a user in a pool. Returns full SHA256 (64 hex chars).
-func UserHash(poolRepo, provider, providerUserID string) PublicID {
+// UserHash computes the IDHash for a user in a pool. Returns full SHA256 (64 hex chars).
+func UserHash(poolRepo, provider, providerUserID string) IDHash {
 	h := sha256.Sum256([]byte(poolRepo + ":" + provider + ":" + providerUserID))
-	return PublicID(hex.EncodeToString(h[:]))
+	return IDHash(hex.EncodeToString(h[:]))
 }
 
 // ShortHash returns a display-friendly truncated hash with "..." suffix.

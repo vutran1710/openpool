@@ -213,7 +213,7 @@ func runRegistryAdd(input string) error {
 		cfg.User.ProviderUserID = identity.UserID
 		cfg.User.DisplayName = identity.DisplayName
 		if pub != nil {
-			cfg.User.PublicID = crypto.UserHash(pools[0].Repo, "github", identity.UserID).String()
+			cfg.User.IDHash = crypto.UserHash(pools[0].Repo, "github", identity.UserID).String()
 		}
 	}
 

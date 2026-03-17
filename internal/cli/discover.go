@@ -42,11 +42,11 @@ func newFetchCmd() *cobra.Command {
 			}
 
 			// Sign the discovery request to prove identity
-			message := []byte("discover:" + cfg.User.PublicID)
+			message := []byte("discover:" + cfg.User.IDHash)
 			signature := crypto.Sign(priv, message)
 
 			reqBody, err := json.Marshal(map[string]string{
-				"user_hash": cfg.User.PublicID,
+				"user_hash": cfg.User.IDHash,
 				"pool_repo": pool.Repo,
 				"pub_key":   hex.EncodeToString(pub),
 				"signature": signature,

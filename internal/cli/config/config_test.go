@@ -98,7 +98,7 @@ func TestConfig_IsRegistered(t *testing.T) {
 	if cfg.IsRegistered() {
 		t.Error("should not be registered")
 	}
-	cfg.User.PublicID = "abc"
+	cfg.User.IDHash = "abc"
 	if !cfg.IsRegistered() {
 		t.Error("should be registered")
 	}
@@ -176,5 +176,32 @@ func TestConfig_PoolConfig_Fields(t *testing.T) {
 	}
 	if p.PendingIssue != 42 {
 		t.Error("PendingIssue")
+	}
+}
+
+func TestPoolConfig_BinHashMatchHash_Persist(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DATING_HOME", dir)
+	cfg := &Config{}
+	cfg.AddPool(PoolConfig{
+		Name:      "test",
+		Repo:      "owner/pool",
+		BinHash:   "abcd1234abcd1234",
+		MatchHash: "efgh5678efgh5678",
+	})
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := loaded.Pools[0]
+	if pool.BinHash != "abcd1234abcd1234" {
+		t.Errorf("bin_hash = %q, want abcd1234abcd1234", pool.BinHash)
+	}
+	if pool.MatchHash != "efgh5678efgh5678" {
+		t.Errorf("match_hash = %q, want efgh5678efgh5678", pool.MatchHash)
 	}
 }

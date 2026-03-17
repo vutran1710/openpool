@@ -352,7 +352,7 @@ func newPoolJoinCmd() *cobra.Command {
 				Status:         gh.PoolStatusPending,
 			}
 
-			cfg.User.PublicID = userHash.String()
+			cfg.User.IDHash = userHash.String()
 			cfg.User.DisplayName = displayName
 			cfg.User.Provider = "github"
 			cfg.User.ProviderUserID = identity.UserID
@@ -422,7 +422,7 @@ func newPoolListCmd() *cobra.Command {
 			for i, p := range cfg.Pools {
 				if p.Status == gh.PoolStatusPending {
 					pool := gh.NewPool(p.Repo, "")
-					if pool.IsUserRegistered(ctx, cfg.User.PublicID) {
+					if pool.IsUserRegistered(ctx, cfg.User.IDHash) {
 						cfg.Pools[i].Status = gh.PoolStatusActive
 						updated = true
 						p.Status = gh.PoolStatusActive
