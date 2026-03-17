@@ -77,19 +77,13 @@ But cannot decrypt without the user's **private** key. The project already uses 
 
 | Scenario | Result | User Action |
 |----------|--------|-------------|
-| Action succeeds, CLI polls + decrypts | Registered + hashes delivered | None |
-| Action fails at any step | Issue closed `not planned` | Retry join |
-| CLI polls but issue closed `not planned` | CLI sees closed status, aborts | Retry join |
-| CLI timeout (Action slow/stuck) | CLI aborts with message | Check issue, retry |
-| CLI decrypts but can't persist | CLI retries persist, then aborts | Fix disk, retry join |
-
-### No External Dependencies
-
-- No tunnel (cloudflared, ngrok, etc.)
-- No port binding
-- No callback server
-- Works behind any firewall/NAT
-- Only needs GitHub API access (which the CLI already has)
+| Action succeeds, CLI polls + decrypts + persists | Registered + hashes delivered | None |
+| Action fails (missing salt, crypto error, commit fail) | Issue closed `not planned` | Retry join |
+| CLI polls, sees issue closed `not planned` | CLI aborts immediately with error | Retry join |
+| CLI polls, no reply within 5 min | CLI aborts with timeout message | Check issue status on GitHub |
+| CLI decrypts but persist fails (disk error) | CLI shows error, does not mark as complete | Fix disk, retry join |
+| CLI decrypts + persists, but Action failed to commit | CLI has hashes but not registered in pool | Retry join — hashes overwritten with same values |
+| User already registered | Action detects existing `.bin`, updates profile | No hash redelivery needed (already have them) |
 
 ---
 
