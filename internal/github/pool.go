@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
+	"time"
 
 	"github.com/vutran1710/dating-dev/internal/gitrepo"
 )
@@ -165,26 +166,31 @@ func (p *Pool) RegisterUserViaIssue(ctx context.Context, userHash string, encryp
 	return p.client.CreateIssue(ctx, "Registration Request", body, []string{"registration"})
 }
 
-func (p *Pool) CreateLikePR(ctx context.Context, likerHash, likedHash, signature string) (int, error) {
-	ph := pairHash(likerHash, likedHash)
+// CreateLikeIssue creates a like as a GitHub Issue.
+// A Pool Action will process it and create the actual PR.
+func (p *Pool) CreateLikeIssue(ctx context.Context, likerHash, likedHash, encryptedMsg, signature string) (int, error) {
+	body := fmt.Sprintf("%s\n%s\n%s", likerHash, encryptedMsg, signature)
+	title := fmt.Sprintf("Like: %s", likerHash[:8])
+	return p.client.CreateIssue(ctx, title, body, []string{"like"})
+}
 
-	likerBlob, err := p.GetUserBlob(ctx, likerHash)
-	if err != nil {
-		return 0, fmt.Errorf("fetching liker: %w", err)
+// CreateLikePR is called by the Pool Action (bot) after validating the like issue.
+// Creates a PR with match file using sorted hash filenames.
+func (p *Pool) CreateLikePR(ctx context.Context, likerHash, likedHash, encryptedMsg, signature string) (int, error) {
+	sortedA, sortedB := likerHash, likedHash
+	if sortedA > sortedB {
+		sortedA, sortedB = sortedB, sortedA
 	}
-	likedBlob, err := p.GetUserBlob(ctx, likedHash)
-	if err != nil {
-		return 0, fmt.Errorf("fetching liked: %w", err)
-	}
+	matchFile := fmt.Sprintf("matches/%s_%s.json", sortedA, sortedB)
+	matchContent := []byte(fmt.Sprintf(`{"created_at":%d}`, time.Now().Unix()))
 
 	pr := PRRequest{
 		Title:  fmt.Sprintf("Like: %s -> %s", likerHash[:8], likedHash[:8]),
-		Body:   fmt.Sprintf("`%s` likes `%s`\n\nSignature: `%s`", likerHash[:8], likedHash[:8], signature),
-		Branch: fmt.Sprintf("like/%s", ph),
+		Body:   fmt.Sprintf("%s\n%s\n%s\n%s", likerHash, likedHash, encryptedMsg, signature),
+		Branch: fmt.Sprintf("like/%s_%s", sortedA[:8], sortedB[:8]),
 		Labels: []string{fmt.Sprintf("like:%s", likedHash[:12])},
 		Files: []PRFile{
-			{Path: fmt.Sprintf("matches/%s/%s.bin", ph, likerHash), Content: likerBlob},
-			{Path: fmt.Sprintf("matches/%s/%s.bin", ph, likedHash), Content: likedBlob},
+			{Path: matchFile, Content: matchContent},
 		},
 	}
 
@@ -197,6 +203,10 @@ func (p *Pool) ListIncomingLikes(ctx context.Context, userHash string) ([]PullRe
 
 func (p *Pool) AcceptLike(ctx context.Context, prNumber int) error {
 	return p.client.MergePullRequest(ctx, prNumber)
+}
+
+func (p *Pool) RejectLike(ctx context.Context, prNumber int) error {
+	return p.client.ClosePullRequest(ctx, prNumber)
 }
 
 func (p *Pool) ListMatches(ctx context.Context) ([]string, error) {
