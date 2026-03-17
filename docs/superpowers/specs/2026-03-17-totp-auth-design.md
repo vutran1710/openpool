@@ -316,7 +316,7 @@ A release workflow in `dating-dev` builds and uploads the binary on tag push.
 - name: Compute and encrypt hashes
   env:
     POOL_SALT: ${{ secrets.POOL_SALT }}
-    OPERATOR_PRIVKEY: ${{ secrets.OPERATOR_PRIVKEY }}
+    OPERATOR_PRIVATE_KEY: ${{ secrets.OPERATOR_PRIVATE_KEY }}
   run: |
     # Extract pubkey from issue body
     PUB_KEY=$(echo "$ISSUE_BODY" | ...)
@@ -329,7 +329,7 @@ A release workflow in `dating-dev` builds and uploads the binary on tag push.
       --user-id "$ISSUE_AUTHOR_ID" \
       --salt "$POOL_SALT" \
       --user-pubkey "$PUB_KEY" \
-      --operator-privkey "$OPERATOR_PRIVKEY")
+      --operator-privkey "$OPERATOR_PRIVATE_KEY")
 
     BIN_HASH=$(echo "$OUTPUT" | head -1)
     ENCRYPTED_BLOB=$(echo "$OUTPUT" | tail -1)
@@ -355,7 +355,7 @@ A release workflow in `dating-dev` builds and uploads the binary on tag push.
 | Secret | Purpose | Notes |
 |--------|---------|-------|
 | `POOL_SALT` | Derives bin_hash and match_hash | Already exists |
-| `OPERATOR_PRIVKEY` | NaCl box encryption — sender's private key | **New** |
+| `OPERATOR_PRIVATE_KEY` | NaCl box encryption — sender's private key | Already exists |
 | `DATING_DEV_TOKEN` | PAT to download regcrypt from private repo | **Temporary** — remove when dating-dev goes public |
 
 ### Failure Handling
