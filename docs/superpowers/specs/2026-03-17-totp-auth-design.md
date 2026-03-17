@@ -244,7 +244,7 @@ match_hash = "def456..."
 | `cmd/relay/main.go` | Remove operator key env vars. Keep `POOL_URL`, `POOL_SALT`. |
 | `internal/relay/relay_e2e_test.go` | Rewrite: no auth handshake, connect with `?bin=&sig=`. Add `MatchHash` to test `UserEntry`. |
 | `internal/cli/relay/client_test.go` | Update for new `Config` shape. Remove token/auth tests. |
-| **New**: `internal/cli/gatekeeper/` | Poll issue comments, decrypt NaCl box blob, persist hashes to config. |
+| `internal/cli/` (registration flow) | Add polling for encrypted issue comment reply, decrypt NaCl box blob, persist hashes to config. No new package — extends existing join/registration flow. |
 | **New**: `cmd/regcrypt/` | Standalone CLI tool for GitHub Actions — computes hashes, NaCl box encrypts, outputs base64. Pre-built binary published as GitHub Release artifact. |
 | **New**: `.github/workflows/release-regcrypt.yml` | Build + publish `regcrypt-linux-amd64` on tag push. |
 | `.github/workflows/register.yml` | Update to compute id_hash→bin_hash→match_hash, call `regcrypt`, post encrypted comment. |
@@ -364,40 +364,17 @@ If `regcrypt` fails, or the comment post fails, or the commit fails → close is
 
 ---
 
-## 9. Gatekeeper Package (CLI)
+## 9. Registration Polling (CLI)
 
-`internal/cli/gatekeeper/` — handles registration credential delivery.
+No new package — extends the existing join/registration flow. After submitting the join issue, the CLI polls for the Action's encrypted reply.
 
-### Responsibilities
+### Added to Registration Flow
 
-1. Poll GitHub issue comments for encrypted blob
-2. Decrypt with NaCl box (user_priv + operator_pub)
-3. Decode msgpack → `{bin_hash, match_hash}`
-4. Persist to pool config in `setting.toml`
-
-### Interface
-
-```go
-// Result holds the hashes delivered during registration.
-type Result struct {
-    BinHash   string
-    MatchHash string
-}
-
-// Await polls the join issue for the encrypted hash delivery.
-// Returns when hashes are received and persisted, or on timeout.
-func Await(ctx context.Context, cfg AwaitConfig) (*Result, error)
-
-type AwaitConfig struct {
-    GitHubClient  *github.Client
-    IssueNumber   int
-    PoolRepo      string          // "owner/repo"
-    UserPrivKey   ed25519.PrivateKey
-    OperatorPub   ed25519.PublicKey
-    PollInterval  time.Duration   // default 5s
-    Timeout       time.Duration   // default 5min
-}
-```
+1. After issue creation, poll comments every 5s (max 5 min)
+2. Find comment by `github-actions[bot]` containing base64 blob
+3. Decrypt with NaCl box (`user_priv` + `operator_pub`)
+4. Decode msgpack → `{bin_hash, match_hash}`
+5. Persist to pool config in `setting.toml`
 
 ---
 
