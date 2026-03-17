@@ -39,6 +39,20 @@ func resolveGitHubToken(promptFn func(label string) string) (string, error) {
 	return token, nil
 }
 
+// resolveGitHubTokenNonInteractive gets a GitHub token from `gh auth token` only.
+// Returns error if gh CLI is not authenticated — no interactive fallback.
+func resolveGitHubTokenNonInteractive() (string, error) {
+	out, err := exec.Command("gh", "auth", "token").Output()
+	if err != nil {
+		return "", fmt.Errorf("gh auth token failed: %w (run: gh auth login)", err)
+	}
+	token := strings.TrimSpace(string(out))
+	if token == "" {
+		return "", fmt.Errorf("empty token from gh CLI")
+	}
+	return token, nil
+}
+
 // fetchGitHubIdentity fetches the authenticated user's identity from GitHub.
 func fetchGitHubIdentity(ctx context.Context, token string) (*GitHubIdentity, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/user", nil)

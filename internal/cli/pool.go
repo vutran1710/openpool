@@ -3,7 +3,6 @@ package cli
 import (
 	"bufio"
 	"context"
-	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -212,29 +211,40 @@ func newPoolBrowseCmd() *cobra.Command {
 }
 
 func newPoolJoinCmd() *cobra.Command {
+	var (
+		profileFlag string
+		noWait      bool
+	)
+
 	cmd := &cobra.Command{
 		Use:   "join <name>",
-		Short: "Join a pool: authenticate, create profile, submit registration",
-		Args:  cobra.ExactArgs(1),
+		Short: "Submit registration to a pool",
+		Long: `Reads your local profile, encrypts it, and submits a registration issue.
+Then polls for the Action's response to receive your relay hashes.
+
+Prerequisites:
+  - Registry configured (dating registry add <repo>)
+  - Keys generated (dating auth)
+  - GitHub authenticated (gh auth login)
+  - Profile created (dating profile create <pool>)`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
+			name := args[0]
 
 			cfg, err := config.Load()
 			if err != nil {
 				return err
 			}
 
-			registryRepo, err := requireRegistry(cfg)
-			if err != nil {
-				printError(err.Error())
+			// Prerequisite: registry
+			if cfg.ActiveRegistry == "" {
+				printError("No registry configured.")
+				printDim("  Run: dating registry add <repo>")
 				return nil
 			}
 
-			name := args[0]
-			printHeader()
-			fmt.Printf("  Joining pool: %s\n\n", bold.Render(name))
-
-			reg, err := gh.CloneRegistry(registryRepo)
+			reg, err := gh.CloneRegistry(cfg.ActiveRegistry)
 			if err != nil {
 				return fmt.Errorf("loading registry: %w", err)
 			}
@@ -249,76 +259,59 @@ func newPoolJoinCmd() *cobra.Command {
 				return nil
 			}
 
-			fmt.Println("  Step 1/4: Authenticate with GitHub")
-			reader := bufio.NewReader(os.Stdin)
-
-			ghToken, err := resolveGitHubToken(func(label string) string {
-				return prompt(reader, label)
-			})
+			// Prerequisite: GitHub auth (no interactive fallback)
+			ghToken, err := resolveGitHubTokenNonInteractive()
 			if err != nil {
-				return fmt.Errorf("authentication failed: %w", err)
+				printError("GitHub authentication required.")
+				printDim("  Run: gh auth login")
+				return nil
 			}
 
 			identity, err := fetchGitHubIdentity(ctx, ghToken)
 			if err != nil {
 				return fmt.Errorf("fetching GitHub identity: %w", err)
 			}
-			printSuccess(fmt.Sprintf("Authenticated as %s (@%s)", identity.DisplayName, identity.Username))
 
-			fmt.Println("\n  Step 2/4: Generate keys")
-			needKeys := !cfg.IsRegistered()
-			var pub ed25519.PublicKey
-			var priv ed25519.PrivateKey
-			if needKeys {
-				pub, priv, err = crypto.GenerateKeyPair(config.KeysDir())
-				if err != nil {
-					return fmt.Errorf("generating keys: %w", err)
-				}
-				printSuccess("Keys generated")
-			} else {
-				pub, priv, err = crypto.LoadKeyPair(config.KeysDir())
-				if err != nil {
-					return fmt.Errorf("loading keys: %w", err)
-				}
-				printSuccess("Keys loaded")
+			// Prerequisite: keys
+			pub, priv, err := crypto.LoadKeyPair(config.KeysDir())
+			if err != nil {
+				printError("Keys not found.")
+				printDim("  Run: dating auth")
+				return nil
 			}
 
-			fmt.Println("\n  Step 3/4: Create profile")
-			displayName := identity.DisplayName
-			bio := prompt(reader, "  Bio: ")
-			city := prompt(reader, "  City: ")
-			interests := prompt(reader, "  Interests (comma-separated): ")
+			// Resolve profile
+			profilePath := profileFlag
+			if profilePath == "" {
+				profilePath = config.PoolProfilePath(name)
+			}
+			plaintext, err := os.ReadFile(profilePath)
+			if err != nil {
+				if os.IsNotExist(err) {
+					printError(fmt.Sprintf("Profile not found at: %s", profilePath))
+					printDim(fmt.Sprintf("  Create one: dating profile create %s", name))
+					return nil
+				}
+				return fmt.Errorf("reading profile: %w", err)
+			}
+			// Validate JSON
+			var check map[string]any
+			if err := json.Unmarshal(plaintext, &check); err != nil {
+				return fmt.Errorf("invalid profile JSON at %s: %w", profilePath, err)
+			}
 
-			interestList := parseCSV(interests)
-
-			// Decode operator pubkey for profile encryption
+			// Encrypt profile to operator's pubkey
 			operatorPubBytes, err := hex.DecodeString(entry.OperatorPubKey)
 			if err != nil {
 				return fmt.Errorf("decoding operator public key: %w", err)
 			}
-
-			profileData := map[string]any{
-				"display_name": displayName,
-				"bio":          bio,
-				"city":         city,
-				"interests":    interestList,
-				"public_key":   hex.EncodeToString(pub),
-				"status":       "open",
-			}
-			plaintext, err := json.Marshal(profileData)
-			if err != nil {
-				return fmt.Errorf("marshaling profile: %w", err)
-			}
-
-			// Encrypt profile to operator's pubkey — only operator/relay can decrypt
 			bin, err := crypto.PackUserBin(pub, operatorPubBytes, plaintext)
 			if err != nil {
 				return fmt.Errorf("packing profile: %w", err)
 			}
 
-			fmt.Println("\n  Step 4/4: Submit registration")
+			// Compute identity proof + signature
 			userHash := crypto.UserHash(entry.Repo, "github", identity.UserID)
-
 			identityProof, err := crypto.EncryptIdentityProof(
 				entry.OperatorPubKey,
 				"github",
@@ -337,7 +330,7 @@ func newPoolJoinCmd() *cobra.Command {
 			}
 			signature := crypto.Sign(priv, payload)
 
-			// Submit registration via GitHub issue using the user's GitHub token
+			// Submit registration issue
 			poolGH := gh.NewPool(entry.Repo, identity.Token)
 			pubKeyHex := hex.EncodeToString(pub)
 			issueNumber, err := poolGH.RegisterUserViaIssue(ctx, userHash.String(), bin, pubKeyHex, signature, identityProof)
@@ -346,24 +339,44 @@ func newPoolJoinCmd() *cobra.Command {
 			}
 
 			cfg.User.IDHash = userHash.String()
-			cfg.User.DisplayName = displayName
+			cfg.User.DisplayName = identity.DisplayName
 			cfg.User.Provider = "github"
 			cfg.User.ProviderUserID = identity.UserID
 
 			fmt.Println()
-			printSuccess(fmt.Sprintf("Registration issue #%d created for \"%s\"", issueNumber, name))
+			printSuccess(fmt.Sprintf("Registration issue #%d created", issueNumber))
+			printDim(fmt.Sprintf("  https://github.com/%s/issues/%d", entry.Repo, issueNumber))
+
+			if noWait {
+				pool := config.PoolConfig{
+					Name:           entry.Name,
+					Repo:           entry.Repo,
+					OperatorPubKey: entry.OperatorPubKey,
+					RelayURL:       entry.RelayURL,
+					Status:         gh.PoolStatusPending,
+					PendingIssue:   issueNumber,
+				}
+				cfg.AddPool(pool)
+				if cfg.Active == "" {
+					cfg.Active = pool.Name
+				}
+				if err := cfg.Save(); err != nil {
+					return err
+				}
+				printDim("  Skipping poll (--no-wait). Run pool join again to retrieve hashes.")
+				return nil
+			}
+
 			fmt.Println("  Waiting for GitHub Action to process registration...")
 
-			// Poll for encrypted hash delivery (max 5 minutes)
 			pollCtx, pollCancel := context.WithTimeout(ctx, 5*time.Minute)
 			defer pollCancel()
 
 			binHash, matchHash, err := poolGH.PollRegistrationResult(pollCtx, issueNumber, priv)
 			if err != nil {
 				printWarning("Could not retrieve hashes: " + err.Error())
-				printDim("  You can retry later with: dating pool sync")
+				printDim("  Run pool join again to retry polling.")
 
-				// Save config without hashes — pending status
 				pool := config.PoolConfig{
 					Name:           entry.Name,
 					Repo:           entry.Repo,
@@ -404,6 +417,8 @@ func newPoolJoinCmd() *cobra.Command {
 		},
 	}
 
+	cmd.Flags().StringVar(&profileFlag, "profile", "", "path to profile JSON (default: ~/.dating/pools/<pool>/profile.json)")
+	cmd.Flags().BoolVar(&noWait, "no-wait", false, "submit issue without polling for hashes")
 	return cmd
 }
 
