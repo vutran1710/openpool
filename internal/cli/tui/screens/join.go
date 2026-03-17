@@ -1081,7 +1081,7 @@ func (s JoinScreen) postRegistration() tea.Msg {
 
 	userHash := ""
 	if s.relayURL != "" {
-		hash, err := fetchIdentityFromRelay(ctx, s.relayURL, s.poolRepo, pubHex, signature)
+		hash, err := fetchIdentityFromRelay(ctx, s.relayURL, pubHex, signature)
 		if err == nil {
 			userHash = hash
 		}
@@ -1266,8 +1266,8 @@ func mergeProfilesForJoin(profiles ...*gh.DatingProfile) *gh.DatingProfile {
 	return merged
 }
 
-func fetchIdentityFromRelay(ctx context.Context, relayURL, poolRepo, pubKeyHex, signature string) (string, error) {
-	body := fmt.Sprintf(`{"pool_repo":"%s","pub_key":"%s","signature":"%s"}`, poolRepo, pubKeyHex, signature)
+func fetchIdentityFromRelay(ctx context.Context, relayURL, pubKeyHex, signature string) (string, error) {
+	body := fmt.Sprintf(`{"pub_key":"%s","signature":"%s"}`, pubKeyHex, signature)
 	req, err := http.NewRequestWithContext(ctx, "POST", relayURL+"/identity", strings.NewReader(body))
 	if err != nil {
 		return "", err

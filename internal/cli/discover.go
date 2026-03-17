@@ -47,7 +47,6 @@ func newFetchCmd() *cobra.Command {
 
 			reqBody, err := json.Marshal(map[string]string{
 				"user_hash": cfg.User.PublicID,
-				"pool_repo": pool.Repo,
 				"pub_key":   hex.EncodeToString(pub),
 				"signature": signature,
 			})

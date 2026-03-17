@@ -179,6 +179,7 @@ The pubkey is embedded in the `.bin` file (first 32 bytes). The relay reads it f
 
 | Variable | Required | Description |
 |----------|----------|-------------|
+| `POOL_REPO` | Yes | Pool repository in `owner/name` format (e.g. `vutran1710/berlin-singles`) |
 | `POOL_TOKEN` | Yes | GitHub PAT for pool repo API access (avoids 60 req/hr anonymous limit) |
 | `OPERATOR_PRIVATE_KEY` | Yes | Hex-encoded ed25519 private key for profile decryption + re-encryption |
 | `POOL_SALT` | Yes | Secret salt for computing user filenames |

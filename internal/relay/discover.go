@@ -14,10 +14,9 @@ import (
 )
 
 type DiscoverRequest struct {
-	UserHash string `json:"user_hash"`
-	PoolRepo string `json:"pool_repo"`
-	PubKey   string `json:"pub_key"`
-	Nonce    string `json:"nonce"`
+	UserHash  string `json:"user_hash"`
+	PubKey    string `json:"pub_key"`
+	Nonce     string `json:"nonce"`
 	Signature string `json:"signature"`
 }
 
@@ -46,7 +45,7 @@ func (s *Server) HandleDiscover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.UserHash == "" || req.PoolRepo == "" || req.PubKey == "" || req.Signature == "" {
+	if req.UserHash == "" || req.PubKey == "" || req.Signature == "" {
 		http.Error(w, `{"error":"missing required fields"}`, http.StatusBadRequest)
 		return
 	}
@@ -67,7 +66,7 @@ func (s *Server) HandleDiscover(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// List all users from the pool repo
-	hashes, err := listPoolUsers(req.PoolRepo, s.poolToken)
+	hashes, err := listPoolUsers(s.poolRepo, s.poolToken)
 	if err != nil {
 		http.Error(w, `{"error":"failed to list users"}`, http.StatusInternalServerError)
 		return
@@ -91,7 +90,7 @@ func (s *Server) HandleDiscover(w http.ResponseWriter, r *http.Request) {
 	targetHash := candidates[rand.Intn(len(candidates))]
 
 	// Fetch the .bin file
-	bin, err := FetchUserBin(req.PoolRepo, s.poolToken, targetHash)
+	bin, err := FetchUserBin(s.poolRepo, s.poolToken, targetHash)
 	if err != nil {
 		http.Error(w, `{"error":"failed to fetch profile"}`, http.StatusInternalServerError)
 		return

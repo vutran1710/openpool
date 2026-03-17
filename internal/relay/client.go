@@ -29,11 +29,12 @@ type Client struct {
 	nonce     []byte
 }
 
-func NewClient(conn *websocket.Conn, hub *Hub, poolToken string) *Client {
+func NewClient(conn *websocket.Conn, hub *Hub, poolRepo, poolToken string) *Client {
 	return &Client{
 		conn:      conn,
 		hub:       hub,
 		send:      make(chan []byte, sendBufSize),
+		PoolRepo:  poolRepo,
 		PoolToken: poolToken,
 	}
 }
@@ -106,12 +107,12 @@ func (c *Client) handleFrame(f InboundFrame) {
 }
 
 func (c *Client) handleAuth(f InboundFrame) {
-	if f.UserHash == "" || f.PoolRepo == "" {
-		c.sendError("missing user_hash or pool_repo")
+	if f.UserHash == "" {
+		c.sendError("missing user_hash")
 		return
 	}
 
-	bin, err := FetchUserBin(f.PoolRepo, c.PoolToken, f.UserHash)
+	bin, err := FetchUserBin(c.PoolRepo, c.PoolToken, f.UserHash)
 	if err != nil {
 		c.sendError("user not registered in pool")
 		return
@@ -131,7 +132,6 @@ func (c *Client) handleAuth(f InboundFrame) {
 
 	c.UserHash = f.UserHash
 	c.pubKey = pubKey
-	c.PoolRepo = f.PoolRepo
 	c.nonce = nonce
 
 	c.sendFrame(OutboundMessage{

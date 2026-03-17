@@ -4,7 +4,6 @@ type InboundFrame struct {
 	Type string `json:"type"`
 
 	UserHash  string `json:"user_hash,omitempty"`
-	PoolRepo  string `json:"pool_repo,omitempty"`
 	Signature string `json:"signature,omitempty"`
 
 	To   string `json:"to,omitempty"`

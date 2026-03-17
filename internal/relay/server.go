@@ -11,19 +11,25 @@ import (
 )
 
 type Server struct {
-	hub            *Hub
-	poolToken      string
+	hub             *Hub
+	poolRepo        string
+	poolToken       string
 	operatorPrivKey ed25519.PrivateKey
-	upgrader       websocket.Upgrader
+	upgrader        websocket.Upgrader
 }
 
 func NewServer() *Server {
 	s := &Server{
 		hub:       NewHub(),
+		poolRepo:  os.Getenv("POOL_REPO"),
 		poolToken: os.Getenv("POOL_TOKEN"),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
+	}
+
+	if s.poolRepo == "" {
+		log.Fatal("POOL_REPO is required (e.g. owner/pool-name)")
 	}
 
 	// Load operator private key for discovery re-encryption
@@ -47,7 +53,7 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := NewClient(conn, s.hub, s.poolToken)
+	client := NewClient(conn, s.hub, s.poolRepo, s.poolToken)
 	go client.WritePump()
 	go client.ReadPump()
 }
