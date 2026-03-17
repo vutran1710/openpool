@@ -7,7 +7,6 @@ import (
 
 // UserEntry is a user in the relay's index.
 type UserEntry struct {
-	PoolURL  string
 	PubKey   ed25519.PublicKey
 	UserID   string
 	Provider string
@@ -15,10 +14,9 @@ type UserEntry struct {
 }
 
 // Store is an in-memory store for users and matches.
-// In production this would be backed by SQLite; for now in-memory is sufficient.
 type Store struct {
 	mu      sync.RWMutex
-	users   map[string]*UserEntry // key: poolURL + ":" + userID
+	users   map[string]*UserEntry // key: userID + ":" + provider
 	matches map[string]bool       // key: sorted pair "hashA:hashB"
 }
 
@@ -34,20 +32,16 @@ func NewStore() *Store {
 func (s *Store) UpsertUser(entry UserEntry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	key := entry.PoolURL + ":" + entry.UserID
+	key := entry.UserID + ":" + entry.Provider
 	s.users[key] = &entry
 }
 
-// LookupUser finds a user by pool_url + user_id + provider.
-func (s *Store) LookupUser(poolURL, userID, provider string) *UserEntry {
+// LookupUser finds a user by user_id + provider.
+func (s *Store) LookupUser(userID, provider string) *UserEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	key := poolURL + ":" + userID
-	entry := s.users[key]
-	if entry != nil && entry.Provider == provider {
-		return entry
-	}
-	return nil
+	key := userID + ":" + provider
+	return s.users[key]
 }
 
 // LookupByHash finds a user by hash_id (scans all entries).
@@ -60,15 +54,6 @@ func (s *Store) LookupByHash(hashID string) *UserEntry {
 		}
 	}
 	return nil
-}
-
-// LookupHashForPool finds a user's hash_id in a specific pool.
-func (s *Store) LookupHashForPool(poolURL, userID, provider string) string {
-	entry := s.LookupUser(poolURL, userID, provider)
-	if entry == nil {
-		return ""
-	}
-	return entry.HashID
 }
 
 // AddMatch registers a match between two hash_ids.

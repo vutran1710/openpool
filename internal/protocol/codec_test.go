@@ -9,7 +9,6 @@ func TestEncodeDecode_AuthRequest(t *testing.T) {
 		Type:     TypeAuth,
 		UserID:   "vutran1710",
 		Provider: "github",
-		PoolURL:  "vutran1710/dating-test-pool",
 	}
 
 	data, err := Encode(orig)
@@ -97,8 +96,6 @@ func TestDecodeFrame_AllTypes(t *testing.T) {
 		&AuthResponse{Type: TypeAuthResponse, Signature: "sig"},
 		&Authenticated{Type: TypeAuthenticated, Token: "tok", HashID: "hash"},
 		&RefreshRequest{Type: TypeRefresh, Token: "tok"},
-		&IdentityRequest{Type: TypeIdentity, PoolURL: "pool"},
-		&IdentityResponse{Type: TypeIdentityResponse, HashID: "hash"},
 		&Message{Type: TypeMsg, Body: "hi"},
 		&Ack{Type: TypeAck, MsgID: "id"},
 		&Error{Type: TypeError, Code: ErrInternal},

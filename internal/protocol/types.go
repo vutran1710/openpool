@@ -10,8 +10,6 @@ const (
 	TypeAuthResponse     = "auth_response"
 	TypeAuthenticated    = "authenticated"
 	TypeRefresh          = "refresh"
-	TypeIdentity         = "identity"
-	TypeIdentityResponse = "identity_response"
 	TypeMsg              = "msg"
 	TypeAck              = "ack"
 	TypeError            = "error"
@@ -27,7 +25,6 @@ const (
 	ErrTokenInvalid = "token_invalid"
 	ErrNotMatched   = "not_matched"
 	ErrRateLimited  = "rate_limited"
-	ErrPoolNotFound = "pool_not_found"
 	ErrInternal     = "internal_error"
 )
 
@@ -38,7 +35,6 @@ type AuthRequest struct {
 	Type     string `msgpack:"type"`
 	UserID   string `msgpack:"user_id"`
 	Provider string `msgpack:"provider"`
-	PoolURL  string `msgpack:"pool_url"`
 }
 
 // AuthResponse sends the signed nonce back.
@@ -51,12 +47,6 @@ type AuthResponse struct {
 type RefreshRequest struct {
 	Type  string `msgpack:"type"`
 	Token string `msgpack:"token"`
-}
-
-// IdentityRequest queries the user's hash_id for a pool.
-type IdentityRequest struct {
-	Type    string `msgpack:"type"`
-	PoolURL string `msgpack:"pool_url"`
 }
 
 // Message is a chat message (bidirectional).
@@ -105,13 +95,7 @@ type Authenticated struct {
 	Token     string `msgpack:"token"`
 	ExpiresAt int64  `msgpack:"expires_at"`
 	HashID    string `msgpack:"hash_id"`
-}
-
-// IdentityResponse returns the user's hash_id.
-type IdentityResponse struct {
-	Type    string `msgpack:"type"`
-	PoolURL string `msgpack:"pool_url"`
-	HashID  string `msgpack:"hash_id"`
+	PoolURL   string `msgpack:"pool_url"`
 }
 
 // Error is sent for any protocol error.
@@ -134,8 +118,7 @@ type MatchWebhook struct {
 
 // UserIndex represents a user in the relay's storage.
 type UserIndex struct {
-	PoolURL  string `msgpack:"pool_url"`
-	PubKey   []byte `msgpack:"pubkey"`    // 32-byte ed25519 public key
+	PubKey   []byte `msgpack:"pubkey"` // 32-byte ed25519 public key
 	UserID   string `msgpack:"user_id"`
 	Provider string `msgpack:"provider"`
 	HashID   string `msgpack:"hash_id"`
@@ -143,7 +126,6 @@ type UserIndex struct {
 
 // Match represents a matched pair.
 type Match struct {
-	PoolURL   string `msgpack:"pool_url"`
 	HashID1   string `msgpack:"hash_id_1"`
 	HashID2   string `msgpack:"hash_id_2"`
 	CreatedAt int64  `msgpack:"created_at"`
@@ -152,7 +134,6 @@ type Match struct {
 // QueuedMessage is a message waiting for delivery.
 type QueuedMessage struct {
 	MsgID      string `msgpack:"msg_id"`
-	PoolURL    string `msgpack:"pool_url"`
 	SourceHash string `msgpack:"source_hash"`
 	TargetHash string `msgpack:"target_hash"`
 	Body       string `msgpack:"body"`

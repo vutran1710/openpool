@@ -24,7 +24,7 @@ func TestNewClient_FieldMapping(t *testing.T) {
 	pub, priv := genTestKeys()
 	cfg := Config{
 		RelayURL: "ws://localhost:8081",
-		PoolURL:  "owner/pool",
+
 		UserID:   "testuser",
 		Provider: "github",
 		Pub:      pub,
@@ -36,8 +36,8 @@ func TestNewClient_FieldMapping(t *testing.T) {
 	if c.url != "ws://localhost:8081" {
 		t.Errorf("url = %q, want ws://localhost:8081", c.url)
 	}
-	if c.poolURL != "owner/pool" {
-		t.Errorf("poolURL = %q, want owner/pool", c.poolURL)
+	if c.poolURL != "" {
+		t.Errorf("poolURL = %q, want empty (set after auth)", c.poolURL)
 	}
 	if c.userID != "testuser" {
 		t.Errorf("userID = %q, want testuser", c.userID)
@@ -280,7 +280,7 @@ func TestSendMessage_FieldPopulation(t *testing.T) {
 	pub, priv := genTestKeys()
 	c := NewClient(Config{
 		RelayURL: "ws://localhost:1",
-		PoolURL:  "owner/pool",
+
 		UserID:   "testuser",
 		Provider: "github",
 		Pub:      pub,

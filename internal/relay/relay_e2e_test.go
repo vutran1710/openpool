@@ -40,9 +40,12 @@ type testEnv struct {
 	wsURL  string
 }
 
+const testPoolURL = "owner/pool"
+
 func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
 	srv := server.NewServer(server.ServerConfig{
+		PoolURL:  testPoolURL,
 		TokenTTL: 5 * time.Minute,
 	})
 	ts := httptest.NewServer(srv.Handler())
@@ -52,10 +55,9 @@ func newTestEnv(t *testing.T) *testEnv {
 	return &testEnv{srv: srv, ts: ts, wsURL: wsURL}
 }
 
-func (e *testEnv) addUser(poolURL, userID, provider string, pub ed25519.PublicKey) string {
-	hid := hashID("test-salt", poolURL, provider, userID)
+func (e *testEnv) addUser(userID, provider string, pub ed25519.PublicKey) string {
+	hid := hashID("test-salt", testPoolURL, provider, userID)
 	e.srv.Store().UpsertUser(server.UserEntry{
-		PoolURL:  poolURL,
 		PubKey:   pub,
 		UserID:   userID,
 		Provider: provider,
@@ -68,11 +70,10 @@ func (e *testEnv) addMatch(hashA, hashB string) {
 	e.srv.Store().AddMatch(hashA, hashB)
 }
 
-func connectClient(t *testing.T, env *testEnv, poolURL, userID, provider string, pub ed25519.PublicKey, priv ed25519.PrivateKey) *relay.Client {
+func connectClient(t *testing.T, env *testEnv, userID, provider string, pub ed25519.PublicKey, priv ed25519.PrivateKey) *relay.Client {
 	t.Helper()
 	c := relay.NewClient(relay.Config{
 		RelayURL: env.wsURL,
-		PoolURL:  poolURL,
 		UserID:   userID,
 		Provider: provider,
 		Pub:      pub,
@@ -94,9 +95,9 @@ func connectClient(t *testing.T, env *testEnv, poolURL, userID, provider string,
 func TestE2E_AuthSuccess(t *testing.T) {
 	env := newTestEnv(t)
 	pub, priv := genKeys(t)
-	hid := env.addUser("owner/pool", "alice", "github", pub)
+	hid := env.addUser("alice", "github", pub)
 
-	c := connectClient(t, env, "owner/pool", "alice", "github", pub, priv)
+	c := connectClient(t, env, "alice", "github", pub, priv)
 
 	if c.HashID() != hid {
 		t.Errorf("hash_id = %q, want %q", c.HashID(), hid)
@@ -112,7 +113,7 @@ func TestE2E_AuthFail_UserNotFound(t *testing.T) {
 	// Don't add user to store
 
 	c := relay.NewClient(relay.Config{
-		RelayURL: env.wsURL, PoolURL: "owner/pool",
+		RelayURL: env.wsURL,
 		UserID: "nobody", Provider: "github", Pub: pub, Priv: priv,
 	})
 
@@ -133,10 +134,10 @@ func TestE2E_AuthFail_WrongKey(t *testing.T) {
 	env := newTestEnv(t)
 	pub, _ := genKeys(t)
 	_, wrongPriv := genKeys(t) // different key pair
-	env.addUser("owner/pool", "alice", "github", pub)
+	env.addUser("alice", "github", pub)
 
 	c := relay.NewClient(relay.Config{
-		RelayURL: env.wsURL, PoolURL: "owner/pool",
+		RelayURL: env.wsURL,
 		UserID: "alice", Provider: "github", Pub: pub, Priv: wrongPriv,
 	})
 
@@ -158,13 +159,13 @@ func TestE2E_MessageRouting_BothOnline(t *testing.T) {
 
 	pubA, privA := genKeys(t)
 	pubB, privB := genKeys(t)
-	hidA := env.addUser("owner/pool", "alice", "github", pubA)
-	hidB := env.addUser("owner/pool", "bob", "github", pubB)
+	hidA := env.addUser("alice", "github", pubA)
+	hidB := env.addUser("bob", "github", pubB)
 	env.addMatch(hidA, hidB)
 
 	// Connect both
-	clientA := connectClient(t, env, "owner/pool", "alice", "github", pubA, privA)
-	clientB := connectClient(t, env, "owner/pool", "bob", "github", pubB, privB)
+	clientA := connectClient(t, env, "alice", "github", pubA, privA)
+	clientB := connectClient(t, env, "bob", "github", pubB, privB)
 
 	// Bob listens for messages
 	msgCh := make(chan protocol.Message, 1)
@@ -201,12 +202,12 @@ func TestE2E_MessageRouting_Bidirectional(t *testing.T) {
 
 	pubA, privA := genKeys(t)
 	pubB, privB := genKeys(t)
-	hidA := env.addUser("owner/pool", "alice", "github", pubA)
-	hidB := env.addUser("owner/pool", "bob", "github", pubB)
+	hidA := env.addUser("alice", "github", pubA)
+	hidB := env.addUser("bob", "github", pubB)
 	env.addMatch(hidA, hidB)
 
-	clientA := connectClient(t, env, "owner/pool", "alice", "github", pubA, privA)
-	clientB := connectClient(t, env, "owner/pool", "bob", "github", pubB, privB)
+	clientA := connectClient(t, env, "alice", "github", pubA, privA)
+	clientB := connectClient(t, env, "bob", "github", pubB, privB)
 
 	msgFromA := make(chan protocol.Message, 1)
 	msgFromB := make(chan protocol.Message, 1)
@@ -241,11 +242,11 @@ func TestE2E_MessageRouting_NotMatched(t *testing.T) {
 
 	pubA, privA := genKeys(t)
 	pubB, _ := genKeys(t)
-	env.addUser("owner/pool", "alice", "github", pubA)
-	hidB := env.addUser("owner/pool", "bob", "github", pubB)
+	env.addUser("alice", "github", pubA)
+	hidB := env.addUser("bob", "github", pubB)
 	// No match added!
 
-	clientA := connectClient(t, env, "owner/pool", "alice", "github", pubA, privA)
+	clientA := connectClient(t, env, "alice", "github", pubA, privA)
 
 	errCh := make(chan protocol.Error, 1)
 	clientA.OnError(func(e protocol.Error) { errCh <- e })
@@ -269,11 +270,11 @@ func TestE2E_MessageRouting_TargetOffline(t *testing.T) {
 
 	pubA, privA := genKeys(t)
 	pubB, _ := genKeys(t)
-	hidA := env.addUser("owner/pool", "alice", "github", pubA)
-	hidB := env.addUser("owner/pool", "bob", "github", pubB)
+	hidA := env.addUser("alice", "github", pubA)
+	hidB := env.addUser("bob", "github", pubB)
 	env.addMatch(hidA, hidB)
 
-	clientA := connectClient(t, env, "owner/pool", "alice", "github", pubA, privA)
+	clientA := connectClient(t, env, "alice", "github", pubA, privA)
 	// Bob is NOT connected
 
 	// Send should not error (message queued for offline delivery)
@@ -289,9 +290,9 @@ func TestE2E_MessageRouting_TargetOffline(t *testing.T) {
 func TestE2E_TokenRefresh(t *testing.T) {
 	env := newTestEnv(t)
 	pub, priv := genKeys(t)
-	env.addUser("owner/pool", "alice", "github", pub)
+	env.addUser("alice", "github", pub)
 
-	c := connectClient(t, env, "owner/pool", "alice", "github", pub, priv)
+	c := connectClient(t, env, "alice", "github", pub, priv)
 
 	origToken := c.Token()
 	if origToken == "" {
@@ -323,7 +324,7 @@ func TestE2E_MultipleUsers_Concurrent(t *testing.T) {
 	for i := 0; i < n; i++ {
 		pub, priv := genKeys(t)
 		uid := strings.Repeat(string(rune('a'+i)), 3) // "aaa", "bbb", etc.
-		hid := env.addUser("owner/pool", uid, "github", pub)
+		hid := env.addUser(uid, "github", pub)
 		users[i] = user{pub: pub, priv: priv, hashID: hid}
 	}
 
@@ -336,7 +337,7 @@ func TestE2E_MultipleUsers_Concurrent(t *testing.T) {
 			defer wg.Done()
 			uid := strings.Repeat(string(rune('a'+idx)), 3)
 			c := relay.NewClient(relay.Config{
-				RelayURL: env.wsURL, PoolURL: "owner/pool",
+				RelayURL: env.wsURL,
 				UserID: uid, Provider: "github",
 				Pub: users[idx].pub, Priv: users[idx].priv,
 			})
@@ -371,12 +372,12 @@ func TestE2E_MessageConversation(t *testing.T) {
 
 	pubA, privA := genKeys(t)
 	pubB, privB := genKeys(t)
-	hidA := env.addUser("owner/pool", "alice", "github", pubA)
-	hidB := env.addUser("owner/pool", "bob", "github", pubB)
+	hidA := env.addUser("alice", "github", pubA)
+	hidB := env.addUser("bob", "github", pubB)
 	env.addMatch(hidA, hidB)
 
-	clientA := connectClient(t, env, "owner/pool", "alice", "github", pubA, privA)
-	clientB := connectClient(t, env, "owner/pool", "bob", "github", pubB, privB)
+	clientA := connectClient(t, env, "alice", "github", pubA, privA)
+	clientB := connectClient(t, env, "bob", "github", pubB, privB)
 
 	msgsA := make(chan protocol.Message, 10)
 	msgsB := make(chan protocol.Message, 10)
@@ -416,10 +417,10 @@ func TestE2E_MessageConversation(t *testing.T) {
 func TestE2E_Disconnect_Reconnect(t *testing.T) {
 	env := newTestEnv(t)
 	pub, priv := genKeys(t)
-	hid := env.addUser("owner/pool", "alice", "github", pub)
+	hid := env.addUser("alice", "github", pub)
 
 	// First connection
-	c1 := connectClient(t, env, "owner/pool", "alice", "github", pub, priv)
+	c1 := connectClient(t, env, "alice", "github", pub, priv)
 	if c1.HashID() != hid {
 		t.Errorf("first connect: hash = %q, want %q", c1.HashID(), hid)
 	}
@@ -430,7 +431,7 @@ func TestE2E_Disconnect_Reconnect(t *testing.T) {
 
 	// Reconnect
 	c2 := relay.NewClient(relay.Config{
-		RelayURL: env.wsURL, PoolURL: "owner/pool",
+		RelayURL: env.wsURL,
 		UserID: "alice", Provider: "github", Pub: pub, Priv: priv,
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -468,19 +469,19 @@ func TestE2E_SessionReplacement(t *testing.T) {
 
 	pubA, privA := genKeys(t)
 	pubB, privB := genKeys(t)
-	hidA := env.addUser("owner/pool", "alice", "github", pubA)
-	hidB := env.addUser("owner/pool", "bob", "github", pubB)
+	hidA := env.addUser("alice", "github", pubA)
+	hidB := env.addUser("bob", "github", pubB)
 	env.addMatch(hidA, hidB)
 
 	// Alice connects first session
-	c1 := connectClient(t, env, "owner/pool", "alice", "github", pubA, privA)
+	c1 := connectClient(t, env, "alice", "github", pubA, privA)
 	_ = c1
 
 	// Alice connects second session (replaces first)
-	c2 := connectClient(t, env, "owner/pool", "alice", "github", pubA, privA)
+	c2 := connectClient(t, env, "alice", "github", pubA, privA)
 
 	// Bob connects and sends to Alice — should go to c2
-	clientB := connectClient(t, env, "owner/pool", "bob", "github", pubB, privB)
+	clientB := connectClient(t, env, "bob", "github", pubB, privB)
 
 	msgCh := make(chan protocol.Message, 1)
 	c2.OnMessage(func(msg protocol.Message) { msgCh <- msg })
@@ -497,41 +498,16 @@ func TestE2E_SessionReplacement(t *testing.T) {
 	}
 }
 
-func TestE2E_MultiPool_Isolation(t *testing.T) {
-	env := newTestEnv(t)
-
-	pub, priv := genKeys(t)
-	env.addUser("owner/pool-a", "alice", "github", pub)
-
-	// Alice is NOT in pool-b
-	c := relay.NewClient(relay.Config{
-		RelayURL: env.wsURL, PoolURL: "owner/pool-b",
-		UserID: "alice", Provider: "github", Pub: pub, Priv: priv,
-	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	err := c.Connect(ctx)
-	if err == nil {
-		c.Close()
-		t.Fatal("should fail — alice not in pool-b")
-	}
-	if !strings.Contains(err.Error(), "user_not_found") {
-		t.Errorf("error = %q, want user_not_found", err)
-	}
-}
-
 func TestE2E_EncryptedMessage_Delivered(t *testing.T) {
 	env := newTestEnv(t)
 	pubA, privA := genKeys(t)
 	pubB, privB := genKeys(t)
-	hidA := env.addUser("owner/pool", "alice", "github", pubA)
-	hidB := env.addUser("owner/pool", "bob", "github", pubB)
+	hidA := env.addUser("alice", "github", pubA)
+	hidB := env.addUser("bob", "github", pubB)
 	env.addMatch(hidA, hidB)
 
-	clientA := connectClient(t, env, "owner/pool", "alice", "github", pubA, privA)
-	clientB := connectClient(t, env, "owner/pool", "bob", "github", pubB, privB)
+	clientA := connectClient(t, env, "alice", "github", pubA, privA)
+	clientB := connectClient(t, env, "bob", "github", pubB, privB)
 
 	msgCh := make(chan protocol.Message, 1)
 	clientB.OnMessage(func(msg protocol.Message) { msgCh <- msg })
@@ -554,12 +530,12 @@ func TestE2E_EncryptedMessage_RelayCannotRead(t *testing.T) {
 	env := newTestEnv(t)
 	pubA, privA := genKeys(t)
 	pubB, privB := genKeys(t)
-	hidA := env.addUser("owner/pool", "alice", "github", pubA)
-	hidB := env.addUser("owner/pool", "bob", "github", pubB)
+	hidA := env.addUser("alice", "github", pubA)
+	hidB := env.addUser("bob", "github", pubB)
 	env.addMatch(hidA, hidB)
 
-	clientA := connectClient(t, env, "owner/pool", "alice", "github", pubA, privA)
-	clientB := connectClient(t, env, "owner/pool", "bob", "github", pubB, privB)
+	clientA := connectClient(t, env, "alice", "github", pubA, privA)
+	clientB := connectClient(t, env, "bob", "github", pubB, privB)
 
 	rawCh := make(chan protocol.Message, 1)
 	clientB.OnRawMessage(func(msg protocol.Message) { rawCh <- msg })
@@ -585,12 +561,12 @@ func TestE2E_EncryptedConversation_Bidirectional(t *testing.T) {
 	env := newTestEnv(t)
 	pubA, privA := genKeys(t)
 	pubB, privB := genKeys(t)
-	hidA := env.addUser("owner/pool", "alice", "github", pubA)
-	hidB := env.addUser("owner/pool", "bob", "github", pubB)
+	hidA := env.addUser("alice", "github", pubA)
+	hidB := env.addUser("bob", "github", pubB)
 	env.addMatch(hidA, hidB)
 
-	clientA := connectClient(t, env, "owner/pool", "alice", "github", pubA, privA)
-	clientB := connectClient(t, env, "owner/pool", "bob", "github", pubB, privB)
+	clientA := connectClient(t, env, "alice", "github", pubA, privA)
+	clientB := connectClient(t, env, "bob", "github", pubB, privB)
 
 	msgsA := make(chan protocol.Message, 10)
 	msgsB := make(chan protocol.Message, 10)
@@ -628,11 +604,11 @@ func TestE2E_KeyRequest_NotMatched(t *testing.T) {
 	env := newTestEnv(t)
 	pubA, privA := genKeys(t)
 	pubB, _ := genKeys(t)
-	env.addUser("owner/pool", "alice", "github", pubA)
-	hidB := env.addUser("owner/pool", "bob", "github", pubB)
+	env.addUser("alice", "github", pubA)
+	hidB := env.addUser("bob", "github", pubB)
 	// No match!
 
-	clientA := connectClient(t, env, "owner/pool", "alice", "github", pubA, privA)
+	clientA := connectClient(t, env, "alice", "github", pubA, privA)
 
 	errCh := make(chan protocol.Error, 1)
 	clientA.OnError(func(e protocol.Error) { errCh <- e })
@@ -652,11 +628,11 @@ func TestE2E_KeyRequest_NotMatched(t *testing.T) {
 func TestE2E_KeyRequest_TargetNotFound(t *testing.T) {
 	env := newTestEnv(t)
 	pubA, privA := genKeys(t)
-	hidA := env.addUser("owner/pool", "alice", "github", pubA)
+	hidA := env.addUser("alice", "github", pubA)
 	fakeHash := "nonexistent12345"
 	env.addMatch(hidA, fakeHash)
 
-	clientA := connectClient(t, env, "owner/pool", "alice", "github", pubA, privA)
+	clientA := connectClient(t, env, "alice", "github", pubA, privA)
 
 	errCh := make(chan protocol.Error, 1)
 	clientA.OnError(func(e protocol.Error) { errCh <- e })
@@ -677,12 +653,12 @@ func TestE2E_MixedEncryptedUnencrypted(t *testing.T) {
 	env := newTestEnv(t)
 	pubA, privA := genKeys(t)
 	pubB, privB := genKeys(t)
-	hidA := env.addUser("owner/pool", "alice", "github", pubA)
-	hidB := env.addUser("owner/pool", "bob", "github", pubB)
+	hidA := env.addUser("alice", "github", pubA)
+	hidB := env.addUser("bob", "github", pubB)
 	env.addMatch(hidA, hidB)
 
-	clientA := connectClient(t, env, "owner/pool", "alice", "github", pubA, privA)
-	clientB := connectClient(t, env, "owner/pool", "bob", "github", pubB, privB)
+	clientA := connectClient(t, env, "alice", "github", pubA, privA)
+	clientB := connectClient(t, env, "bob", "github", pubB, privB)
 
 	msgCh := make(chan protocol.Message, 2)
 	clientB.OnMessage(func(msg protocol.Message) { msgCh <- msg })

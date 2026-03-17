@@ -52,12 +52,6 @@ func DecodeFrame(data []byte) (any, error) {
 	case TypeRefresh:
 		var f RefreshRequest
 		return &f, Decode(data, &f)
-	case TypeIdentity:
-		var f IdentityRequest
-		return &f, Decode(data, &f)
-	case TypeIdentityResponse:
-		var f IdentityResponse
-		return &f, Decode(data, &f)
 	case TypeMsg:
 		var f Message
 		return &f, Decode(data, &f)

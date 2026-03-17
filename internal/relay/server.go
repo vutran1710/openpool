@@ -15,11 +15,13 @@ type Server struct {
 	hub      *Hub
 	tokens   *TokenStore
 	store    *Store
+	poolURL  string
 	upgrader websocket.Upgrader
 }
 
 // ServerConfig holds relay server configuration.
 type ServerConfig struct {
+	PoolURL  string
 	TokenTTL time.Duration
 }
 
@@ -29,9 +31,10 @@ func NewServer(cfg ServerConfig) *Server {
 		cfg.TokenTTL = 15 * time.Minute
 	}
 	return &Server{
-		hub:    NewHub(),
-		tokens: NewTokenStore(cfg.TokenTTL),
-		store:  NewStore(),
+		hub:     NewHub(),
+		tokens:  NewTokenStore(cfg.TokenTTL),
+		store:   NewStore(),
+		poolURL: cfg.PoolURL,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},

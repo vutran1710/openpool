@@ -16,7 +16,6 @@ type TokenStore struct {
 
 type tokenEntry struct {
 	hashID    string
-	poolURL   string
 	expiresAt time.Time
 }
 
@@ -31,7 +30,7 @@ func NewTokenStore(ttl time.Duration) *TokenStore {
 }
 
 // Issue creates a new token for the given user.
-func (ts *TokenStore) Issue(hashID, poolURL string) (token string, expiresAt int64) {
+func (ts *TokenStore) Issue(hashID string) (token string, expiresAt int64) {
 	b := make([]byte, 32)
 	rand.Read(b)
 	token = hex.EncodeToString(b)
@@ -41,7 +40,6 @@ func (ts *TokenStore) Issue(hashID, poolURL string) (token string, expiresAt int
 	ts.mu.Lock()
 	ts.tokens[token] = &tokenEntry{
 		hashID:    hashID,
-		poolURL:   poolURL,
 		expiresAt: exp,
 	}
 	ts.mu.Unlock()
@@ -49,17 +47,16 @@ func (ts *TokenStore) Issue(hashID, poolURL string) (token string, expiresAt int
 	return token, exp.Unix()
 }
 
-// Validate checks a token and returns the associated hashID and poolURL.
-// Returns empty strings if invalid or expired.
-func (ts *TokenStore) Validate(token string) (hashID, poolURL string, ok bool) {
+// Validate checks a token and returns the associated hashID.
+func (ts *TokenStore) Validate(token string) (hashID string, ok bool) {
 	ts.mu.RLock()
 	entry, exists := ts.tokens[token]
 	ts.mu.RUnlock()
 
 	if !exists || time.Now().After(entry.expiresAt) {
-		return "", "", false
+		return "", false
 	}
-	return entry.hashID, entry.poolURL, true
+	return entry.hashID, true
 }
 
 // Revoke removes a token.
