@@ -179,10 +179,13 @@ The pubkey is embedded in the `.bin` file (first 32 bytes). The relay reads it f
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `POOL_TOKEN` | Yes | GitHub PAT for pool repo API access (avoids 60 req/hr anonymous limit) |
 | `OPERATOR_PRIVATE_KEY` | Yes | Hex-encoded ed25519 private key for profile decryption + re-encryption |
-| `POOL_SALT` | Yes | Secret salt for computing user filenames |
-| `PORT` | No | Server port (default: 8081) |
+| `POOL_SALT` | Yes | Secret salt for hash_id computation: `SHA256(salt:pool_url:provider:user_id)[:16]` |
+| `POOL_TOKEN` | Yes | GitHub PAT for pool repo API access (avoids 60 req/hr anonymous limit) |
+| `POOL_REPOS` | Yes | Comma-separated pool repo URLs to sync (e.g. `owner/pool-a,owner/pool-b`) |
+| `PORT` | No | Server port (default: `8081`) |
+| `TOKEN_TTL` | No | Auth token lifetime in seconds (default: `900` = 15 min) |
+| `SYNC_INTERVAL` | No | Repo sync interval (default: `2m`) |
 
 ### Local Data
 

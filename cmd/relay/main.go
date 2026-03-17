@@ -2,8 +2,9 @@ package main
 
 import (
 	"log"
-	"net/http"
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/vutran1710/dating-dev/internal/relay"
 )
@@ -14,15 +15,18 @@ func main() {
 		port = "8081"
 	}
 
-	srv := relay.NewServer()
+	ttl := 15 * time.Minute
+	if s := os.Getenv("TOKEN_TTL"); s != "" {
+		if sec, err := strconv.Atoi(s); err == nil {
+			ttl = time.Duration(sec) * time.Second
+		}
+	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /ws", srv.HandleWS)
-	mux.HandleFunc("GET /health", srv.HandleHealth)
-	mux.HandleFunc("POST /discover", srv.HandleDiscover)
+	srv := relay.NewServer(relay.ServerConfig{
+		TokenTTL: ttl,
+	})
 
-	log.Printf("relay server listening on :%s", port)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+	if err := srv.ListenAndServe(relay.Addr(port)); err != nil {
 		log.Fatal(err)
 	}
 }
