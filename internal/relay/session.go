@@ -14,19 +14,18 @@ import (
 
 // Session handles a single WebSocket connection's lifecycle.
 type Session struct {
-	conn   *websocket.Conn
-	server *Server
+	conn    *websocket.Conn
+	server  *Server
 	writeMu sync.Mutex
 
 	// Set after authentication
 	hashID   string
-	poolURL  string
 	userID   string
 	provider string
 
 	// Auth state machine
-	nonce     []byte
-	authed    bool
+	nonce  []byte
+	authed bool
 }
 
 // newSession creates a session for an incoming connection.
@@ -70,8 +69,6 @@ func (s *Session) handleFrame(frame any) {
 		s.handleAuthResponse(f)
 	case *protocol.RefreshRequest:
 		s.handleRefresh(f)
-	case *protocol.IdentityRequest:
-		s.handleIdentity(f)
 	case *protocol.Message:
 		s.handleMessage(f)
 	case *protocol.Ack:
@@ -84,13 +81,13 @@ func (s *Session) handleFrame(frame any) {
 }
 
 func (s *Session) handleAuth(req *protocol.AuthRequest) {
-	if req.UserID == "" || req.Provider == "" || req.PoolURL == "" {
+	if req.UserID == "" || req.Provider == "" {
 		s.sendError(protocol.ErrInternal, "missing auth fields")
 		return
 	}
 
-	// Look up user in store
-	entry := s.server.store.LookupUser(req.PoolURL, req.UserID, req.Provider)
+	// Look up user in store (pool is implicit — server is per-pool)
+	entry := s.server.store.LookupUser(req.UserID, req.Provider)
 	if entry == nil {
 		s.sendError(protocol.ErrUserNotFound, "User not registered in this pool")
 		return
@@ -106,7 +103,6 @@ func (s *Session) handleAuth(req *protocol.AuthRequest) {
 	s.nonce = nonce
 	s.userID = req.UserID
 	s.provider = req.Provider
-	s.poolURL = req.PoolURL
 
 	s.sendFrame(protocol.Challenge{
 		Type:  protocol.TypeChallenge,
@@ -120,7 +116,7 @@ func (s *Session) handleAuthResponse(resp *protocol.AuthResponse) {
 		return
 	}
 
-	entry := s.server.store.LookupUser(s.poolURL, s.userID, s.provider)
+	entry := s.server.store.LookupUser(s.userID, s.provider)
 	if entry == nil {
 		s.sendError(protocol.ErrUserNotFound, "user disappeared during auth")
 		return
@@ -144,7 +140,7 @@ func (s *Session) handleAuthResponse(resp *protocol.AuthResponse) {
 	s.hashID = entry.HashID
 
 	// Issue token
-	token, expiresAt := s.server.tokens.Issue(entry.HashID, s.poolURL)
+	token, expiresAt := s.server.tokens.Issue(entry.HashID)
 
 	// Register in hub
 	s.server.hub.Register(s.hashID, s)
@@ -154,13 +150,14 @@ func (s *Session) handleAuthResponse(resp *protocol.AuthResponse) {
 		Token:     token,
 		ExpiresAt: expiresAt,
 		HashID:    entry.HashID,
+		PoolURL:   s.server.poolURL,
 	})
 
 	log.Printf("session: authenticated %s (hash=%s)", s.userID, s.hashID)
 }
 
 func (s *Session) handleRefresh(req *protocol.RefreshRequest) {
-	hashID, poolURL, ok := s.server.tokens.Validate(req.Token)
+	hashID, ok := s.server.tokens.Validate(req.Token)
 	if !ok {
 		s.sendError(protocol.ErrTokenExpired, "token expired or invalid")
 		return
@@ -168,32 +165,14 @@ func (s *Session) handleRefresh(req *protocol.RefreshRequest) {
 
 	// Revoke old, issue new
 	s.server.tokens.Revoke(req.Token)
-	newToken, expiresAt := s.server.tokens.Issue(hashID, poolURL)
+	newToken, expiresAt := s.server.tokens.Issue(hashID)
 
 	s.sendFrame(protocol.Authenticated{
 		Type:      protocol.TypeAuthenticated,
 		Token:     newToken,
 		ExpiresAt: expiresAt,
 		HashID:    hashID,
-	})
-}
-
-func (s *Session) handleIdentity(req *protocol.IdentityRequest) {
-	if !s.authed {
-		s.sendError(protocol.ErrTokenInvalid, "not authenticated")
-		return
-	}
-
-	hashID := s.server.store.LookupHashForPool(req.PoolURL, s.userID, s.provider)
-	if hashID == "" {
-		s.sendError(protocol.ErrUserNotFound, "not registered in pool")
-		return
-	}
-
-	s.sendFrame(protocol.IdentityResponse{
-		Type:    protocol.TypeIdentityResponse,
-		PoolURL: req.PoolURL,
-		HashID:  hashID,
+		PoolURL:   s.server.poolURL,
 	})
 }
 
@@ -204,7 +183,7 @@ func (s *Session) handleMessage(msg *protocol.Message) {
 	}
 
 	// Validate token
-	hashID, _, ok := s.server.tokens.Validate(msg.Token)
+	hashID, ok := s.server.tokens.Validate(msg.Token)
 	if !ok {
 		s.sendError(protocol.ErrTokenExpired, "token expired")
 		return
@@ -225,7 +204,7 @@ func (s *Session) handleMessage(msg *protocol.Message) {
 	// Generate msg_id
 	msgID := generateMsgID()
 
-	// Route to target
+	// Route to target — server populates PoolURL
 	targetSession := s.server.hub.Lookup(msg.TargetHash)
 	if targetSession != nil {
 		outMsg := protocol.Message{
@@ -233,7 +212,7 @@ func (s *Session) handleMessage(msg *protocol.Message) {
 			MsgID:      msgID,
 			SourceHash: msg.SourceHash,
 			TargetHash: msg.TargetHash,
-			PoolURL:    msg.PoolURL,
+			PoolURL:    s.server.poolURL,
 			Body:       msg.Body,
 			Ts:         msg.Ts,
 			Encrypted:  msg.Encrypted,

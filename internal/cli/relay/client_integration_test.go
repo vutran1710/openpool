@@ -112,9 +112,10 @@ func doAuth(t *testing.T, conn *websocket.Conn, pub ed25519.PublicKey) {
 	}
 
 	if err := wsWriteFrame(conn, protocol.Authenticated{
-		Type:   protocol.TypeAuthenticated,
-		Token:  "test-token-123",
-		HashID: "abc123",
+		Type:    protocol.TypeAuthenticated,
+		Token:   "test-token-123",
+		HashID:  "abc123",
+		PoolURL: "owner/test-pool",
 	}); err != nil {
 		t.Fatalf("doAuth: write authenticated: %v", err)
 	}
@@ -134,14 +135,13 @@ func keepAlive(conn *websocket.Conn) {
 func TestIntegration_Connect_FullHandshake(t *testing.T) {
 	pub, priv := genTestKeys()
 
-	var authUserID, authProvider, authPoolURL string
+	var authUserID, authProvider string
 
 	relay := newMockRelay(func(conn *websocket.Conn) {
 		frame, _ := wsReadFrame(conn)
 		auth := frame.(*protocol.AuthRequest)
 		authUserID = auth.UserID
 		authProvider = auth.Provider
-		authPoolURL = auth.PoolURL
 
 		nonce := generateNonce()
 		wsWriteFrame(conn, protocol.Challenge{Type: protocol.TypeChallenge, Nonce: nonce})
@@ -159,7 +159,7 @@ func TestIntegration_Connect_FullHandshake(t *testing.T) {
 		}
 
 		wsWriteFrame(conn, protocol.Authenticated{
-			Type: protocol.TypeAuthenticated, Token: "token-abc", HashID: "hash-xyz",
+			Type: protocol.TypeAuthenticated, Token: "token-abc", HashID: "hash-xyz", PoolURL: "owner/my-pool",
 		})
 		keepAlive(conn)
 	})
@@ -167,7 +167,6 @@ func TestIntegration_Connect_FullHandshake(t *testing.T) {
 
 	c := NewClient(Config{
 		RelayURL: relay.wsURL(),
-		PoolURL:  "owner/my-pool",
 		UserID:   "alice",
 		Provider: "github",
 		Pub:      pub, Priv: priv,
@@ -186,9 +185,6 @@ func TestIntegration_Connect_FullHandshake(t *testing.T) {
 	}
 	if authProvider != "github" {
 		t.Errorf("auth provider = %q, want github", authProvider)
-	}
-	if authPoolURL != "owner/my-pool" {
-		t.Errorf("auth pool_url = %q, want owner/my-pool", authPoolURL)
 	}
 
 	// Verify client state after auth
@@ -212,7 +208,7 @@ func TestIntegration_Connect_UserNotFound(t *testing.T) {
 	defer relay.close()
 
 	c := NewClient(Config{
-		RelayURL: relay.wsURL(), PoolURL: "owner/pool",
+		RelayURL: relay.wsURL(),
 		UserID: "nobody", Provider: "github", Pub: pub, Priv: priv,
 	})
 
@@ -242,7 +238,7 @@ func TestIntegration_Connect_SignatureRejected(t *testing.T) {
 	defer relay.close()
 
 	c := NewClient(Config{
-		RelayURL: relay.wsURL(), PoolURL: "owner/pool",
+		RelayURL: relay.wsURL(),
 		UserID: "test", Provider: "github", Pub: pub, Priv: priv,
 	})
 
@@ -262,7 +258,7 @@ func TestIntegration_Connect_Unreachable(t *testing.T) {
 	pub, priv := genTestKeys()
 	c := NewClient(Config{
 		RelayURL: "ws://127.0.0.1:1",
-		PoolURL:  "owner/pool", UserID: "test", Provider: "github",
+		UserID: "test", Provider: "github",
 		Pub: pub, Priv: priv,
 	})
 
@@ -290,7 +286,7 @@ func TestIntegration_Connect_ContextCanceled(t *testing.T) {
 	defer relay.close()
 
 	c := NewClient(Config{
-		RelayURL: relay.wsURL(), PoolURL: "owner/pool",
+		RelayURL: relay.wsURL(),
 		UserID: "test", Provider: "github", Pub: pub, Priv: priv,
 	})
 
@@ -320,7 +316,7 @@ func TestIntegration_Connect_UnexpectedFrameType(t *testing.T) {
 	defer relay.close()
 
 	c := NewClient(Config{
-		RelayURL: relay.wsURL(), PoolURL: "owner/pool",
+		RelayURL: relay.wsURL(),
 		UserID: "test", Provider: "github", Pub: pub, Priv: priv,
 	})
 
@@ -356,7 +352,7 @@ func TestIntegration_SendMessage_Delivered(t *testing.T) {
 	defer relay.close()
 
 	c := NewClient(Config{
-		RelayURL: relay.wsURL(), PoolURL: "owner/pool",
+		RelayURL: relay.wsURL(),
 		UserID: "alice", Provider: "github", Pub: pub, Priv: priv,
 	})
 
@@ -381,9 +377,6 @@ func TestIntegration_SendMessage_Delivered(t *testing.T) {
 		}
 		if msg.SourceHash != "abc123" {
 			t.Errorf("source = %q, want abc123", msg.SourceHash)
-		}
-		if msg.PoolURL != "owner/pool" {
-			t.Errorf("pool = %q, want owner/pool", msg.PoolURL)
 		}
 		if msg.Token != "test-token-123" {
 			t.Errorf("token = %q, want test-token-123", msg.Token)
@@ -413,7 +406,7 @@ func TestIntegration_SendMessage_ConcurrentSafe(t *testing.T) {
 	defer relay.close()
 
 	c := NewClient(Config{
-		RelayURL: relay.wsURL(), PoolURL: "owner/pool",
+		RelayURL: relay.wsURL(),
 		UserID: "alice", Provider: "github", Pub: pub, Priv: priv,
 	})
 
@@ -460,7 +453,7 @@ func TestIntegration_AckMessage(t *testing.T) {
 	defer relay.close()
 
 	c := NewClient(Config{
-		RelayURL: relay.wsURL(), PoolURL: "owner/pool",
+		RelayURL: relay.wsURL(),
 		UserID: "alice", Provider: "github", Pub: pub, Priv: priv,
 	})
 
@@ -506,7 +499,7 @@ func TestIntegration_OnMessage_Received(t *testing.T) {
 	defer relay.close()
 
 	c := NewClient(Config{
-		RelayURL: relay.wsURL(), PoolURL: "owner/pool",
+		RelayURL: relay.wsURL(),
 		UserID: "alice", Provider: "github", Pub: pub, Priv: priv,
 	})
 	c.OnMessage(func(msg protocol.Message) { msgCh <- msg })
@@ -551,7 +544,7 @@ func TestIntegration_OnMessage_MultipleMessages(t *testing.T) {
 	defer relay.close()
 
 	c := NewClient(Config{
-		RelayURL: relay.wsURL(), PoolURL: "owner/pool",
+		RelayURL: relay.wsURL(),
 		UserID: "alice", Provider: "github", Pub: pub, Priv: priv,
 	})
 	c.OnMessage(func(msg protocol.Message) { msgCh <- msg })
@@ -587,7 +580,7 @@ func TestIntegration_OnMessage_NoCallback_NoPanic(t *testing.T) {
 	defer relay.close()
 
 	c := NewClient(Config{
-		RelayURL: relay.wsURL(), PoolURL: "owner/pool",
+		RelayURL: relay.wsURL(),
 		UserID: "alice", Provider: "github", Pub: pub, Priv: priv,
 	})
 	// Deliberately NOT setting OnMessage
@@ -617,7 +610,7 @@ func TestIntegration_OnError_Received(t *testing.T) {
 	defer relay.close()
 
 	c := NewClient(Config{
-		RelayURL: relay.wsURL(), PoolURL: "owner/pool",
+		RelayURL: relay.wsURL(),
 		UserID: "alice", Provider: "github", Pub: pub, Priv: priv,
 	})
 	c.OnError(func(e protocol.Error) { errCh <- e })
@@ -655,7 +648,7 @@ func TestIntegration_OnError_NoCallback_NoPanic(t *testing.T) {
 	defer relay.close()
 
 	c := NewClient(Config{
-		RelayURL: relay.wsURL(), PoolURL: "owner/pool",
+		RelayURL: relay.wsURL(),
 		UserID: "alice", Provider: "github", Pub: pub, Priv: priv,
 	})
 
@@ -685,7 +678,7 @@ func TestIntegration_TokenRefresh_ViaReadLoop(t *testing.T) {
 	defer relay.close()
 
 	c := NewClient(Config{
-		RelayURL: relay.wsURL(), PoolURL: "owner/pool",
+		RelayURL: relay.wsURL(),
 		UserID: "alice", Provider: "github", Pub: pub, Priv: priv,
 	})
 
@@ -721,7 +714,7 @@ func TestIntegration_TokenRefresh_MultipleUpdates(t *testing.T) {
 	defer relay.close()
 
 	c := NewClient(Config{
-		RelayURL: relay.wsURL(), PoolURL: "owner/pool",
+		RelayURL: relay.wsURL(),
 		UserID: "alice", Provider: "github", Pub: pub, Priv: priv,
 	})
 
@@ -759,7 +752,7 @@ func TestIntegration_Close_StopsReadLoop(t *testing.T) {
 	defer relay.close()
 
 	c := NewClient(Config{
-		RelayURL: relay.wsURL(), PoolURL: "owner/pool",
+		RelayURL: relay.wsURL(),
 		UserID: "alice", Provider: "github", Pub: pub, Priv: priv,
 	})
 
@@ -789,7 +782,7 @@ func TestIntegration_Close_SendAfterClose(t *testing.T) {
 	defer relay.close()
 
 	c := NewClient(Config{
-		RelayURL: relay.wsURL(), PoolURL: "owner/pool",
+		RelayURL: relay.wsURL(),
 		UserID: "alice", Provider: "github", Pub: pub, Priv: priv,
 	})
 
@@ -822,7 +815,7 @@ func TestIntegration_ServerDisconnect_ReadLoopExits(t *testing.T) {
 	defer relay.close()
 
 	c := NewClient(Config{
-		RelayURL: relay.wsURL(), PoolURL: "owner/pool",
+		RelayURL: relay.wsURL(),
 		UserID: "alice", Provider: "github", Pub: pub, Priv: priv,
 	})
 	c.OnError(func(e protocol.Error) { errCh <- e })
@@ -861,7 +854,7 @@ func TestIntegration_MixedFrames_MessageThenError(t *testing.T) {
 	defer relay.close()
 
 	c := NewClient(Config{
-		RelayURL: relay.wsURL(), PoolURL: "owner/pool",
+		RelayURL: relay.wsURL(),
 		UserID: "alice", Provider: "github", Pub: pub, Priv: priv,
 	})
 	c.OnMessage(func(msg protocol.Message) { msgCh <- msg })

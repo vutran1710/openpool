@@ -42,7 +42,6 @@ type Client struct {
 // Config holds the parameters needed to connect.
 type Config struct {
 	RelayURL string
-	PoolURL  string
 	UserID   string
 	Provider string
 	Pub      ed25519.PublicKey
@@ -53,7 +52,6 @@ type Config struct {
 func NewClient(cfg Config) *Client {
 	return &Client{
 		url:      cfg.RelayURL,
-		poolURL:  cfg.PoolURL,
 		userID:   cfg.UserID,
 		provider: cfg.Provider,
 		pub:      cfg.Pub,
@@ -215,7 +213,6 @@ func (c *Client) SendMessage(targetHash, body string) error {
 		Token:      c.Token(),
 		SourceHash: c.hashID,
 		TargetHash: targetHash,
-		PoolURL:    c.poolURL,
 		Body:       encBody,
 		Encrypted:  true,
 		Ts:         time.Now().Unix(),
@@ -230,7 +227,6 @@ func (c *Client) SendMessagePlain(targetHash, body string) error {
 		Token:      c.Token(),
 		SourceHash: c.hashID,
 		TargetHash: targetHash,
-		PoolURL:    c.poolURL,
 		Body:       body,
 		Ts:         time.Now().Unix(),
 	}
@@ -245,36 +241,6 @@ func (c *Client) AckMessage(msgID string) error {
 	})
 }
 
-// QueryIdentity asks the relay for the user's hash_id in a pool.
-func (c *Client) QueryIdentity(ctx context.Context, poolURL string) (string, error) {
-	if err := c.send(protocol.IdentityRequest{
-		Type:    protocol.TypeIdentity,
-		PoolURL: poolURL,
-	}); err != nil {
-		return "", err
-	}
-
-	// Wait for response (blocking read with timeout)
-	data, err := c.readFrame(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	frame, err := protocol.DecodeFrame(data)
-	if err != nil {
-		return "", err
-	}
-
-	switch f := frame.(type) {
-	case *protocol.IdentityResponse:
-		return f.HashID, nil
-	case *protocol.Error:
-		return "", fmt.Errorf("%s: %s", f.Code, f.Message)
-	default:
-		return "", fmt.Errorf("unexpected response type: %T", frame)
-	}
-}
-
 // --- Internal ---
 
 func (c *Client) authenticate(ctx context.Context) error {
@@ -283,7 +249,6 @@ func (c *Client) authenticate(ctx context.Context) error {
 		Type:     protocol.TypeAuth,
 		UserID:   c.userID,
 		Provider: c.provider,
-		PoolURL:  c.poolURL,
 	}); err != nil {
 		return fmt.Errorf("sending auth: %w", err)
 	}
@@ -337,6 +302,7 @@ func (c *Client) authenticate(ctx context.Context) error {
 		c.mu.Lock()
 		c.token = f.Token
 		c.hashID = f.HashID
+		c.poolURL = f.PoolURL
 		c.mu.Unlock()
 		return nil
 	case *protocol.Error:

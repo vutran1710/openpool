@@ -22,7 +22,13 @@ func main() {
 		}
 	}
 
+	poolURL := os.Getenv("POOL_URL")
+	if poolURL == "" {
+		log.Fatal("POOL_URL is required (e.g. owner/pool-name)")
+	}
+
 	srv := relay.NewServer(relay.ServerConfig{
+		PoolURL:  poolURL,
 		TokenTTL: ttl,
 	})
 
