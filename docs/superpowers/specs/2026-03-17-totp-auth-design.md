@@ -83,7 +83,7 @@ But cannot decrypt without the user's **private** key. The project already uses 
 | CLI polls, no reply within 5 min | CLI aborts with timeout message | Check issue status on GitHub |
 | CLI decrypts but persist fails (disk error) | CLI shows error, does not mark as complete | Fix disk, retry join |
 | CLI decrypts + persists, but Action failed to commit | CLI has hashes but not registered in pool | Retry join — hashes overwritten with same values |
-| User already registered | Action detects existing `.bin`, updates profile | No hash redelivery needed (already have them) |
+| User already registered | Action still computes hashes, posts encrypted comment, updates `.bin` | CLI still polls + decrypts — same flow every time |
 
 ---
 
