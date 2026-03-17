@@ -13,36 +13,32 @@ import (
 )
 
 // Session handles a single WebSocket connection's lifecycle.
+// TOTP auth is already verified at upgrade — no auth frames needed.
 type Session struct {
 	conn    *websocket.Conn
 	server  *Server
 	writeMu sync.Mutex
-
-	// Set after authentication
-	hashID   string
-	userID   string
-	provider string
-
-	// Auth state machine
-	nonce  []byte
-	authed bool
+	binHash string
 }
 
-// newSession creates a session for an incoming connection.
-func newSession(conn *websocket.Conn, srv *Server) *Session {
+// newSession creates a session for an authenticated connection.
+func newSession(conn *websocket.Conn, srv *Server, binHash string) *Session {
 	return &Session{
-		conn:   conn,
-		server: srv,
+		conn:    conn,
+		server:  srv,
+		binHash: binHash,
 	}
 }
 
 // run is the main read loop for the session.
 func (s *Session) run() {
+	s.server.hub.Register(s.binHash, s)
+	log.Printf("session: connected %s", s.binHash)
+
 	defer func() {
-		if s.hashID != "" {
-			s.server.hub.Unregister(s.hashID, s)
-		}
+		s.server.hub.Unregister(s.binHash, s)
 		s.conn.Close()
+		log.Printf("session: disconnected %s", s.binHash)
 	}()
 
 	for {
@@ -63,12 +59,6 @@ func (s *Session) run() {
 
 func (s *Session) handleFrame(frame any) {
 	switch f := frame.(type) {
-	case *protocol.AuthRequest:
-		s.handleAuth(f)
-	case *protocol.AuthResponse:
-		s.handleAuthResponse(f)
-	case *protocol.RefreshRequest:
-		s.handleRefresh(f)
 	case *protocol.Message:
 		s.handleMessage(f)
 	case *protocol.Ack:
@@ -80,118 +70,10 @@ func (s *Session) handleFrame(frame any) {
 	}
 }
 
-func (s *Session) handleAuth(req *protocol.AuthRequest) {
-	if req.UserID == "" || req.Provider == "" {
-		s.sendError(protocol.ErrInternal, "missing auth fields")
-		return
-	}
-
-	// Look up user in store (pool is implicit — server is per-pool)
-	entry := s.server.store.LookupUser(req.UserID, req.Provider)
-	if entry == nil {
-		s.sendError(protocol.ErrUserNotFound, "User not registered in this pool")
-		return
-	}
-
-	// Generate nonce challenge
-	nonce := make([]byte, 32)
-	if _, err := rand.Read(nonce); err != nil {
-		s.sendError(protocol.ErrInternal, "failed to generate nonce")
-		return
-	}
-
-	s.nonce = nonce
-	s.userID = req.UserID
-	s.provider = req.Provider
-
-	s.sendFrame(protocol.Challenge{
-		Type:  protocol.TypeChallenge,
-		Nonce: hex.EncodeToString(nonce),
-	})
-}
-
-func (s *Session) handleAuthResponse(resp *protocol.AuthResponse) {
-	if s.nonce == nil {
-		s.sendError(protocol.ErrAuthFailed, "no pending challenge")
-		return
-	}
-
-	entry := s.server.store.LookupUser(s.userID, s.provider)
-	if entry == nil {
-		s.sendError(protocol.ErrUserNotFound, "user disappeared during auth")
-		return
-	}
-
-	// Verify signature
-	sigBytes, err := hex.DecodeString(resp.Signature)
-	if err != nil {
-		s.sendError(protocol.ErrAuthFailed, "invalid signature encoding")
-		return
-	}
-
-	if !verifyEd25519(entry.PubKey, s.nonce, sigBytes) {
-		s.sendError(protocol.ErrAuthFailed, "Signature verification failed")
-		return
-	}
-
-	// Authentication successful
-	s.nonce = nil
-	s.authed = true
-	s.hashID = entry.HashID
-
-	// Issue token
-	token, expiresAt := s.server.tokens.Issue(entry.HashID)
-
-	// Register in hub
-	s.server.hub.Register(s.hashID, s)
-
-	s.sendFrame(protocol.Authenticated{
-		Type:      protocol.TypeAuthenticated,
-		Token:     token,
-		ExpiresAt: expiresAt,
-		HashID:    entry.HashID,
-		PoolURL:   s.server.poolURL,
-	})
-
-	log.Printf("session: authenticated %s (hash=%s)", s.userID, s.hashID)
-}
-
-func (s *Session) handleRefresh(req *protocol.RefreshRequest) {
-	hashID, ok := s.server.tokens.Validate(req.Token)
-	if !ok {
-		s.sendError(protocol.ErrTokenExpired, "token expired or invalid")
-		return
-	}
-
-	// Revoke old, issue new
-	s.server.tokens.Revoke(req.Token)
-	newToken, expiresAt := s.server.tokens.Issue(hashID)
-
-	s.sendFrame(protocol.Authenticated{
-		Type:      protocol.TypeAuthenticated,
-		Token:     newToken,
-		ExpiresAt: expiresAt,
-		HashID:    hashID,
-		PoolURL:   s.server.poolURL,
-	})
-}
-
 func (s *Session) handleMessage(msg *protocol.Message) {
-	if !s.authed {
-		s.sendError(protocol.ErrTokenInvalid, "not authenticated")
-		return
-	}
-
-	// Validate token
-	hashID, ok := s.server.tokens.Validate(msg.Token)
-	if !ok {
-		s.sendError(protocol.ErrTokenExpired, "token expired")
-		return
-	}
-
-	// Verify sender matches token
-	if hashID != msg.SourceHash {
-		s.sendError(protocol.ErrAuthFailed, "token does not match source_hash")
+	// Verify sender matches session
+	if msg.SourceHash != s.binHash {
+		s.sendError(protocol.ErrAuthFailed, "source_hash does not match session")
 		return
 	}
 
@@ -204,7 +86,7 @@ func (s *Session) handleMessage(msg *protocol.Message) {
 	// Generate msg_id
 	msgID := generateMsgID()
 
-	// Route to target — server populates PoolURL
+	// Route to target
 	targetSession := s.server.hub.Lookup(msg.TargetHash)
 	if targetSession != nil {
 		outMsg := protocol.Message{
@@ -212,7 +94,6 @@ func (s *Session) handleMessage(msg *protocol.Message) {
 			MsgID:      msgID,
 			SourceHash: msg.SourceHash,
 			TargetHash: msg.TargetHash,
-			PoolURL:    s.server.poolURL,
 			Body:       msg.Body,
 			Ts:         msg.Ts,
 			Encrypted:  msg.Encrypted,
@@ -223,18 +104,13 @@ func (s *Session) handleMessage(msg *protocol.Message) {
 }
 
 func (s *Session) handleKeyRequest(req *protocol.KeyRequest) {
-	if !s.authed {
-		s.sendError(protocol.ErrTokenInvalid, "not authenticated")
-		return
-	}
-
 	if req.TargetHash == "" {
 		s.sendError(protocol.ErrInternal, "missing target_hash")
 		return
 	}
 
 	// Verify requester is matched with target
-	if !s.server.store.IsMatched(s.hashID, req.TargetHash) {
+	if !s.server.store.IsMatched(s.binHash, req.TargetHash) {
 		s.sendError(protocol.ErrNotMatched, "not matched with target")
 		return
 	}
@@ -253,12 +129,8 @@ func (s *Session) handleKeyRequest(req *protocol.KeyRequest) {
 }
 
 func (s *Session) handleAck(ack *protocol.Ack) {
-	if !s.authed {
-		s.sendError(protocol.ErrTokenInvalid, "not authenticated")
-		return
-	}
 	// TODO: mark message as acked in persistent store
-	log.Printf("session: ack %s from %s", ack.MsgID, s.hashID)
+	log.Printf("session: ack %s from %s", ack.MsgID, s.binHash)
 }
 
 func (s *Session) sendFrame(v any) {

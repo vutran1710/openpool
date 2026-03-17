@@ -1,18 +1,16 @@
 // Package protocol defines the relay wire protocol types.
 // These types are language-agnostic — any implementation must
 // support these frame types over MessagePack-encoded WebSocket frames.
+//
+// Auth is handled via TOTP signature at WebSocket upgrade (query params).
+// WebSocket only carries message frames after authentication.
 package protocol
 
-// Frame types
+// Frame types (WebSocket only — no auth frames)
 const (
-	TypeAuth             = "auth"
-	TypeChallenge        = "challenge"
-	TypeAuthResponse     = "auth_response"
-	TypeAuthenticated    = "authenticated"
-	TypeRefresh          = "refresh"
-	TypeMsg              = "msg"
-	TypeAck              = "ack"
-	TypeError            = "error"
+	TypeMsg         = "msg"
+	TypeAck         = "ack"
+	TypeError       = "error"
 	TypeKeyRequest  = "key_request"
 	TypeKeyResponse = "key_response"
 )
@@ -21,42 +19,19 @@ const (
 const (
 	ErrUserNotFound = "user_not_found"
 	ErrAuthFailed   = "auth_failed"
-	ErrTokenExpired = "token_expired"
-	ErrTokenInvalid = "token_invalid"
 	ErrNotMatched   = "not_matched"
 	ErrRateLimited  = "rate_limited"
 	ErrInternal     = "internal_error"
 )
 
-// --- Client → Relay ---
-
-// AuthRequest initiates authentication.
-type AuthRequest struct {
-	Type     string `msgpack:"type"`
-	UserID   string `msgpack:"user_id"`
-	Provider string `msgpack:"provider"`
-}
-
-// AuthResponse sends the signed nonce back.
-type AuthResponse struct {
-	Type      string `msgpack:"type"`
-	Signature string `msgpack:"signature"`
-}
-
-// RefreshRequest refreshes an expiring token.
-type RefreshRequest struct {
-	Type  string `msgpack:"type"`
-	Token string `msgpack:"token"`
-}
+// --- Chat Frames (WebSocket) ---
 
 // Message is a chat message (bidirectional).
 type Message struct {
 	Type       string `msgpack:"type"`
-	Token      string `msgpack:"token,omitempty"`      // only client→relay
-	MsgID      string `msgpack:"msg_id,omitempty"`     // only relay→client
+	MsgID      string `msgpack:"msg_id,omitempty"` // relay→client only
 	SourceHash string `msgpack:"source_hash"`
 	TargetHash string `msgpack:"target_hash"`
-	PoolURL    string `msgpack:"pool_url"`
 	Body       string `msgpack:"body"`
 	Ts         int64  `msgpack:"ts"`
 	Encrypted  bool   `msgpack:"encrypted,omitempty"`
@@ -81,23 +56,6 @@ type KeyResponse struct {
 	PubKey     string `msgpack:"pubkey"`
 }
 
-// --- Relay → Client ---
-
-// Challenge sends a nonce for the client to sign.
-type Challenge struct {
-	Type  string `msgpack:"type"`
-	Nonce string `msgpack:"nonce"`
-}
-
-// Authenticated confirms auth and provides a token.
-type Authenticated struct {
-	Type      string `msgpack:"type"`
-	Token     string `msgpack:"token"`
-	ExpiresAt int64  `msgpack:"expires_at"`
-	HashID    string `msgpack:"hash_id"`
-	PoolURL   string `msgpack:"pool_url"`
-}
-
 // Error is sent for any protocol error.
 type Error struct {
 	Type    string `msgpack:"type"`
@@ -109,9 +67,9 @@ type Error struct {
 
 // MatchWebhook is sent by the pool repo when a match PR is merged.
 type MatchWebhook struct {
-	PoolURL  string `msgpack:"pool_url" json:"pool_url"`
-	HashID1  string `msgpack:"hash_id_1" json:"hash_id_1"`
-	HashID2  string `msgpack:"hash_id_2" json:"hash_id_2"`
+	PoolURL string `msgpack:"pool_url" json:"pool_url"`
+	HashID1 string `msgpack:"hash_id_1" json:"hash_id_1"`
+	HashID2 string `msgpack:"hash_id_2" json:"hash_id_2"`
 }
 
 // --- Data Model ---
@@ -121,7 +79,7 @@ type UserIndex struct {
 	PubKey   []byte `msgpack:"pubkey"` // 32-byte ed25519 public key
 	UserID   string `msgpack:"user_id"`
 	Provider string `msgpack:"provider"`
-	HashID   string `msgpack:"hash_id"`
+	BinHash  string `msgpack:"bin_hash"`
 }
 
 // Match represents a matched pair.

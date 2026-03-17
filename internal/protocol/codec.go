@@ -37,21 +37,6 @@ func DecodeFrame(data []byte) (any, error) {
 	}
 
 	switch typ {
-	case TypeAuth:
-		var f AuthRequest
-		return &f, Decode(data, &f)
-	case TypeChallenge:
-		var f Challenge
-		return &f, Decode(data, &f)
-	case TypeAuthResponse:
-		var f AuthResponse
-		return &f, Decode(data, &f)
-	case TypeAuthenticated:
-		var f Authenticated
-		return &f, Decode(data, &f)
-	case TypeRefresh:
-		var f RefreshRequest
-		return &f, Decode(data, &f)
 	case TypeMsg:
 		var f Message
 		return &f, Decode(data, &f)

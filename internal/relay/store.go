@@ -7,16 +7,17 @@ import (
 
 // UserEntry is a user in the relay's index.
 type UserEntry struct {
-	PubKey   ed25519.PublicKey
-	UserID   string
-	Provider string
-	HashID   string
+	PubKey    ed25519.PublicKey
+	UserID    string
+	Provider  string
+	BinHash   string // primary key
+	MatchHash string // TOTP shared secret
 }
 
 // Store is an in-memory store for users and matches.
 type Store struct {
 	mu      sync.RWMutex
-	users   map[string]*UserEntry // key: userID + ":" + provider
+	users   map[string]*UserEntry // key: bin_hash
 	matches map[string]bool       // key: sorted pair "hashA:hashB"
 }
 
@@ -28,42 +29,28 @@ func NewStore() *Store {
 	}
 }
 
-// UpsertUser adds or updates a user in the index.
+// UpsertUser adds or updates a user in the index, keyed by BinHash.
 func (s *Store) UpsertUser(entry UserEntry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	key := entry.UserID + ":" + entry.Provider
-	s.users[key] = &entry
+	s.users[entry.BinHash] = &entry
 }
 
-// LookupUser finds a user by user_id + provider.
-func (s *Store) LookupUser(userID, provider string) *UserEntry {
+// LookupByHash finds a user by bin_hash.
+func (s *Store) LookupByHash(binHash string) *UserEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	key := userID + ":" + provider
-	return s.users[key]
+	return s.users[binHash]
 }
 
-// LookupByHash finds a user by hash_id (scans all entries).
-func (s *Store) LookupByHash(hashID string) *UserEntry {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for _, entry := range s.users {
-		if entry.HashID == hashID {
-			return entry
-		}
-	}
-	return nil
-}
-
-// AddMatch registers a match between two hash_ids.
+// AddMatch registers a match between two bin_hashes.
 func (s *Store) AddMatch(hashA, hashB string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.matches[matchKey(hashA, hashB)] = true
 }
 
-// IsMatched checks if two hash_ids are matched.
+// IsMatched checks if two bin_hashes are matched.
 func (s *Store) IsMatched(hashA, hashB string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -77,9 +64,9 @@ func matchKey(a, b string) string {
 	return a + ":" + b
 }
 
-// PubKeyByHash returns the public key for a user identified by hash_id.
-func (s *Store) PubKeyByHash(hashID string) ed25519.PublicKey {
-	entry := s.LookupByHash(hashID)
+// PubKeyByHash returns the public key for a user identified by bin_hash.
+func (s *Store) PubKeyByHash(binHash string) ed25519.PublicKey {
+	entry := s.LookupByHash(binHash)
 	if entry == nil {
 		return nil
 	}
