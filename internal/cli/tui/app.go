@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
+	"github.com/vutran1710/dating-dev/internal/cli/svc"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/screens"
 	gh "github.com/vutran1710/dating-dev/internal/github"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
@@ -65,6 +66,8 @@ func newApp(userName, userHash, pool, registry string, poolStatuses map[string]s
 	startScreen := activeScreen(screenHome)
 	if needsOnboarding {
 		startScreen = screenOnboarding
+	} else if pool == "" {
+		startScreen = screenPools
 	}
 
 	a := app{
@@ -94,6 +97,12 @@ func newApp(userName, userHash, pool, registry string, poolStatuses map[string]s
 
 func (a app) Init() tea.Cmd {
 	cmds := []tea.Cmd{inputInit(), a.statusBar.Heart.Tick()}
+	// Hint when starting with no active pool
+	if a.pool == "" && a.screen == screenPools {
+		cmds = append(cmds, func() tea.Msg {
+			return components.ToastMsg{Text: "Join or activate a pool to get started", Level: components.ToastInfo}
+		})
+	}
 	// Start background polling for pending pools
 	cmds = append(cmds, tea.Tick(10*time.Second, func(time.Time) tea.Msg {
 		return pendingPollTickMsg{}
@@ -173,7 +182,8 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.registry = msg.Registry
 		a.statusBar.User = msg.DisplayName
 		a.statusBar.UserHash = msg.Username
-		a.pools = screens.NewPoolsScreen(msg.Registry, nil)
+		ps, pi := poolStatusesFromConfig()
+		a.pools = screens.NewPoolsScreen(msg.Registry, ps, pi)
 		a.pools.Width = a.width
 		a.pools.Height = a.height
 		// Go to pools screen — user needs to join a pool first
@@ -185,6 +195,23 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Level: components.ToastSuccess,
 			}
 		}
+
+	case profileSubmitResultMsg:
+		if msg.err != nil {
+			return a, func() tea.Msg {
+				return components.ToastMsg{Text: "Profile update failed: " + msg.err.Error(), Level: components.ToastError}
+			}
+		}
+		return a, func() tea.Msg {
+			return components.ToastMsg{
+				Text:  fmt.Sprintf("Profile updated (Issue #%d) — waiting for pool to process", msg.issueNum),
+				Level: components.ToastSuccess,
+			}
+		}
+
+	case screens.ProfileUpdateMsg:
+		// Submit updated profile to pool
+		return a, submitProfileUpdate(msg.Profile)
 
 	case screens.InboxAcceptMsg:
 		return a, acceptLike(a.pool, msg.PRNumber)
@@ -213,7 +240,8 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cfg.Save()
 		}
 		// Refresh pools screen with new registry
-		a.pools = screens.NewPoolsScreen(msg.Repo, nil)
+		ps, pi := poolStatusesFromConfig()
+		a.pools = screens.NewPoolsScreen(msg.Repo, ps, pi)
 		a.pools.Width = a.width
 		a.pools.Height = a.height
 		return a, func() tea.Msg {
@@ -323,7 +351,8 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					poolStatuses[p.Name] = s
 				}
 			}
-			a.pools = screens.NewPoolsScreen(a.registry, poolStatuses)
+			ps2, pi2 := poolStatusesFromConfig()
+			a.pools = screens.NewPoolsScreen(a.registry, ps2, pi2)
 			a.pools.Width = a.width
 			a.pools.Height = a.height
 		}
@@ -851,6 +880,58 @@ func rejectLike(poolName string, prNumber int) tea.Cmd {
 		err = client.RejectLike(context.Background(), prNumber)
 		return screens.InboxActionResult{Accepted: false, Err: err}
 	}
+}
+
+type profileSubmitResultMsg struct {
+	issueNum int
+	err      error
+}
+
+func submitProfileUpdate(profile *gh.DatingProfile) tea.Cmd {
+	return func() tea.Msg {
+		cfg, err := config.Load()
+		if err != nil {
+			return profileSubmitResultMsg{err: err}
+		}
+		pool := cfg.ActivePool()
+		if pool == nil {
+			return profileSubmitResultMsg{err: fmt.Errorf("no active pool")}
+		}
+		pub, priv, err := crypto.LoadKeyPair(config.KeysDir())
+		if err != nil {
+			return profileSubmitResultMsg{err: err}
+		}
+		token, err := cfg.DecryptToken(priv)
+		if err != nil {
+			return profileSubmitResultMsg{err: err}
+		}
+
+		ctx := context.Background()
+		num, err := svc.SubmitProfileToPool(ctx, pool.Repo, pool.OperatorPubKey, token,
+			profile, pub, priv,
+			fmt.Sprintf("Profile Update: %s", cfg.User.PublicID[:8]),
+			[]string{"profile-update"})
+		return profileSubmitResultMsg{issueNum: num, err: err}
+	}
+}
+
+func poolStatusesFromConfig() (map[string]string, map[string]int) {
+	cfg, _ := config.Load()
+	ps := make(map[string]string)
+	pi := make(map[string]int)
+	if cfg != nil {
+		for _, p := range cfg.Pools {
+			s := p.Status
+			if s == "" {
+				s = "active"
+			}
+			ps[p.Name] = s
+			if p.PendingIssue > 0 {
+				pi[p.Name] = p.PendingIssue
+			}
+		}
+	}
+	return ps, pi
 }
 
 func poolNames(statuses map[string]string) []string {

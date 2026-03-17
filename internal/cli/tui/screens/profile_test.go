@@ -125,8 +125,8 @@ func TestProfileScreen_ProfileLoadError(t *testing.T) {
 func TestProfileScreen_HelpBindings(t *testing.T) {
 	s := NewProfileScreen()
 	bindings := s.HelpBindings()
-	if len(bindings) != 3 {
-		t.Errorf("expected 3 bindings, got %d", len(bindings))
+	if len(bindings) != 4 {
+		t.Errorf("expected 4 bindings, got %d", len(bindings))
 	}
 }
 
