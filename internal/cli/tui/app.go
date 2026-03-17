@@ -908,9 +908,7 @@ func submitProfileUpdate(profile *gh.DatingProfile) tea.Cmd {
 
 		ctx := context.Background()
 		num, err := svc.SubmitProfileToPool(ctx, pool.Repo, pool.OperatorPubKey, token,
-			profile, pub, priv,
-			"Registration Request",
-			[]string{"registration"})
+			profile, cfg.User.PublicID, pub, priv)
 		return profileSubmitResultMsg{issueNum: num, err: err}
 	}
 }

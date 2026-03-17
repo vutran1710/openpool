@@ -13,10 +13,10 @@ import (
 
 // SubmitProfileToPool encrypts the profile and creates a registration issue
 // on the pool repo. Used by both initial registration (join) and profile updates.
-// Returns the issue number.
+// Reuses RegisterUserViaIssue — same title, same labels, same Action processing.
 func SubmitProfileToPool(ctx context.Context, poolRepo, operatorPubKeyHex, token string,
-	profile *gh.DatingProfile, pub ed25519.PublicKey, priv ed25519.PrivateKey,
-	title string, labels []string) (int, error) {
+	profile *gh.DatingProfile, userHash string,
+	pub ed25519.PublicKey, priv ed25519.PrivateKey) (int, error) {
 
 	profileJSON, err := json.Marshal(profile)
 	if err != nil {
@@ -33,13 +33,24 @@ func SubmitProfileToPool(ctx context.Context, poolRepo, operatorPubKeyHex, token
 		return 0, fmt.Errorf("packing profile: %w", err)
 	}
 
-	blobHex := hex.EncodeToString(bin)
+	pubKeyHex := hex.EncodeToString(pub)
 
-	client := gh.NewClient(poolRepo, token)
-	number, err := client.CreateIssue(ctx, title, blobHex, labels)
+	// Sign the registration payload
+	payload, err := json.Marshal(map[string]string{
+		"action":    "register",
+		"user_hash": userHash,
+	})
 	if err != nil {
-		return 0, fmt.Errorf("creating issue: %w", err)
+		return 0, fmt.Errorf("marshaling payload: %w", err)
+	}
+	signature := crypto.Sign(priv, payload)
+
+	// Create identity proof
+	identityProof, err := crypto.EncryptIdentityProof(operatorPubKeyHex, "github", "")
+	if err != nil {
+		identityProof = "" // non-fatal for profile updates
 	}
 
-	return number, nil
+	pool := gh.NewPool(poolRepo, token)
+	return pool.RegisterUserViaIssue(ctx, userHash, bin, pubKeyHex, signature, identityProof)
 }
