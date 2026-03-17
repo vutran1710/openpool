@@ -2,13 +2,16 @@ package github
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"math/rand"
 	"strings"
 	"time"
 
+	"github.com/vmihailenco/msgpack/v5"
 	"github.com/vutran1710/dating-dev/internal/crypto"
 	"github.com/vutran1710/dating-dev/internal/gitrepo"
 )
@@ -268,6 +271,82 @@ func (p *Pool) listPRsByLabel(ctx context.Context, label string) ([]PullRequest,
 		}
 	}
 	return filtered, nil
+}
+
+// PollRegistrationResult polls an issue for the encrypted hash comment.
+// Returns bin_hash and match_hash once found, or error on timeout/failure.
+func (p *Pool) PollRegistrationResult(ctx context.Context, issueNumber int, userPriv ed25519.PrivateKey) (binHash, matchHash string, err error) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		// Check issue state
+		issue, err := p.client.GetIssue(ctx, issueNumber)
+		if err == nil && issue.State == "closed" && issue.StateReason == "not_planned" {
+			return "", "", fmt.Errorf("registration rejected (issue closed as not planned)")
+		}
+
+		// Check comments
+		comments, err := p.client.ListIssueComments(ctx, issueNumber)
+		if err == nil {
+			for _, c := range comments {
+				if c.User.Login != "github-actions[bot]" {
+					continue
+				}
+				bin, match, decErr := tryDecryptComment(c.Body, userPriv)
+				if decErr == nil {
+					return bin, match, nil
+				}
+			}
+		}
+
+		// If issue is closed as completed but we haven't found the comment yet,
+		// keep trying (comment might be cached)
+		if issue != nil && issue.State == "closed" && issue.StateReason != "not_planned" {
+			// One more attempt — the comment should be there
+			comments, err = p.client.ListIssueComments(ctx, issueNumber)
+			if err == nil {
+				for _, c := range comments {
+					if c.User.Login != "github-actions[bot]" {
+						continue
+					}
+					bin, match, decErr := tryDecryptComment(c.Body, userPriv)
+					if decErr == nil {
+						return bin, match, nil
+					}
+				}
+			}
+			return "", "", fmt.Errorf("issue closed but no valid encrypted comment found")
+		}
+
+		select {
+		case <-ctx.Done():
+			return "", "", fmt.Errorf("registration timed out: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func tryDecryptComment(body string, userPriv ed25519.PrivateKey) (binHash, matchHash string, err error) {
+	body = strings.TrimSpace(body)
+	blobBytes, err := base64.StdEncoding.DecodeString(body)
+	if err != nil {
+		return "", "", err
+	}
+	plaintext, err := crypto.Decrypt(userPriv, blobBytes)
+	if err != nil {
+		return "", "", err
+	}
+	var hashes map[string]string
+	if err := msgpack.Unmarshal(plaintext, &hashes); err != nil {
+		return "", "", fmt.Errorf("msgpack decode: %w", err)
+	}
+	bin, ok1 := hashes["bin_hash"]
+	match, ok2 := hashes["match_hash"]
+	if !ok1 || !ok2 {
+		return "", "", fmt.Errorf("missing bin_hash or match_hash in decrypted payload")
+	}
+	return bin, match, nil
 }
 
 func pairHash(a, b string) string {
