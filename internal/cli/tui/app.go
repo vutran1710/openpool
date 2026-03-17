@@ -176,11 +176,12 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.pools = screens.NewPoolsScreen(msg.Registry, nil)
 		a.pools.Width = a.width
 		a.pools.Height = a.height
-		a.screen = screenHome
+		// Go to pools screen — user needs to join a pool first
+		a.screen = screenPools
 		a.updateHelp()
 		return a, func() tea.Msg {
 			return components.ToastMsg{
-				Text:  "Welcome, " + msg.DisplayName + "!",
+				Text:  "Welcome! Join a pool to get started.",
 				Level: components.ToastSuccess,
 			}
 		}
@@ -219,6 +220,20 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return components.ToastMsg{Text: "Switched to registry: " + msg.Repo, Level: components.ToastSuccess}
 		}
 
+	case noActivePoolMsg:
+		a.screen = screenPools
+		a.updateHelp()
+		if !a.pools.IsLoaded() {
+			var cmd tea.Cmd
+			a.pools, cmd = a.pools.Update(screens.PoolsInitMsg{})
+			return a, tea.Batch(cmd, func() tea.Msg {
+				return components.ToastMsg{Text: "No active pool — join or activate one", Level: components.ToastInfo}
+			})
+		}
+		return a, func() tea.Msg {
+			return components.ToastMsg{Text: "No active pool — join or activate one", Level: components.ToastInfo}
+		}
+
 	case components.MenuSelectMsg:
 		return a.handleMenuSelect(msg.Key)
 
@@ -236,8 +251,9 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case screens.PoolJoinMsg:
 		if msg.Status == "active" {
+			// Activate this pool (set as active)
 			return a, func() tea.Msg {
-				return components.ToastMsg{Text: "Already a member of " + msg.Name, Level: components.ToastInfo}
+				return screens.PoolSwitchMsg{Name: msg.Name}
 			}
 		}
 		if msg.Status == "pending" {
@@ -449,6 +465,9 @@ func (a app) handleSubmit(msg components.SubmitMsg) (tea.Model, tea.Cmd) {
 			a.quitting = true
 			return a, tea.Quit
 		case "/home":
+			if a.pool == "" {
+				return a, func() tea.Msg { return noActivePoolMsg{} }
+			}
 			a.screen = screenHome
 			a.updateHelp()
 		case "/discover", "/fetch":
@@ -669,6 +688,8 @@ func countLines(s string) int {
 }
 
 // --- background polling for pending pools ---
+
+type noActivePoolMsg struct{}
 
 type pendingPollTickMsg struct{}
 

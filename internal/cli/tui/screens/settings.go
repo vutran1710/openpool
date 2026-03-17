@@ -20,8 +20,7 @@ type RegistrySwitchMsg struct {
 type settingsItem int
 
 const (
-	settingsPool settingsItem = iota
-	settingsRegistry
+	settingsRegistry settingsItem = iota
 	settingsIdentity
 )
 
@@ -72,20 +71,6 @@ func (s SettingsScreen) Update(msg tea.Msg) (SettingsScreen, tea.Cmd) {
 			}
 		case "enter":
 			switch s.cursor {
-			case settingsPool:
-				if len(s.pools) > 0 {
-					s.picking = true
-					s.pickTarget = settingsPool
-					s.pickItems = s.pools
-					s.pickCursor = 0
-					// Pre-select current
-					for i, p := range s.pools {
-						if p == s.pool {
-							s.pickCursor = i
-							break
-						}
-					}
-				}
 			case settingsRegistry:
 				if len(s.regs) > 0 {
 					s.picking = true
@@ -126,9 +111,6 @@ func (s SettingsScreen) updatePicker(msg tea.KeyMsg) (SettingsScreen, tea.Cmd) {
 		selected := s.pickItems[s.pickCursor]
 		s.picking = false
 		switch s.pickTarget {
-		case settingsPool:
-			s.pool = selected
-			return s, func() tea.Msg { return PoolSwitchMsg{Name: selected} }
 		case settingsRegistry:
 			s.registry = selected
 			return s, func() tea.Msg { return RegistrySwitchMsg{Repo: selected} }
@@ -161,14 +143,6 @@ func (s SettingsScreen) View() string {
 
 	var cards []string
 
-	// Pool card
-	poolValue := theme.GreenStyle.Render(s.pool)
-	if s.pool == "" {
-		poolValue = theme.DimStyle.Render("not set")
-	}
-	poolCard := renderSettingsCard("◈", "Active Pool", poolValue, "/pool <name>", s.cursor == settingsPool, cardStyle, activeCardStyle)
-	cards = append(cards, poolCard)
-
 	// Registry card
 	regValue := theme.DimStyle.Render(s.registry)
 	if s.registry == "" {
@@ -189,10 +163,7 @@ func (s SettingsScreen) View() string {
 }
 
 func (s SettingsScreen) pickerView() string {
-	title := "Select Pool"
-	if s.pickTarget == settingsRegistry {
-		title = "Select Registry"
-	}
+	title := "Select Registry"
 
 	titleStyle := lipgloss.NewStyle().
 		Foreground(theme.Dim).
@@ -209,8 +180,7 @@ func (s SettingsScreen) pickerView() string {
 		}
 		// Mark current
 		marker := ""
-		if (s.pickTarget == settingsPool && item == s.pool) ||
-			(s.pickTarget == settingsRegistry && item == s.registry) {
+		if item == s.registry {
 			marker = theme.GreenStyle.Render(" ✓")
 		}
 		items += cursor + style.Render(item) + marker + "\n"
