@@ -490,15 +490,6 @@ func newPoolListCmd() *cobra.Command {
 						}
 					}
 
-					// Fallback: check if .bin file exists (old flow)
-					if p.Status == gh.PoolStatusPending {
-						pool := gh.NewPool(p.Repo, "")
-						if pool.IsUserRegistered(ctx, cfg.User.IDHash) {
-							cfg.Pools[i].Status = gh.PoolStatusActive
-							updated = true
-							p = cfg.Pools[i]
-						}
-					}
 				}
 
 				marker := "  "
