@@ -173,8 +173,8 @@ func TestUserHash_Deterministic(t *testing.T) {
 	if h1 != h2 {
 		t.Error("same inputs should produce same hash")
 	}
-	if len(h1) != 16 {
-		t.Errorf("expected 16 chars, got %d", len(h1))
+	if len(h1) != 64 {
+		t.Errorf("expected 64 chars (full SHA256 hex), got %d", len(h1))
 	}
 }
 

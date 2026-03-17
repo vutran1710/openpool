@@ -101,7 +101,7 @@ func newProfileEditCmd() *cobra.Command {
 
 			payload, err := json.Marshal(map[string]string{
 				"action":    "register",
-				"user_hash": userHash,
+				"user_hash": userHash.String(),
 			})
 			if err != nil {
 				return fmt.Errorf("marshaling payload: %w", err)
@@ -114,12 +114,12 @@ func newProfileEditCmd() *cobra.Command {
 				return err
 			}
 
-			prNumber, err := client.RegisterUser(ctx, userHash, bin, signature, identityProof, templateBody)
+			prNumber, err := client.RegisterUser(ctx, userHash.String(), bin, signature, identityProof, templateBody)
 			if err != nil {
 				return fmt.Errorf("publishing profile: %w", err)
 			}
 
-			cfg.User.PublicID = userHash
+			cfg.User.PublicID = userHash.String()
 			if err := cfg.Save(); err != nil {
 				return fmt.Errorf("saving config: %w", err)
 			}

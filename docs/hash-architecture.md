@@ -36,4 +36,4 @@ PublicID → (salt) → bin-hash → (salt) → match-hash
 - `PublicID`: implemented (`crypto.UserHash()`)
 - `bin-hash`: computed by Action, client doesn't query relay for it yet
 - `match-hash`: not implemented (needs matching engine)
-- `LabelHash()`: placeholder, will use match-hash when matching engine exists
+- Labels use full hash for now, will use match-hash when matching engine exists

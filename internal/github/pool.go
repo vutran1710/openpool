@@ -140,7 +140,7 @@ func (p *Pool) RegisterUser(ctx context.Context, userHash string, encryptedBlob 
 	pr := PRRequest{
 		Title:  fmt.Sprintf("Join: %s", crypto.ShortHash(userHash)),
 		Body:   body,
-		Branch: fmt.Sprintf("join/%s", crypto.LabelHash(userHash)),
+		Branch: fmt.Sprintf("join/%s", userHash),
 		Files: []PRFile{
 			{Path: fmt.Sprintf("users/%s.bin", userHash), Content: encryptedBlob},
 		},
@@ -188,8 +188,8 @@ func (p *Pool) CreateLikePR(ctx context.Context, likerHash, likedHash, encrypted
 	pr := PRRequest{
 		Title:  fmt.Sprintf("Like: %s -> %s", crypto.ShortHash(likerHash), crypto.ShortHash(likedHash)),
 		Body:   fmt.Sprintf("%s\n%s\n%s\n%s", likerHash, likedHash, encryptedMsg, signature),
-		Branch: fmt.Sprintf("like/%s_%s", crypto.LabelHash(sortedA), crypto.LabelHash(sortedB)),
-		Labels: []string{fmt.Sprintf("like:%s", crypto.LabelHash(likedHash))},
+		Branch: fmt.Sprintf("like/%s_%s", sortedA, sortedB),
+		Labels: []string{fmt.Sprintf("like:%s", likedHash)},
 		Files: []PRFile{
 			{Path: matchFile, Content: matchContent},
 		},
@@ -199,7 +199,7 @@ func (p *Pool) CreateLikePR(ctx context.Context, likerHash, likedHash, encrypted
 }
 
 func (p *Pool) ListIncomingLikes(ctx context.Context, userHash string) ([]PullRequest, error) {
-	return p.listPRsByLabel(ctx, "like:"+crypto.LabelHash(userHash))
+	return p.listPRsByLabel(ctx, "like:"+userHash)
 }
 
 func (p *Pool) AcceptLike(ctx context.Context, prNumber int) error {
@@ -230,7 +230,7 @@ func (p *Pool) CreateProposePR(ctx context.Context, proposerHash, targetHash, si
 		Title:  fmt.Sprintf("Propose: %s -> %s", crypto.ShortHash(proposerHash), crypto.ShortHash(targetHash)),
 		Body:   fmt.Sprintf("`%s` proposes to `%s`\n\nSignature: `%s`", crypto.ShortHash(proposerHash), crypto.ShortHash(targetHash), signature),
 		Branch: fmt.Sprintf("propose/%s", ph),
-		Labels: []string{fmt.Sprintf("propose:%s", crypto.LabelHash(targetHash))},
+		Labels: []string{fmt.Sprintf("propose:%s", targetHash)},
 		Files: []PRFile{
 			{Path: fmt.Sprintf("relationships/%s/%s.bin", ph, proposerHash), Content: proposerBlob},
 			{Path: fmt.Sprintf("relationships/%s/%s.bin", ph, targetHash), Content: targetBlob},
@@ -241,7 +241,7 @@ func (p *Pool) CreateProposePR(ctx context.Context, proposerHash, targetHash, si
 }
 
 func (p *Pool) ListIncomingProposals(ctx context.Context, userHash string) ([]PullRequest, error) {
-	return p.listPRsByLabel(ctx, "propose:"+crypto.LabelHash(userHash))
+	return p.listPRsByLabel(ctx, "propose:"+userHash)
 }
 
 func (p *Pool) AcceptPropose(ctx context.Context, prNumber int) error {

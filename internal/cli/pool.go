@@ -329,7 +329,7 @@ func newPoolJoinCmd() *cobra.Command {
 
 			payload, err := json.Marshal(map[string]string{
 				"action":    "register",
-				"user_hash": userHash,
+				"user_hash": userHash.String(),
 			})
 			if err != nil {
 				return fmt.Errorf("marshaling payload: %w", err)
@@ -339,7 +339,7 @@ func newPoolJoinCmd() *cobra.Command {
 			// Submit registration via GitHub issue using the user's GitHub token
 			poolGH := gh.NewPool(entry.Repo, identity.Token)
 			pubKeyHex := hex.EncodeToString(pub)
-			issueNumber, err := poolGH.RegisterUserViaIssue(ctx, userHash, bin, pubKeyHex, signature, identityProof)
+			issueNumber, err := poolGH.RegisterUserViaIssue(ctx, userHash.String(), bin, pubKeyHex, signature, identityProof)
 			if err != nil {
 				return fmt.Errorf("submitting registration: %w", err)
 			}
@@ -352,7 +352,7 @@ func newPoolJoinCmd() *cobra.Command {
 				Status:         gh.PoolStatusPending,
 			}
 
-			cfg.User.PublicID = userHash
+			cfg.User.PublicID = userHash.String()
 			cfg.User.DisplayName = displayName
 			cfg.User.Provider = "github"
 			cfg.User.ProviderUserID = identity.UserID

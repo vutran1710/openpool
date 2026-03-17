@@ -189,7 +189,7 @@ func runRegistryAdd(input string) error {
 			}
 
 			pool := gh.NewLocalPool(poolRepo)
-			registered := pool.IsUserRegistered(ctx, userHash)
+			registered := pool.IsUserRegistered(ctx, userHash.String())
 
 			if registered {
 				printSuccess(fmt.Sprintf("  %s — registered ✓", p.Name))
@@ -213,7 +213,7 @@ func runRegistryAdd(input string) error {
 		cfg.User.ProviderUserID = identity.UserID
 		cfg.User.DisplayName = identity.DisplayName
 		if pub != nil {
-			cfg.User.PublicID = crypto.UserHash(pools[0].Repo, "github", identity.UserID)
+			cfg.User.PublicID = crypto.UserHash(pools[0].Repo, "github", identity.UserID).String()
 		}
 	}
 
