@@ -215,6 +215,34 @@ func (c *Client) GetIssue(ctx context.Context, number int) (*Issue, error) {
 	return &issue, nil
 }
 
+// IssueComment represents a GitHub issue comment.
+type IssueComment struct {
+	Body string `json:"body"`
+	User struct {
+		Login string `json:"login"`
+	} `json:"user"`
+}
+
+// ListIssueComments returns all comments on an issue.
+func (c *Client) ListIssueComments(ctx context.Context, number int) ([]IssueComment, error) {
+	url := c.apiURL(fmt.Sprintf("/issues/%d/comments", number))
+	resp, err := c.do(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("listing comments: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("list comments failed (%d)", resp.StatusCode)
+	}
+
+	var comments []IssueComment
+	if err := json.NewDecoder(resp.Body).Decode(&comments); err != nil {
+		return nil, err
+	}
+	return comments, nil
+}
+
 func (c *Client) StarRepo(ctx context.Context) error {
 	url := fmt.Sprintf("https://api.github.com/user/starred/%s", c.repo)
 	resp, err := c.do(ctx, "PUT", url, nil)

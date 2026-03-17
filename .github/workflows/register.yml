@@ -14,47 +14,71 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Parse and commit registration
+      - name: Download regcrypt
+        run: |
+          curl -sL https://github.com/vutran1710/regcrypt/releases/latest/download/regcrypt-linux-amd64 -o regcrypt
+          chmod +x regcrypt
+
+      - name: Parse and register
         env:
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_AUTHOR_ID: ${{ github.event.issue.user.id }}
+          POOL_SALT: ${{ secrets.POOL_SALT }}
+          REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
           # Extract fields from issue body (between ``` fences after each header)
-          USER_HASH=$(echo "$ISSUE_BODY" | sed -n '/\*\*User Hash:\*\*/,/```/{/```/!p}' | grep -v '^\*\*' | tr -d '[:space:]')
           PUB_KEY=$(echo "$ISSUE_BODY" | sed -n '/\*\*Public Key:\*\*/,/```/{/```/!p}' | grep -v '^\*\*' | tr -d '[:space:]')
           BLOB_HEX=$(echo "$ISSUE_BODY" | sed -n '/\*\*Profile Blob:\*\*/,/```/{/```/!p}' | grep -v '^\*\*' | tr -d '[:space:]')
 
-          if [ -z "$USER_HASH" ] || [ -z "$PUB_KEY" ] || [ -z "$BLOB_HEX" ]; then
+          if [ -z "$PUB_KEY" ] || [ -z "$BLOB_HEX" ]; then
             echo "::error::Missing required fields in issue body"
-            exit 1
-          fi
-
-          # Check if user already registered
-          if [ -f "users/${USER_HASH}.bin" ]; then
-            echo "::warning::User already registered: ${USER_HASH:0:12}"
-            gh issue comment "$ISSUE_NUMBER" --body "Registration rejected: user already registered."
+            gh issue comment "$ISSUE_NUMBER" --body "Registration rejected: missing fields."
             gh issue close "$ISSUE_NUMBER" --reason "not planned"
             exit 0
           fi
 
-          # Convert hex blob to binary and write .bin file
+          # Compute hashes + encrypt for user
+          OUTPUT=$(./regcrypt \
+            --pool-url "$REPO" \
+            --provider "github" \
+            --user-id "$ISSUE_AUTHOR_ID" \
+            --salt "$POOL_SALT" \
+            --user-pubkey "$PUB_KEY")
+
+          BIN_HASH=$(echo "$OUTPUT" | head -1)
+          ENCRYPTED_BLOB=$(echo "$OUTPUT" | tail -1)
+
+          # Post encrypted hashes as comment (CLI will poll for this)
+          gh issue comment "$ISSUE_NUMBER" --body "$ENCRYPTED_BLOB"
+
+          # Write .bin file
           mkdir -p users
-          echo "$BLOB_HEX" | xxd -r -p > "users/${USER_HASH}.bin"
+          echo "$BLOB_HEX" | xxd -r -p > "users/${BIN_HASH}.bin"
 
           # Commit and push
           git config user.name "dating-bot"
           git config user.email "bot@dating-pool.dev"
-          git add "users/${USER_HASH}.bin"
-          git commit -m "Register user ${USER_HASH:0:12}"
+          git add "users/${BIN_HASH}.bin"
+          git commit -m "Register user ${BIN_HASH}"
           git push
 
       - name: Close issue
+        if: success()
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           GH_TOKEN: ${{ github.token }}
         run: |
           gh issue close "$ISSUE_NUMBER" --reason completed
-          gh issue comment "$ISSUE_NUMBER" --body "Registration processed successfully."
+
+      - name: Handle failure
+        if: failure()
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --body "Registration failed. Please retry."
+          gh issue close "$ISSUE_NUMBER" --reason "not planned"

@@ -55,7 +55,7 @@ func newLikeCmd() *cobra.Command {
 
 			payload, err := json.Marshal(map[string]string{
 				"action":   "like",
-				"liker_id": cfg.User.PublicID,
+				"liker_id": cfg.User.IDHash,
 				"liked_id": args[0],
 			})
 			if err != nil {
@@ -64,7 +64,7 @@ func newLikeCmd() *cobra.Command {
 			signature := crypto.Sign(priv, payload)
 
 			client := poolClient(pool)
-			issueNum, err := client.CreateLikeIssue(ctx, cfg.User.PublicID, args[0], encMsgHex, signature)
+			issueNum, err := client.CreateLikeIssue(ctx, cfg.User.IDHash, args[0], encMsgHex, signature)
 			if err != nil {
 				return fmt.Errorf("sending like: %w", err)
 			}
@@ -93,7 +93,7 @@ func newInboxCmd() *cobra.Command {
 			}
 
 			client := poolClient(pool)
-			prs, err := client.ListIncomingLikes(ctx, cfg.User.PublicID)
+			prs, err := client.ListIncomingLikes(ctx, cfg.User.IDHash)
 			if err != nil {
 				return fmt.Errorf("fetching inbox: %w", err)
 			}

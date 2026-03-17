@@ -815,7 +815,7 @@ func fetchInbox(poolName, registry string) tea.Cmd {
 		}
 
 		client := gh.NewPool(pool.Repo, token)
-		prs, err := client.ListIncomingLikes(context.Background(), cfg.User.PublicID)
+		prs, err := client.ListIncomingLikes(context.Background(), cfg.User.IDHash)
 		if err != nil {
 			return screens.InboxFetchedResult{Err: err}
 		}
@@ -908,7 +908,7 @@ func submitProfileUpdate(profile *gh.DatingProfile) tea.Cmd {
 
 		ctx := context.Background()
 		num, err := svc.SubmitProfileToPool(ctx, pool.Repo, pool.OperatorPubKey, token,
-			profile, cfg.User.PublicID, pub, priv)
+			profile, cfg.User.IDHash, pub, priv)
 		return profileSubmitResultMsg{issueNum: num, err: err}
 	}
 }

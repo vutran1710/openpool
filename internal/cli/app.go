@@ -24,7 +24,7 @@ func NewRootCmd() *cobra.Command {
 				registry := cfg.ActiveRegistry
 
 				userName := cfg.User.DisplayName
-				userHash := cfg.User.PublicID
+				userHash := cfg.User.IDHash
 				pool := ""
 				poolStatuses := make(map[string]string)
 				poolIssues := make(map[string]int)

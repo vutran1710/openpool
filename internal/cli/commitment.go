@@ -50,7 +50,7 @@ func newProposeCmd() *cobra.Command {
 
 			payload, err := json.Marshal(map[string]string{
 				"action":   "propose",
-				"proposer": cfg.User.PublicID,
+				"proposer": cfg.User.IDHash,
 				"target":   args[0],
 			})
 			if err != nil {
@@ -59,7 +59,7 @@ func newProposeCmd() *cobra.Command {
 			signature := crypto.Sign(priv, payload)
 
 			client := poolClient(pool)
-			prNumber, err := client.CreateProposePR(ctx, cfg.User.PublicID, args[0], signature)
+			prNumber, err := client.CreateProposePR(ctx, cfg.User.IDHash, args[0], signature)
 			if err != nil {
 				return fmt.Errorf("proposing: %w", err)
 			}
@@ -89,7 +89,7 @@ func newProposalsCmd() *cobra.Command {
 			}
 
 			client := poolClient(pool)
-			prs, err := client.ListIncomingProposals(ctx, cfg.User.PublicID)
+			prs, err := client.ListIncomingProposals(ctx, cfg.User.IDHash)
 			if err != nil {
 				return fmt.Errorf("fetching proposals: %w", err)
 			}

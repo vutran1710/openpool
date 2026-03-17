@@ -38,7 +38,7 @@ func newWhoamiCmd() *cobra.Command {
 			}
 
 			fmt.Println()
-			fmt.Printf("  %s  %s\n", bold.Render(cfg.User.DisplayName), dim.Render("("+cfg.User.PublicID+")"))
+			fmt.Printf("  %s  %s\n", bold.Render(cfg.User.DisplayName), dim.Render("("+cfg.User.IDHash+")"))
 			fmt.Printf("  %s  %s\n", dim.Render("provider:"), cfg.User.Provider)
 			fmt.Printf("  %s  %s\n", dim.Render("public key:"), hex.EncodeToString(pub)[:16]+"...")
 

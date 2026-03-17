@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
@@ -344,18 +345,49 @@ func newPoolJoinCmd() *cobra.Command {
 				return fmt.Errorf("submitting registration: %w", err)
 			}
 
+			cfg.User.IDHash = userHash.String()
+			cfg.User.DisplayName = displayName
+			cfg.User.Provider = "github"
+			cfg.User.ProviderUserID = identity.UserID
+
+			fmt.Println()
+			printSuccess(fmt.Sprintf("Registration issue #%d created for \"%s\"", issueNumber, name))
+			fmt.Println("  Waiting for GitHub Action to process registration...")
+
+			// Poll for encrypted hash delivery (max 5 minutes)
+			pollCtx, pollCancel := context.WithTimeout(ctx, 5*time.Minute)
+			defer pollCancel()
+
+			binHash, matchHash, err := poolGH.PollRegistrationResult(pollCtx, issueNumber, priv)
+			if err != nil {
+				printWarning("Could not retrieve hashes: " + err.Error())
+				printDim("  You can retry later with: dating pool sync")
+
+				// Save config without hashes — pending status
+				pool := config.PoolConfig{
+					Name:           entry.Name,
+					Repo:           entry.Repo,
+					OperatorPubKey: entry.OperatorPubKey,
+					RelayURL:       entry.RelayURL,
+					Status:         gh.PoolStatusPending,
+					PendingIssue:   issueNumber,
+				}
+				cfg.AddPool(pool)
+				if cfg.Active == "" {
+					cfg.Active = pool.Name
+				}
+				return cfg.Save()
+			}
+
 			pool := config.PoolConfig{
 				Name:           entry.Name,
 				Repo:           entry.Repo,
 				OperatorPubKey: entry.OperatorPubKey,
 				RelayURL:       entry.RelayURL,
-				Status:         gh.PoolStatusPending,
+				Status:         gh.PoolStatusActive,
+				BinHash:        binHash,
+				MatchHash:      matchHash,
 			}
-
-			cfg.User.PublicID = userHash.String()
-			cfg.User.DisplayName = displayName
-			cfg.User.Provider = "github"
-			cfg.User.ProviderUserID = identity.UserID
 			cfg.AddPool(pool)
 			if cfg.Active == "" {
 				cfg.Active = pool.Name
@@ -364,9 +396,9 @@ func newPoolJoinCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Println()
-			printSuccess(fmt.Sprintf("Registration issue #%d created for \"%s\"", issueNumber, name))
-			printDim("  A GitHub Action will process your registration...")
+			printSuccess("Registration complete! Hashes received and saved.")
+			printDim(fmt.Sprintf("  bin_hash:   %s", binHash))
+			printDim(fmt.Sprintf("  match_hash: %s", matchHash))
 			fmt.Println()
 			return nil
 		},
@@ -422,7 +454,7 @@ func newPoolListCmd() *cobra.Command {
 			for i, p := range cfg.Pools {
 				if p.Status == gh.PoolStatusPending {
 					pool := gh.NewPool(p.Repo, "")
-					if pool.IsUserRegistered(ctx, cfg.User.PublicID) {
+					if pool.IsUserRegistered(ctx, cfg.User.IDHash) {
 						cfg.Pools[i].Status = gh.PoolStatusActive
 						updated = true
 						p.Status = gh.PoolStatusActive

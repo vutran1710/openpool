@@ -1,23 +1,28 @@
 package relay_test
 
 import (
-	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/vutran1710/dating-dev/internal/cli/relay"
-	server "github.com/vutran1710/dating-dev/internal/relay"
+	"github.com/gorilla/websocket"
+	"github.com/vutran1710/dating-dev/internal/crypto"
 	"github.com/vutran1710/dating-dev/internal/protocol"
+	server "github.com/vutran1710/dating-dev/internal/relay"
 )
 
 // --- Test helpers ---
+
+const testPoolURL = "owner/pool"
+const testSalt = "test-salt"
 
 func genKeys(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
 	t.Helper()
@@ -28,664 +33,618 @@ func genKeys(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
 	return pub, priv
 }
 
-func hashID(salt, poolURL, provider, userID string) string {
-	h := sha256.Sum256([]byte(salt + ":" + poolURL + ":" + provider + ":" + userID))
+func idHash(poolURL, provider, userID string) string {
+	h := sha256.Sum256([]byte(poolURL + ":" + provider + ":" + userID))
+	return hex.EncodeToString(h[:])
+}
+
+func binHash(salt, idH string) string {
+	h := sha256.Sum256([]byte(salt + ":" + idH))
 	return hex.EncodeToString(h[:])[:16]
 }
 
-// testEnv sets up a relay server with seeded users and returns the WS URL + server.
-type testEnv struct {
-	srv    *server.Server
-	ts     *httptest.Server
-	wsURL  string
+func matchHash(salt, binH string) string {
+	h := sha256.Sum256([]byte(salt + ":" + binH))
+	return hex.EncodeToString(h[:])[:16]
 }
 
-const testPoolURL = "owner/pool"
+type testEnv struct {
+	srv   *server.Server
+	ts    *httptest.Server
+	url   string // http URL
+	wsURL string // ws URL
+}
 
 func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
 	srv := server.NewServer(server.ServerConfig{
-		PoolURL:  testPoolURL,
-		TokenTTL: 5 * time.Minute,
+		PoolURL: testPoolURL,
+		Salt:    testSalt,
 	})
 	ts := httptest.NewServer(srv.Handler())
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http")
-
 	t.Cleanup(func() { ts.Close() })
-	return &testEnv{srv: srv, ts: ts, wsURL: wsURL}
+	return &testEnv{
+		srv:   srv,
+		ts:    ts,
+		url:   ts.URL,
+		wsURL: "ws" + strings.TrimPrefix(ts.URL, "http"),
+	}
 }
 
-func (e *testEnv) addUser(userID, provider string, pub ed25519.PublicKey) string {
-	hid := hashID("test-salt", testPoolURL, provider, userID)
+func (e *testEnv) addUser(userID, provider string, pub ed25519.PublicKey) (bin, match string) {
+	ih := idHash(testPoolURL, provider, userID)
+	bin = binHash(testSalt, ih)
+	match = matchHash(testSalt, bin)
 	e.srv.Store().UpsertUser(server.UserEntry{
-		PubKey:   pub,
-		UserID:   userID,
-		Provider: provider,
-		HashID:   hid,
+		PubKey:    pub,
+		UserID:    userID,
+		Provider:  provider,
+		BinHash:   bin,
+		MatchHash: match,
 	})
-	return hid
+	return bin, match
 }
 
 func (e *testEnv) addMatch(hashA, hashB string) {
 	e.srv.Store().AddMatch(hashA, hashB)
 }
 
-func connectClient(t *testing.T, env *testEnv, userID, provider string, pub ed25519.PublicKey, priv ed25519.PrivateKey) *relay.Client {
+// connectWS dials a WebSocket with TOTP auth.
+func connectWS(t *testing.T, env *testEnv, binH, matchH string, priv ed25519.PrivateKey) *websocket.Conn {
 	t.Helper()
-	c := relay.NewClient(relay.Config{
-		RelayURL: env.wsURL,
-		UserID:   userID,
-		Provider: provider,
-		Pub:      pub,
-		Priv:     priv,
-	})
+	sig := crypto.TOTPSign(binH, matchH, priv)
+	url := fmt.Sprintf("%s/ws?bin=%s&sig=%s", env.wsURL, binH, sig)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := c.Connect(ctx); err != nil {
-		t.Fatalf("connect %s: %v", userID, err)
+	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
+	conn, resp, err := dialer.Dial(url, nil)
+	if err != nil {
+		if resp != nil {
+			t.Fatalf("connect failed (%d): %v", resp.StatusCode, err)
+		}
+		t.Fatalf("connect: %v", err)
 	}
-	t.Cleanup(func() { c.Close() })
-	return c
+	t.Cleanup(func() { conn.Close() })
+	return conn
 }
 
-// ==================== E2E Tests ====================
+// sendMsg sends a Message frame.
+func sendMsg(t *testing.T, conn *websocket.Conn, msg protocol.Message) {
+	t.Helper()
+	data, err := protocol.Encode(msg)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if err := conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+}
 
-func TestE2E_AuthSuccess(t *testing.T) {
+// readFrame reads and decodes a frame with timeout.
+func readFrame(t *testing.T, conn *websocket.Conn, timeout time.Duration) any {
+	t.Helper()
+	conn.SetReadDeadline(time.Now().Add(timeout))
+	_, data, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	frame, err := protocol.DecodeFrame(data)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return frame
+}
+
+// ==================== TOTP Connect Tests ====================
+
+func TestTOTP_ConnectSuccess(t *testing.T) {
 	env := newTestEnv(t)
 	pub, priv := genKeys(t)
-	hid := env.addUser("alice", "github", pub)
+	bin, match := env.addUser("alice", "github", pub)
 
-	c := connectClient(t, env, "alice", "github", pub, priv)
-
-	if c.HashID() != hid {
-		t.Errorf("hash_id = %q, want %q", c.HashID(), hid)
-	}
-	if c.Token() == "" {
-		t.Error("token should be set after auth")
+	conn := connectWS(t, env, bin, match, priv)
+	if conn == nil {
+		t.Fatal("should have connected")
 	}
 }
 
-func TestE2E_AuthFail_UserNotFound(t *testing.T) {
-	env := newTestEnv(t)
-	pub, priv := genKeys(t)
-	// Don't add user to store
-
-	c := relay.NewClient(relay.Config{
-		RelayURL: env.wsURL,
-		UserID: "nobody", Provider: "github", Pub: pub, Priv: priv,
-	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	err := c.Connect(ctx)
-	if err == nil {
-		c.Close()
-		t.Fatal("expected auth error")
-	}
-	if !strings.Contains(err.Error(), "user_not_found") {
-		t.Errorf("error = %q, want user_not_found", err)
-	}
-}
-
-func TestE2E_AuthFail_WrongKey(t *testing.T) {
+func TestTOTP_ConnectBadSig(t *testing.T) {
 	env := newTestEnv(t)
 	pub, _ := genKeys(t)
-	_, wrongPriv := genKeys(t) // different key pair
-	env.addUser("alice", "github", pub)
+	_, wrongPriv := genKeys(t)
+	bin, match := env.addUser("alice", "github", pub)
 
-	c := relay.NewClient(relay.Config{
-		RelayURL: env.wsURL,
-		UserID: "alice", Provider: "github", Pub: pub, Priv: wrongPriv,
-	})
+	sig := crypto.TOTPSign(bin, match, wrongPriv)
+	url := fmt.Sprintf("%s/ws?bin=%s&sig=%s", env.wsURL, bin, sig)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	err := c.Connect(ctx)
+	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
+	_, resp, err := dialer.Dial(url, nil)
 	if err == nil {
-		c.Close()
-		t.Fatal("expected auth error")
+		t.Fatal("should have failed")
 	}
-	if !strings.Contains(err.Error(), "auth_failed") {
-		t.Errorf("error = %q, want auth_failed", err)
+	if resp.StatusCode != 401 {
+		t.Errorf("status = %d, want 401", resp.StatusCode)
 	}
 }
 
-func TestE2E_MessageRouting_BothOnline(t *testing.T) {
+func TestTOTP_ConnectUnknownUser(t *testing.T) {
 	env := newTestEnv(t)
+	_, priv := genKeys(t)
 
-	pubA, privA := genKeys(t)
-	pubB, privB := genKeys(t)
-	hidA := env.addUser("alice", "github", pubA)
-	hidB := env.addUser("bob", "github", pubB)
-	env.addMatch(hidA, hidB)
+	sig := crypto.TOTPSign("unknown_bin_hash", "unknown_match_ha", priv)
+	url := fmt.Sprintf("%s/ws?bin=%s&sig=%s", env.wsURL, "unknown_bin_hash", sig)
 
-	// Connect both
-	clientA := connectClient(t, env, "alice", "github", pubA, privA)
-	clientB := connectClient(t, env, "bob", "github", pubB, privB)
-
-	// Bob listens for messages
-	msgCh := make(chan protocol.Message, 1)
-	clientB.OnMessage(func(msg protocol.Message) {
-		msgCh <- msg
-	})
-
-	// Alice sends to Bob
-	if err := clientA.SendMessage(hidB, "hey bob!"); err != nil {
-		t.Fatalf("send: %v", err)
+	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
+	_, resp, err := dialer.Dial(url, nil)
+	if err == nil {
+		t.Fatal("should have failed")
 	}
-
-	select {
-	case msg := <-msgCh:
-		if msg.Body != "hey bob!" {
-			t.Errorf("body = %q, want 'hey bob!'", msg.Body)
-		}
-		if msg.SourceHash != hidA {
-			t.Errorf("source = %q, want %q", msg.SourceHash, hidA)
-		}
-		if msg.TargetHash != hidB {
-			t.Errorf("target = %q, want %q", msg.TargetHash, hidB)
-		}
-		if msg.MsgID == "" {
-			t.Error("msg_id should be set by relay")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timeout waiting for message")
+	if resp.StatusCode != 401 {
+		t.Errorf("status = %d, want 401", resp.StatusCode)
 	}
 }
 
-func TestE2E_MessageRouting_Bidirectional(t *testing.T) {
-	env := newTestEnv(t)
-
-	pubA, privA := genKeys(t)
-	pubB, privB := genKeys(t)
-	hidA := env.addUser("alice", "github", pubA)
-	hidB := env.addUser("bob", "github", pubB)
-	env.addMatch(hidA, hidB)
-
-	clientA := connectClient(t, env, "alice", "github", pubA, privA)
-	clientB := connectClient(t, env, "bob", "github", pubB, privB)
-
-	msgFromA := make(chan protocol.Message, 1)
-	msgFromB := make(chan protocol.Message, 1)
-	clientB.OnMessage(func(msg protocol.Message) { msgFromA <- msg })
-	clientA.OnMessage(func(msg protocol.Message) { msgFromB <- msg })
-
-	// Alice → Bob
-	clientA.SendMessage(hidB, "hello bob")
-	select {
-	case msg := <-msgFromA:
-		if msg.Body != "hello bob" {
-			t.Errorf("A→B body = %q", msg.Body)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timeout A→B")
-	}
-
-	// Bob → Alice
-	clientB.SendMessage(hidA, "hello alice")
-	select {
-	case msg := <-msgFromB:
-		if msg.Body != "hello alice" {
-			t.Errorf("B→A body = %q", msg.Body)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timeout B→A")
-	}
-}
-
-func TestE2E_MessageRouting_NotMatched(t *testing.T) {
-	env := newTestEnv(t)
-
-	pubA, privA := genKeys(t)
-	pubB, _ := genKeys(t)
-	env.addUser("alice", "github", pubA)
-	hidB := env.addUser("bob", "github", pubB)
-	// No match added!
-
-	clientA := connectClient(t, env, "alice", "github", pubA, privA)
-
-	errCh := make(chan protocol.Error, 1)
-	clientA.OnError(func(e protocol.Error) { errCh <- e })
-
-	// SendMessage blocks waiting for KeyResponse; send in goroutine so we can
-	// select on the error channel that the relay populates via onError callback.
-	go clientA.SendMessage(hidB, "hey!")
-
-	select {
-	case e := <-errCh:
-		if e.Code != protocol.ErrNotMatched {
-			t.Errorf("code = %q, want not_matched", e.Code)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timeout waiting for not_matched error")
-	}
-}
-
-func TestE2E_MessageRouting_TargetOffline(t *testing.T) {
-	env := newTestEnv(t)
-
-	pubA, privA := genKeys(t)
-	pubB, _ := genKeys(t)
-	hidA := env.addUser("alice", "github", pubA)
-	hidB := env.addUser("bob", "github", pubB)
-	env.addMatch(hidA, hidB)
-
-	clientA := connectClient(t, env, "alice", "github", pubA, privA)
-	// Bob is NOT connected
-
-	// Send should not error (message queued for offline delivery)
-	err := clientA.SendMessage(hidB, "are you there?")
-	if err != nil {
-		t.Fatalf("send: %v", err)
-	}
-
-	// No crash, no error — message silently queued (TODO: actual queue)
-	time.Sleep(100 * time.Millisecond)
-}
-
-func TestE2E_TokenRefresh(t *testing.T) {
+func TestTOTP_ConnectExpiredSig(t *testing.T) {
 	env := newTestEnv(t)
 	pub, priv := genKeys(t)
-	env.addUser("alice", "github", pub)
+	bin, match := env.addUser("alice", "github", pub)
 
-	c := connectClient(t, env, "alice", "github", pub, priv)
+	// Sign 2 windows ago — should be rejected
+	tw := time.Now().Unix()/300 - 2
+	sig := crypto.TOTPSignAt(bin, match, priv, tw)
+	url := fmt.Sprintf("%s/ws?bin=%s&sig=%s", env.wsURL, bin, sig)
 
-	origToken := c.Token()
-	if origToken == "" {
-		t.Fatal("token should be set")
+	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
+	_, resp, err := dialer.Dial(url, nil)
+	if err == nil {
+		t.Fatal("expired sig should be rejected")
 	}
-
-	// Manually trigger a refresh by sending a refresh frame
-	// The readLoop will pick up the Authenticated response and update the token
-	// We need to wait for the refresh to propagate
-	time.Sleep(200 * time.Millisecond)
-
-	// Token should still be valid (hasn't expired in 5min TTL)
-	if c.Token() == "" {
-		t.Error("token should still be set")
+	if resp.StatusCode != 401 {
+		t.Errorf("status = %d, want 401", resp.StatusCode)
 	}
 }
 
-func TestE2E_MultipleUsers_Concurrent(t *testing.T) {
+func TestTOTP_ConnectMissingSig(t *testing.T) {
+	env := newTestEnv(t)
+	pub, _ := genKeys(t)
+	bin, _ := env.addUser("alice", "github", pub)
+
+	url := fmt.Sprintf("%s/ws?bin=%s", env.wsURL, bin)
+	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
+	_, resp, err := dialer.Dial(url, nil)
+	if err == nil {
+		t.Fatal("should fail without sig")
+	}
+	if resp.StatusCode != 401 {
+		t.Errorf("status = %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestTOTP_ConnectMissingBin(t *testing.T) {
+	env := newTestEnv(t)
+
+	url := fmt.Sprintf("%s/ws?sig=deadbeef", env.wsURL)
+	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
+	_, resp, err := dialer.Dial(url, nil)
+	if err == nil {
+		t.Fatal("should fail without bin")
+	}
+	if resp.StatusCode != 401 {
+		t.Errorf("status = %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestTOTP_ConnectMalformedSig(t *testing.T) {
+	env := newTestEnv(t)
+	pub, _ := genKeys(t)
+	bin, _ := env.addUser("alice", "github", pub)
+
+	url := fmt.Sprintf("%s/ws?bin=%s&sig=not-valid-hex-zzz", env.wsURL, bin)
+	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
+	_, resp, err := dialer.Dial(url, nil)
+	if err == nil {
+		t.Fatal("should fail with malformed sig")
+	}
+	if resp.StatusCode != 401 {
+		t.Errorf("status = %d, want 401", resp.StatusCode)
+	}
+}
+
+// ==================== Message Routing Tests ====================
+
+func TestTOTP_MessageRouting_BothOnline(t *testing.T) {
+	env := newTestEnv(t)
+	pubA, privA := genKeys(t)
+	pubB, privB := genKeys(t)
+	binA, matchA := env.addUser("alice", "github", pubA)
+	binB, matchB := env.addUser("bob", "github", pubB)
+	env.addMatch(binA, binB)
+
+	connA := connectWS(t, env, binA, matchA, privA)
+	connB := connectWS(t, env, binB, matchB, privB)
+
+	sendMsg(t, connA, protocol.Message{
+		Type:       protocol.TypeMsg,
+		SourceHash: binA,
+		TargetHash: binB,
+		Body:       "hey bob!",
+		Ts:         time.Now().Unix(),
+	})
+
+	frame := readFrame(t, connB, 5*time.Second)
+	msg, ok := frame.(*protocol.Message)
+	if !ok {
+		t.Fatalf("expected Message, got %T", frame)
+	}
+	if msg.Body != "hey bob!" {
+		t.Errorf("body = %q, want 'hey bob!'", msg.Body)
+	}
+	if msg.MsgID == "" {
+		t.Error("msg_id should be set by relay")
+	}
+}
+
+func TestTOTP_MessageRouting_Bidirectional(t *testing.T) {
+	env := newTestEnv(t)
+	pubA, privA := genKeys(t)
+	pubB, privB := genKeys(t)
+	binA, matchA := env.addUser("alice", "github", pubA)
+	binB, matchB := env.addUser("bob", "github", pubB)
+	env.addMatch(binA, binB)
+
+	connA := connectWS(t, env, binA, matchA, privA)
+	connB := connectWS(t, env, binB, matchB, privB)
+
+	// A → B
+	sendMsg(t, connA, protocol.Message{
+		Type: protocol.TypeMsg, SourceHash: binA, TargetHash: binB,
+		Body: "hello bob", Ts: time.Now().Unix(),
+	})
+	frame := readFrame(t, connB, 5*time.Second)
+	if msg := frame.(*protocol.Message); msg.Body != "hello bob" {
+		t.Errorf("A→B body = %q", msg.Body)
+	}
+
+	// B → A
+	sendMsg(t, connB, protocol.Message{
+		Type: protocol.TypeMsg, SourceHash: binB, TargetHash: binA,
+		Body: "hello alice", Ts: time.Now().Unix(),
+	})
+	frame = readFrame(t, connA, 5*time.Second)
+	if msg := frame.(*protocol.Message); msg.Body != "hello alice" {
+		t.Errorf("B→A body = %q", msg.Body)
+	}
+}
+
+func TestTOTP_MessageRouting_NotMatched(t *testing.T) {
+	env := newTestEnv(t)
+	pubA, privA := genKeys(t)
+	pubB, _ := genKeys(t)
+	binA, matchA := env.addUser("alice", "github", pubA)
+	binB, _ := env.addUser("bob", "github", pubB)
+	// No match added!
+
+	connA := connectWS(t, env, binA, matchA, privA)
+
+	sendMsg(t, connA, protocol.Message{
+		Type: protocol.TypeMsg, SourceHash: binA, TargetHash: binB,
+		Body: "hey!", Ts: time.Now().Unix(),
+	})
+
+	frame := readFrame(t, connA, 5*time.Second)
+	errFrame, ok := frame.(*protocol.Error)
+	if !ok {
+		t.Fatalf("expected Error, got %T", frame)
+	}
+	if errFrame.Code != protocol.ErrNotMatched {
+		t.Errorf("code = %q, want not_matched", errFrame.Code)
+	}
+}
+
+func TestTOTP_MessageRouting_TargetOffline(t *testing.T) {
+	env := newTestEnv(t)
+	pubA, privA := genKeys(t)
+	pubB, _ := genKeys(t)
+	binA, matchA := env.addUser("alice", "github", pubA)
+	binB, _ := env.addUser("bob", "github", pubB)
+	env.addMatch(binA, binB)
+
+	connA := connectWS(t, env, binA, matchA, privA)
+	// Bob NOT connected
+
+	// Should not crash — message silently dropped (TODO: queue)
+	sendMsg(t, connA, protocol.Message{
+		Type: protocol.TypeMsg, SourceHash: binA, TargetHash: binB,
+		Body: "are you there?", Ts: time.Now().Unix(),
+	})
+
+	time.Sleep(100 * time.Millisecond)
+	// No crash = pass
+}
+
+func TestTOTP_MessageRouting_WrongSource(t *testing.T) {
+	env := newTestEnv(t)
+	pubA, privA := genKeys(t)
+	pubB, _ := genKeys(t)
+	binA, matchA := env.addUser("alice", "github", pubA)
+	binB, _ := env.addUser("bob", "github", pubB)
+	env.addMatch(binA, binB)
+
+	connA := connectWS(t, env, binA, matchA, privA)
+
+	// Try to send with wrong source_hash
+	sendMsg(t, connA, protocol.Message{
+		Type: protocol.TypeMsg, SourceHash: "wrong_source_has", TargetHash: binB,
+		Body: "spoofed!", Ts: time.Now().Unix(),
+	})
+
+	frame := readFrame(t, connA, 5*time.Second)
+	errFrame, ok := frame.(*protocol.Error)
+	if !ok {
+		t.Fatalf("expected Error, got %T", frame)
+	}
+	if errFrame.Code != protocol.ErrAuthFailed {
+		t.Errorf("code = %q, want auth_failed", errFrame.Code)
+	}
+}
+
+// ==================== Concurrent + Lifecycle Tests ====================
+
+func TestTOTP_MultipleUsers_Concurrent(t *testing.T) {
 	env := newTestEnv(t)
 	const n = 10
 
 	type user struct {
-		pub    ed25519.PublicKey
-		priv   ed25519.PrivateKey
-		hashID string
+		pub   ed25519.PublicKey
+		priv  ed25519.PrivateKey
+		bin   string
+		match string
 	}
 
 	users := make([]user, n)
 	for i := 0; i < n; i++ {
 		pub, priv := genKeys(t)
-		uid := strings.Repeat(string(rune('a'+i)), 3) // "aaa", "bbb", etc.
-		hid := env.addUser(uid, "github", pub)
-		users[i] = user{pub: pub, priv: priv, hashID: hid}
+		uid := strings.Repeat(string(rune('a'+i)), 3)
+		bin, match := env.addUser(uid, "github", pub)
+		users[i] = user{pub: pub, priv: priv, bin: bin, match: match}
 	}
 
-	// Connect all concurrently
 	var wg sync.WaitGroup
-	clients := make([]*relay.Client, n)
+	conns := make([]*websocket.Conn, n)
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			uid := strings.Repeat(string(rune('a'+idx)), 3)
-			c := relay.NewClient(relay.Config{
-				RelayURL: env.wsURL,
-				UserID: uid, Provider: "github",
-				Pub: users[idx].pub, Priv: users[idx].priv,
-			})
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := c.Connect(ctx); err != nil {
+			u := users[idx]
+			sig := crypto.TOTPSign(u.bin, u.match, u.priv)
+			url := fmt.Sprintf("%s/ws?bin=%s&sig=%s", env.wsURL, u.bin, sig)
+			dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
+			conn, _, err := dialer.Dial(url, nil)
+			if err != nil {
 				t.Errorf("connect user %d: %v", idx, err)
 				return
 			}
-			clients[idx] = c
+			conns[idx] = conn
 		}(i)
 	}
 	wg.Wait()
 
-	// Clean up
-	for _, c := range clients {
+	for _, c := range conns {
 		if c != nil {
 			c.Close()
 		}
 	}
-
-	// All should have connected successfully
-	for i, c := range clients {
+	for i, c := range conns {
 		if c == nil {
 			t.Errorf("user %d failed to connect", i)
 		}
 	}
 }
 
-func TestE2E_MessageConversation(t *testing.T) {
-	env := newTestEnv(t)
-
-	pubA, privA := genKeys(t)
-	pubB, privB := genKeys(t)
-	hidA := env.addUser("alice", "github", pubA)
-	hidB := env.addUser("bob", "github", pubB)
-	env.addMatch(hidA, hidB)
-
-	clientA := connectClient(t, env, "alice", "github", pubA, privA)
-	clientB := connectClient(t, env, "bob", "github", pubB, privB)
-
-	msgsA := make(chan protocol.Message, 10)
-	msgsB := make(chan protocol.Message, 10)
-	clientA.OnMessage(func(msg protocol.Message) { msgsA <- msg })
-	clientB.OnMessage(func(msg protocol.Message) { msgsB <- msg })
-
-	// Multi-turn conversation
-	conversation := []struct {
-		from, to *relay.Client
-		target   string
-		body     string
-		ch       chan protocol.Message
-	}{
-		{clientA, clientB, hidB, "hey!", msgsB},
-		{clientB, clientA, hidA, "hi there!", msgsA},
-		{clientA, clientB, hidB, "how are you?", msgsB},
-		{clientB, clientA, hidA, "great, you?", msgsA},
-		{clientA, clientB, hidB, "same!", msgsB},
-	}
-
-	for i, turn := range conversation {
-		if err := turn.from.SendMessage(turn.target, turn.body); err != nil {
-			t.Fatalf("turn %d send: %v", i, err)
-		}
-
-		select {
-		case msg := <-turn.ch:
-			if msg.Body != turn.body {
-				t.Errorf("turn %d: body = %q, want %q", i, msg.Body, turn.body)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatalf("turn %d: timeout", i)
-		}
-	}
-}
-
-func TestE2E_Disconnect_Reconnect(t *testing.T) {
+func TestTOTP_DisconnectReconnect(t *testing.T) {
 	env := newTestEnv(t)
 	pub, priv := genKeys(t)
-	hid := env.addUser("alice", "github", pub)
+	bin, match := env.addUser("alice", "github", pub)
 
 	// First connection
-	c1 := connectClient(t, env, "alice", "github", pub, priv)
-	if c1.HashID() != hid {
-		t.Errorf("first connect: hash = %q, want %q", c1.HashID(), hid)
-	}
-
-	// Disconnect
-	c1.Close()
+	conn1 := connectWS(t, env, bin, match, priv)
+	conn1.Close()
 	time.Sleep(100 * time.Millisecond)
 
-	// Reconnect
-	c2 := relay.NewClient(relay.Config{
-		RelayURL: env.wsURL,
-		UserID: "alice", Provider: "github", Pub: pub, Priv: priv,
-	})
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := c2.Connect(ctx); err != nil {
-		t.Fatalf("reconnect: %v", err)
-	}
-	defer c2.Close()
-
-	if c2.HashID() != hid {
-		t.Errorf("reconnect: hash = %q, want %q", c2.HashID(), hid)
-	}
-	if c2.Token() == "" {
-		t.Error("reconnect: token should be set")
+	// Reconnect with fresh TOTP
+	conn2 := connectWS(t, env, bin, match, priv)
+	if conn2 == nil {
+		t.Fatal("reconnect should succeed")
 	}
 }
 
-func TestE2E_HealthEndpoint(t *testing.T) {
+func TestTOTP_SessionReplacement(t *testing.T) {
 	env := newTestEnv(t)
+	pubA, privA := genKeys(t)
+	pubB, privB := genKeys(t)
+	binA, matchA := env.addUser("alice", "github", pubA)
+	binB, matchB := env.addUser("bob", "github", pubB)
+	env.addMatch(binA, binB)
 
-	resp, err := env.ts.Client().Get(env.ts.URL + "/health")
+	// Alice connects first session
+	_ = connectWS(t, env, binA, matchA, privA)
+
+	// Alice connects second session (replaces first)
+	conn2 := connectWS(t, env, binA, matchA, privA)
+
+	// Bob connects and sends to Alice
+	connB := connectWS(t, env, binB, matchB, privB)
+	sendMsg(t, connB, protocol.Message{
+		Type: protocol.TypeMsg, SourceHash: binB, TargetHash: binA,
+		Body: "which alice?", Ts: time.Now().Unix(),
+	})
+
+	// Message should go to conn2 (newest session)
+	frame := readFrame(t, conn2, 5*time.Second)
+	msg, ok := frame.(*protocol.Message)
+	if !ok {
+		t.Fatalf("expected Message, got %T", frame)
+	}
+	if msg.Body != "which alice?" {
+		t.Errorf("body = %q", msg.Body)
+	}
+}
+
+// ==================== Key Exchange Tests ====================
+
+func TestTOTP_KeyRequest_Success(t *testing.T) {
+	env := newTestEnv(t)
+	pubA, privA := genKeys(t)
+	pubB, _ := genKeys(t)
+	binA, matchA := env.addUser("alice", "github", pubA)
+	binB, _ := env.addUser("bob", "github", pubB)
+	env.addMatch(binA, binB)
+
+	connA := connectWS(t, env, binA, matchA, privA)
+
+	// Request Bob's key
+	data, _ := protocol.Encode(protocol.KeyRequest{
+		Type: protocol.TypeKeyRequest, TargetHash: binB,
+	})
+	connA.WriteMessage(websocket.BinaryMessage, data)
+
+	frame := readFrame(t, connA, 5*time.Second)
+	resp, ok := frame.(*protocol.KeyResponse)
+	if !ok {
+		t.Fatalf("expected KeyResponse, got %T", frame)
+	}
+	if resp.TargetHash != binB {
+		t.Errorf("target = %q, want %q", resp.TargetHash, binB)
+	}
+	keyBytes, _ := hex.DecodeString(resp.PubKey)
+	if !pubB.Equal(ed25519.PublicKey(keyBytes)) {
+		t.Error("returned key doesn't match Bob's pubkey")
+	}
+}
+
+func TestTOTP_KeyRequest_NotMatched(t *testing.T) {
+	env := newTestEnv(t)
+	pubA, privA := genKeys(t)
+	pubB, _ := genKeys(t)
+	binA, matchA := env.addUser("alice", "github", pubA)
+	binB, _ := env.addUser("bob", "github", pubB)
+	// No match!
+
+	connA := connectWS(t, env, binA, matchA, privA)
+
+	data, _ := protocol.Encode(protocol.KeyRequest{
+		Type: protocol.TypeKeyRequest, TargetHash: binB,
+	})
+	connA.WriteMessage(websocket.BinaryMessage, data)
+
+	frame := readFrame(t, connA, 5*time.Second)
+	errFrame, ok := frame.(*protocol.Error)
+	if !ok {
+		t.Fatalf("expected Error, got %T", frame)
+	}
+	if errFrame.Code != protocol.ErrNotMatched {
+		t.Errorf("code = %q, want not_matched", errFrame.Code)
+	}
+}
+
+func TestTOTP_KeyRequest_TargetNotFound(t *testing.T) {
+	env := newTestEnv(t)
+	pubA, privA := genKeys(t)
+	binA, matchA := env.addUser("alice", "github", pubA)
+	fakeHash := "nonexistent12345"
+	env.addMatch(binA, fakeHash)
+
+	connA := connectWS(t, env, binA, matchA, privA)
+
+	data, _ := protocol.Encode(protocol.KeyRequest{
+		Type: protocol.TypeKeyRequest, TargetHash: fakeHash,
+	})
+	connA.WriteMessage(websocket.BinaryMessage, data)
+
+	frame := readFrame(t, connA, 5*time.Second)
+	errFrame, ok := frame.(*protocol.Error)
+	if !ok {
+		t.Fatalf("expected Error, got %T", frame)
+	}
+	if errFrame.Code != protocol.ErrUserNotFound {
+		t.Errorf("code = %q, want user_not_found", errFrame.Code)
+	}
+}
+
+// ==================== Health Endpoint ====================
+
+func TestTOTP_HealthEndpoint(t *testing.T) {
+	env := newTestEnv(t)
+	resp, err := http.Get(env.url + "/health")
 	if err != nil {
 		t.Fatalf("health: %v", err)
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != 200 {
 		t.Errorf("status = %d, want 200", resp.StatusCode)
 	}
 }
 
-func TestE2E_SessionReplacement(t *testing.T) {
-	env := newTestEnv(t)
+// ==================== Encrypted Message Tests ====================
 
+func TestTOTP_EncryptedMessage_Flagged(t *testing.T) {
+	env := newTestEnv(t)
 	pubA, privA := genKeys(t)
 	pubB, privB := genKeys(t)
-	hidA := env.addUser("alice", "github", pubA)
-	hidB := env.addUser("bob", "github", pubB)
-	env.addMatch(hidA, hidB)
+	binA, matchA := env.addUser("alice", "github", pubA)
+	binB, matchB := env.addUser("bob", "github", pubB)
+	env.addMatch(binA, binB)
 
-	// Alice connects first session
-	c1 := connectClient(t, env, "alice", "github", pubA, privA)
-	_ = c1
+	connA := connectWS(t, env, binA, matchA, privA)
+	connB := connectWS(t, env, binB, matchB, privB)
 
-	// Alice connects second session (replaces first)
-	c2 := connectClient(t, env, "alice", "github", pubA, privA)
+	sendMsg(t, connA, protocol.Message{
+		Type: protocol.TypeMsg, SourceHash: binA, TargetHash: binB,
+		Body: "encrypted_payload_here", Ts: time.Now().Unix(), Encrypted: true,
+	})
 
-	// Bob connects and sends to Alice — should go to c2
-	clientB := connectClient(t, env, "bob", "github", pubB, privB)
-
-	msgCh := make(chan protocol.Message, 1)
-	c2.OnMessage(func(msg protocol.Message) { msgCh <- msg })
-
-	clientB.SendMessage(hidA, "which alice?")
-
-	select {
-	case msg := <-msgCh:
-		if msg.Body != "which alice?" {
-			t.Errorf("body = %q", msg.Body)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timeout — message should go to newest session")
+	frame := readFrame(t, connB, 5*time.Second)
+	msg := frame.(*protocol.Message)
+	if !msg.Encrypted {
+		t.Error("encrypted flag should be preserved")
+	}
+	if msg.Body != "encrypted_payload_here" {
+		t.Errorf("body = %q", msg.Body)
 	}
 }
 
-func TestE2E_EncryptedMessage_Delivered(t *testing.T) {
+// ==================== Multi-turn Conversation ====================
+
+func TestTOTP_Conversation_MultiTurn(t *testing.T) {
 	env := newTestEnv(t)
 	pubA, privA := genKeys(t)
 	pubB, privB := genKeys(t)
-	hidA := env.addUser("alice", "github", pubA)
-	hidB := env.addUser("bob", "github", pubB)
-	env.addMatch(hidA, hidB)
+	binA, matchA := env.addUser("alice", "github", pubA)
+	binB, matchB := env.addUser("bob", "github", pubB)
+	env.addMatch(binA, binB)
 
-	clientA := connectClient(t, env, "alice", "github", pubA, privA)
-	clientB := connectClient(t, env, "bob", "github", pubB, privB)
-
-	msgCh := make(chan protocol.Message, 1)
-	clientB.OnMessage(func(msg protocol.Message) { msgCh <- msg })
-
-	if err := clientA.SendMessage(hidB, "secret hello!"); err != nil {
-		t.Fatalf("send: %v", err)
-	}
-
-	select {
-	case msg := <-msgCh:
-		if msg.Body != "secret hello!" {
-			t.Errorf("body = %q, want 'secret hello!'", msg.Body)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timeout waiting for encrypted message")
-	}
-}
-
-func TestE2E_EncryptedMessage_RelayCannotRead(t *testing.T) {
-	env := newTestEnv(t)
-	pubA, privA := genKeys(t)
-	pubB, privB := genKeys(t)
-	hidA := env.addUser("alice", "github", pubA)
-	hidB := env.addUser("bob", "github", pubB)
-	env.addMatch(hidA, hidB)
-
-	clientA := connectClient(t, env, "alice", "github", pubA, privA)
-	clientB := connectClient(t, env, "bob", "github", pubB, privB)
-
-	rawCh := make(chan protocol.Message, 1)
-	clientB.OnRawMessage(func(msg protocol.Message) { rawCh <- msg })
-
-	if err := clientA.SendMessage(hidB, "top secret"); err != nil {
-		t.Fatalf("send: %v", err)
-	}
-
-	select {
-	case raw := <-rawCh:
-		if !raw.Encrypted {
-			t.Error("message should be marked encrypted")
-		}
-		if raw.Body == "top secret" {
-			t.Error("relay forwarded plaintext — encryption not working")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timeout")
-	}
-}
-
-func TestE2E_EncryptedConversation_Bidirectional(t *testing.T) {
-	env := newTestEnv(t)
-	pubA, privA := genKeys(t)
-	pubB, privB := genKeys(t)
-	hidA := env.addUser("alice", "github", pubA)
-	hidB := env.addUser("bob", "github", pubB)
-	env.addMatch(hidA, hidB)
-
-	clientA := connectClient(t, env, "alice", "github", pubA, privA)
-	clientB := connectClient(t, env, "bob", "github", pubB, privB)
-
-	msgsA := make(chan protocol.Message, 10)
-	msgsB := make(chan protocol.Message, 10)
-	clientA.OnMessage(func(msg protocol.Message) { msgsA <- msg })
-	clientB.OnMessage(func(msg protocol.Message) { msgsB <- msg })
+	connA := connectWS(t, env, binA, matchA, privA)
+	connB := connectWS(t, env, binB, matchB, privB)
 
 	turns := []struct {
-		from   *relay.Client
-		target string
-		body   string
-		ch     chan protocol.Message
+		from, to       *websocket.Conn
+		src, tgt, body string
+		readFrom       *websocket.Conn
 	}{
-		{clientA, hidB, "hey bob!", msgsB},
-		{clientB, hidA, "hey alice!", msgsA},
-		{clientA, hidB, "how are you?", msgsB},
-		{clientB, hidA, "great!", msgsA},
+		{connA, connB, binA, binB, "hey!", connB},
+		{connB, connA, binB, binA, "hi there!", connA},
+		{connA, connB, binA, binB, "how are you?", connB},
+		{connB, connA, binB, binA, "great, you?", connA},
 	}
 
 	for i, turn := range turns {
-		if err := turn.from.SendMessage(turn.target, turn.body); err != nil {
-			t.Fatalf("turn %d: %v", i, err)
+		sendMsg(t, turn.from, protocol.Message{
+			Type: protocol.TypeMsg, SourceHash: turn.src, TargetHash: turn.tgt,
+			Body: turn.body, Ts: time.Now().Unix(),
+		})
+		frame := readFrame(t, turn.readFrom, 5*time.Second)
+		msg := frame.(*protocol.Message)
+		if msg.Body != turn.body {
+			t.Errorf("turn %d: body = %q, want %q", i, msg.Body, turn.body)
 		}
-		select {
-		case msg := <-turn.ch:
-			if msg.Body != turn.body {
-				t.Errorf("turn %d: body = %q, want %q", i, msg.Body, turn.body)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatalf("turn %d: timeout", i)
-		}
-	}
-}
-
-func TestE2E_KeyRequest_NotMatched(t *testing.T) {
-	env := newTestEnv(t)
-	pubA, privA := genKeys(t)
-	pubB, _ := genKeys(t)
-	env.addUser("alice", "github", pubA)
-	hidB := env.addUser("bob", "github", pubB)
-	// No match!
-
-	clientA := connectClient(t, env, "alice", "github", pubA, privA)
-
-	errCh := make(chan protocol.Error, 1)
-	clientA.OnError(func(e protocol.Error) { errCh <- e })
-
-	go clientA.SendMessage(hidB, "hello")
-
-	select {
-	case e := <-errCh:
-		if e.Code != protocol.ErrNotMatched {
-			t.Errorf("code = %q, want not_matched", e.Code)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timeout waiting for not_matched error")
-	}
-}
-
-func TestE2E_KeyRequest_TargetNotFound(t *testing.T) {
-	env := newTestEnv(t)
-	pubA, privA := genKeys(t)
-	hidA := env.addUser("alice", "github", pubA)
-	fakeHash := "nonexistent12345"
-	env.addMatch(hidA, fakeHash)
-
-	clientA := connectClient(t, env, "alice", "github", pubA, privA)
-
-	errCh := make(chan protocol.Error, 1)
-	clientA.OnError(func(e protocol.Error) { errCh <- e })
-
-	go clientA.SendMessage(fakeHash, "hello")
-
-	select {
-	case e := <-errCh:
-		if e.Code != protocol.ErrUserNotFound {
-			t.Errorf("code = %q, want user_not_found", e.Code)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timeout waiting for user_not_found error")
-	}
-}
-
-func TestE2E_MixedEncryptedUnencrypted(t *testing.T) {
-	env := newTestEnv(t)
-	pubA, privA := genKeys(t)
-	pubB, privB := genKeys(t)
-	hidA := env.addUser("alice", "github", pubA)
-	hidB := env.addUser("bob", "github", pubB)
-	env.addMatch(hidA, hidB)
-
-	clientA := connectClient(t, env, "alice", "github", pubA, privA)
-	clientB := connectClient(t, env, "bob", "github", pubB, privB)
-
-	msgCh := make(chan protocol.Message, 2)
-	clientB.OnMessage(func(msg protocol.Message) { msgCh <- msg })
-
-	// Plain message
-	if err := clientA.SendMessagePlain(hidB, "plain hello"); err != nil {
-		t.Fatalf("plain send: %v", err)
-	}
-	select {
-	case msg := <-msgCh:
-		if msg.Body != "plain hello" {
-			t.Errorf("plain body = %q", msg.Body)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timeout for plain message")
-	}
-
-	// Encrypted message
-	if err := clientA.SendMessage(hidB, "encrypted hello"); err != nil {
-		t.Fatalf("encrypted send: %v", err)
-	}
-	select {
-	case msg := <-msgCh:
-		if msg.Body != "encrypted hello" {
-			t.Errorf("encrypted body = %q", msg.Body)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timeout for encrypted message")
 	}
 }
