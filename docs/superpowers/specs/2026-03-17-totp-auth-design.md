@@ -75,15 +75,21 @@ But cannot decrypt without the user's **private** key. The project already uses 
 
 ### Failure Semantics
 
+**Action responsibility ends** after posting the encrypted comment + closing the issue. The hashes are permanently in the issue comments — the Action never needs to run again for this user.
+
+**CLI is solely responsible** for retrieving and persisting the hashes. It can retry any number of times — just re-read the same closed issue's comments.
+
 | Scenario | Result | User Action |
 |----------|--------|-------------|
 | Action succeeds, CLI polls + decrypts + persists | Registered + hashes delivered | None |
-| Action fails (missing salt, crypto error, commit fail) | Issue closed `not planned` | Retry join |
-| CLI polls, sees issue closed `not planned` | CLI aborts immediately with error | Retry join |
-| CLI polls, no reply within 5 min | CLI aborts with timeout message | Check issue status on GitHub |
-| CLI decrypts but persist fails (disk error) | CLI shows error, does not mark as complete | Fix disk, retry join |
-| CLI decrypts + persists, but Action failed to commit | CLI has hashes but not registered in pool | Retry join — hashes overwritten with same values |
+| Action fails (missing salt, crypto error, commit fail) | Issue closed `not planned` | Retry join (new issue) |
+| CLI polls, sees issue closed `not planned` | CLI aborts immediately with error | Retry join (new issue) |
+| CLI polls, no reply within 5 min | CLI aborts with timeout message | Re-run CLI — it re-polls the same issue |
+| CLI decrypts but persist fails (disk error) | CLI shows error | Re-run CLI — issue still has the comment, retries persist |
+| CLI crashes mid-poll | No state lost | Re-run CLI — resumes polling same issue |
 | User already registered | Action still computes hashes, posts encrypted comment, updates `.bin` | CLI still polls + decrypts — same flow every time |
+
+**Key invariant**: once the issue has the encrypted comment, the CLI can always recover by re-polling. No re-registration needed.
 
 ---
 
