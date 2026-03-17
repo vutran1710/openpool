@@ -1,5 +1,5 @@
 // Package relay provides a WebSocket client for the dating relay server.
-// Uses MessagePack-encoded frames as defined in internal/protocol.
+// Uses TOTP signature at WebSocket upgrade for authentication.
 package relay
 
 import (
@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,74 +19,65 @@ import (
 
 // Client is a relay WebSocket client.
 type Client struct {
-	conn     *websocket.Conn
-	url      string
-	token    string
-	hashID   string
-	poolURL  string
-	userID   string
-	provider string
-	pub      ed25519.PublicKey
-	priv     ed25519.PrivateKey
+	conn      *websocket.Conn
+	url       string // relay base URL
+	binHash   string
+	matchHash string
+	poolURL   string
+	pub       ed25519.PublicKey
+	priv      ed25519.PrivateKey
 
 	mu       sync.Mutex
 	onMsg    func(protocol.Message)
 	onError  func(protocol.Error)
+	onRawMsg func(protocol.Message)
 	done     chan struct{}
 	closed   bool
 
-	keys     map[string][]byte                // target_hash → conversation key
-	keyReqs  map[string]chan ed25519.PublicKey // inflight key request channels
-	onRawMsg func(protocol.Message)
+	keys    map[string][]byte                // target_hash → conversation key
+	keyReqs map[string]chan ed25519.PublicKey // inflight key request channels
 }
 
 // Config holds the parameters needed to connect.
 type Config struct {
-	RelayURL string
-	UserID   string
-	Provider string
-	Pub      ed25519.PublicKey
-	Priv     ed25519.PrivateKey
+	RelayURL  string
+	PoolURL   string // for conversation key derivation
+	BinHash   string // from registration
+	MatchHash string // from registration (TOTP secret)
+	Pub       ed25519.PublicKey
+	Priv      ed25519.PrivateKey
 }
 
 // NewClient creates a relay client (not yet connected).
 func NewClient(cfg Config) *Client {
 	return &Client{
-		url:      cfg.RelayURL,
-		userID:   cfg.UserID,
-		provider: cfg.Provider,
-		pub:      cfg.Pub,
-		priv:     cfg.Priv,
-		done:     make(chan struct{}),
-		keys:     make(map[string][]byte),
-		keyReqs:  make(map[string]chan ed25519.PublicKey),
+		url:       cfg.RelayURL,
+		poolURL:   cfg.PoolURL,
+		binHash:   cfg.BinHash,
+		matchHash: cfg.MatchHash,
+		pub:       cfg.Pub,
+		priv:      cfg.Priv,
+		done:      make(chan struct{}),
+		keys:      make(map[string][]byte),
+		keyReqs:   make(map[string]chan ed25519.PublicKey),
 	}
 }
 
-// Connect establishes the WebSocket connection and authenticates.
+// Connect computes a TOTP signature and dials the relay WebSocket.
 func (c *Client) Connect(ctx context.Context) error {
-	dialer := websocket.Dialer{
-		HandshakeTimeout: 10 * time.Second,
-	}
+	sig := crypto.TOTPSign(c.binHash, c.matchHash, c.priv)
+	wsURL := c.wsURL() + "/ws?bin=" + c.binHash + "&sig=" + sig
 
-	conn, _, err := dialer.DialContext(ctx, c.url+"/ws", nil)
+	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
+	conn, resp, err := dialer.DialContext(ctx, wsURL, nil)
 	if err != nil {
+		if resp != nil && resp.StatusCode == 401 {
+			return fmt.Errorf("authentication failed")
+		}
 		return fmt.Errorf("connecting to relay: %w", err)
 	}
 	c.conn = conn
-
-	// Authenticate
-	if err := c.authenticate(ctx); err != nil {
-		c.conn.Close()
-		return fmt.Errorf("authentication: %w", err)
-	}
-
-	// Start read loop
 	go c.readLoop()
-
-	// Start token refresh loop
-	go c.refreshLoop(ctx)
-
 	return nil
 }
 
@@ -103,16 +95,9 @@ func (c *Client) Close() {
 	}
 }
 
-// HashID returns the authenticated user's hash_id.
-func (c *Client) HashID() string {
-	return c.hashID
-}
-
-// Token returns the current auth token.
-func (c *Client) Token() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.token
+// BinHash returns the client's bin_hash.
+func (c *Client) BinHash() string {
+	return c.binHash
 }
 
 // OnMessage sets the callback for incoming messages.
@@ -181,7 +166,7 @@ func (c *Client) getOrDeriveKey(ctx context.Context, targetHash string) ([]byte,
 		return nil, fmt.Errorf("computing shared secret: %w", err)
 	}
 
-	key, err = crypto.DeriveConversationKey(shared, c.hashID, targetHash, c.poolURL)
+	key, err = crypto.DeriveConversationKey(shared, c.binHash, targetHash, c.poolURL)
 	if err != nil {
 		return nil, fmt.Errorf("deriving conversation key: %w", err)
 	}
@@ -210,8 +195,7 @@ func (c *Client) SendMessage(targetHash, body string) error {
 
 	msg := protocol.Message{
 		Type:       protocol.TypeMsg,
-		Token:      c.Token(),
-		SourceHash: c.hashID,
+		SourceHash: c.binHash,
 		TargetHash: targetHash,
 		Body:       encBody,
 		Encrypted:  true,
@@ -224,8 +208,7 @@ func (c *Client) SendMessage(targetHash, body string) error {
 func (c *Client) SendMessagePlain(targetHash, body string) error {
 	msg := protocol.Message{
 		Type:       protocol.TypeMsg,
-		Token:      c.Token(),
-		SourceHash: c.hashID,
+		SourceHash: c.binHash,
 		TargetHash: targetHash,
 		Body:       body,
 		Ts:         time.Now().Unix(),
@@ -243,73 +226,13 @@ func (c *Client) AckMessage(msgID string) error {
 
 // --- Internal ---
 
-func (c *Client) authenticate(ctx context.Context) error {
-	// Step 1: Send auth request
-	if err := c.send(protocol.AuthRequest{
-		Type:     protocol.TypeAuth,
-		UserID:   c.userID,
-		Provider: c.provider,
-	}); err != nil {
-		return fmt.Errorf("sending auth: %w", err)
-	}
-
-	// Step 2: Read challenge
-	data, err := c.readFrame(ctx)
-	if err != nil {
-		return fmt.Errorf("reading challenge: %w", err)
-	}
-
-	frame, err := protocol.DecodeFrame(data)
-	if err != nil {
-		return err
-	}
-
-	switch f := frame.(type) {
-	case *protocol.Challenge:
-		// Step 3: Sign nonce and respond
-		nonceBytes, err := hex.DecodeString(f.Nonce)
-		if err != nil {
-			return fmt.Errorf("decoding nonce: %w", err)
-		}
-		signature := crypto.Sign(c.priv, nonceBytes)
-
-		if err := c.send(protocol.AuthResponse{
-			Type:      protocol.TypeAuthResponse,
-			Signature: signature,
-		}); err != nil {
-			return fmt.Errorf("sending signature: %w", err)
-		}
-
-	case *protocol.Error:
-		return fmt.Errorf("%s: %s", f.Code, f.Message)
-	default:
-		return fmt.Errorf("expected challenge, got %T", frame)
-	}
-
-	// Step 4: Read authenticated response
-	data, err = c.readFrame(ctx)
-	if err != nil {
-		return fmt.Errorf("reading auth result: %w", err)
-	}
-
-	frame, err = protocol.DecodeFrame(data)
-	if err != nil {
-		return err
-	}
-
-	switch f := frame.(type) {
-	case *protocol.Authenticated:
-		c.mu.Lock()
-		c.token = f.Token
-		c.hashID = f.HashID
-		c.poolURL = f.PoolURL
-		c.mu.Unlock()
-		return nil
-	case *protocol.Error:
-		return fmt.Errorf("%s: %s", f.Code, f.Message)
-	default:
-		return fmt.Errorf("expected authenticated, got %T", frame)
-	}
+// wsURL returns the WebSocket base URL.
+func (c *Client) wsURL() string {
+	u := c.url
+	u = strings.TrimSuffix(u, "/")
+	u = strings.Replace(u, "http://", "ws://", 1)
+	u = strings.Replace(u, "https://", "wss://", 1)
+	return u
 }
 
 func (c *Client) send(v any) error {
@@ -323,26 +246,6 @@ func (c *Client) send(v any) error {
 		return fmt.Errorf("not connected")
 	}
 	return c.conn.WriteMessage(websocket.BinaryMessage, data)
-}
-
-func (c *Client) readFrame(ctx context.Context) ([]byte, error) {
-	type result struct {
-		data []byte
-		err  error
-	}
-	ch := make(chan result, 1)
-
-	go func() {
-		_, data, err := c.conn.ReadMessage()
-		ch <- result{data, err}
-	}()
-
-	select {
-	case r := <-ch:
-		return r.data, r.err
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
 }
 
 func (c *Client) readLoop() {
@@ -382,9 +285,6 @@ func (c *Client) readLoop() {
 			if c.onRawMsg != nil {
 				c.onRawMsg(*f)
 			}
-			// Handle in goroutine: decrypting an encrypted message may need to
-			// send a KeyRequest and wait for a KeyResponse, which arrives on
-			// this same read loop. Blocking here would cause a deadlock.
 			go func(msg protocol.Message) {
 				if msg.Encrypted {
 					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -405,31 +305,6 @@ func (c *Client) readLoop() {
 			if c.onError != nil {
 				c.onError(*f)
 			}
-		case *protocol.Authenticated:
-			// Token refresh response
-			c.mu.Lock()
-			c.token = f.Token
-			c.mu.Unlock()
-		}
-	}
-}
-
-func (c *Client) refreshLoop(ctx context.Context) {
-	// Refresh token every 13 minutes (token lives 15 min)
-	ticker := time.NewTicker(13 * time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-c.done:
-			return
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			c.send(protocol.RefreshRequest{
-				Type:  protocol.TypeRefresh,
-				Token: c.Token(),
-			})
 		}
 	}
 }
