@@ -245,7 +245,8 @@ match_hash = "def456..."
 | `internal/relay/relay_e2e_test.go` | Rewrite: no auth handshake, connect with `?bin=&sig=`. Add `MatchHash` to test `UserEntry`. |
 | `internal/cli/relay/client_test.go` | Update for new `Config` shape. Remove token/auth tests. |
 | **New**: `internal/cli/gatekeeper/` | Poll issue comments, decrypt NaCl box blob, persist hashes to config. |
-| **New**: `cmd/regcrypt/` | Standalone CLI tool for GitHub Actions — computes hashes, NaCl box encrypts, outputs base64. |
+| **New**: `cmd/regcrypt/` | Standalone CLI tool for GitHub Actions — computes hashes, NaCl box encrypts, outputs base64. Pre-built binary published as GitHub Release artifact. |
+| **New**: `.github/workflows/release-regcrypt.yml` | Build + publish `regcrypt-linux-amd64` on tag push. |
 | `.github/workflows/register.yml` | Update to compute id_hash→bin_hash→match_hash, call `regcrypt`, post encrypted comment. |
 | `dating-test-pool/.github/workflows/register.yml` | Same changes as above (pool repo copy). |
 
@@ -267,7 +268,7 @@ match_hash = "def456..."
 
 ### `cmd/regcrypt/` Tool
 
-Standalone Go CLI used by GitHub Actions. Keeps all crypto in Go — same NaCl box implementation as `internal/crypto/encrypt.go`.
+Standalone Go CLI used by GitHub Actions. Pre-built and published as a GitHub Release artifact on `dating-dev`. The Action downloads it — no Go toolchain needed in the workflow.
 
 ```
 Usage: regcrypt \
@@ -287,11 +288,22 @@ The Action captures both lines:
 - `bin_hash` → used for `.bin` filename
 - Encrypted blob → posted as issue comment
 
+### Distribution
+
+Built for `linux/amd64` (GitHub Actions runner). Published as release artifact:
+```
+https://github.com/vutran1710/dating-dev/releases/latest/download/regcrypt-linux-amd64
+```
+
+A release workflow in `dating-dev` builds and uploads the binary on tag push.
+
 ### Updated Workflow
 
 ```yaml
-- name: Build regcrypt
-  run: go build -o regcrypt ./cmd/regcrypt
+- name: Download regcrypt
+  run: |
+    curl -sL https://github.com/vutran1710/dating-dev/releases/latest/download/regcrypt-linux-amd64 -o regcrypt
+    chmod +x regcrypt
 
 - name: Compute and encrypt hashes
   env:
