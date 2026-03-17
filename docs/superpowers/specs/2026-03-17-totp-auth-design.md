@@ -1,6 +1,6 @@
 # TOTP-Style Relay Auth + Issue-Based Registration
 
-**Status**: Spec
+**Status**: Implemented (merged PR #15)
 **Supersedes**: `2026-03-17-relay-jwt-auth-design.md`, `2026-03-17-per-pool-relay-refactor-design.md` (auth sections)
 
 ---
@@ -9,7 +9,7 @@
 
 Replace the relay's challenge/response WebSocket auth and JWT token system with a stateless TOTP-style scheme. The relay verifies a deterministic signature on every WebSocket connect — no login endpoint, no token issuance, no refresh loop.
 
-Registration delivers `bin_hash` + `match_hash` to the CLI via an encrypted issue comment from the GitHub Actions registration workflow. The blob is encrypted using NaCl box (operator's private key + user's public key), so only the user's private key can decrypt it. No external dependencies (no tunnel, no cloudflared).
+Registration delivers `bin_hash` + `match_hash` to the CLI via an encrypted issue comment from the GitHub Actions registration workflow. The blob is encrypted using ephemeral NaCl box (`crypto.Encrypt` — no operator private key needed, GitHub Actions context proves origin). No external dependencies.
 
 ---
 
@@ -21,6 +21,8 @@ Registration delivers `bin_hash` + `match_hash` to the CLI via an encrypted issu
 | `bin_hash` | `sha256(salt:id_hash)[:16]` — 16 hex chars | Relay routing key, WebSocket connect identity |
 | `match_hash` | `sha256(salt:bin_hash)[:16]` — 16 hex chars | Match verification + TOTP shared secret |
 
+Go types: `crypto.IDHash` (was `PublicID`).
+
 ---
 
 ## 1. Registration Flow (One-Time)
@@ -28,50 +30,49 @@ Registration delivers `bin_hash` + `match_hash` to the CLI via an encrypted issu
 ### GitHub Actions Side
 
 1. Registration Action triggers on join issue
-2. Action computes:
+2. Action downloads `regcrypt` binary from `vutran1710/regcrypt` releases (public repo)
+3. Action runs `regcrypt` which computes:
    - `id_hash = sha256(pool_url:provider:user_id)`
    - `bin_hash = sha256(salt:id_hash)[:16]`
    - `match_hash = sha256(salt:bin_hash)[:16]`
-3. Action encrypts `{bin_hash, match_hash}` as msgpack, sealed with NaCl box:
-   - Sender: operator's ed25519 private key (from GitHub secrets, converted to curve25519)
-   - Recipient: user's ed25519 public key (from issue body, converted to curve25519)
-4. Action posts encrypted blob as base64 issue comment
-5. Action commits registration to pool repo (pubkey + bin_hash in user index)
-6. Action closes issue as completed
+4. `regcrypt` encrypts `{bin_hash, match_hash}` as msgpack, sealed with ephemeral NaCl box:
+   - Uses `crypto.Encrypt(userPub, payload)` — ephemeral keypair, no operator key needed
+   - Recipient: user's ed25519 public key (extracted from issue body)
+5. Action posts encrypted blob as base64 issue comment
+6. Action commits `.bin` file to pool repo (keyed by `bin_hash`)
+7. Action closes issue as completed
 
 If any step fails → Action closes issue as `not planned`.
 
-### CLI Side (Gatekeeper)
+### CLI Side
 
-After submitting join issue:
+After submitting join issue (`pool join`):
 
 1. CLI polls issue comments every 5s (max 5 minutes)
 2. For each comment by `github-actions[bot]`:
    - Base64-decode the comment body
-   - Attempt NaCl box open with `user_priv_key` + `operator_pub_key`
-   - `operator_pub_key` is already in pool config (`operator_public_key` field)
+   - Attempt `crypto.Decrypt(userPriv, blob)` — ephemeral scheme, no operator key needed
 3. On successful decryption:
    - Msgpack-decode → extract `bin_hash` + `match_hash`
    - Persist to local config (`~/.dating/setting.toml` under pool entry)
+   - Set pool status to `active`
    - Done ✓
-4. On timeout → "Registration timed out. Check issue status on GitHub."
+4. On timeout → saves pool as `pending` with `PendingIssue` number for retry
 
-### Crypto: NaCl Box (Diffie-Hellman)
+### Crypto: Ephemeral NaCl Box
 
 ```
-Encrypt (Action):  nacl_box_seal(plaintext, operator_priv → curve25519, user_pub → curve25519)
-Decrypt (CLI):     nacl_box_open(ciphertext, user_priv → curve25519, operator_pub → curve25519)
+Encrypt (regcrypt):  crypto.Encrypt(userPub, payload)
+                     → generates ephemeral curve25519 keypair
+                     → NaCl box.Seal with ephemeral_priv + user_pub
+                     → output: [ephemeral_pub_32][nonce_24][ciphertext]
 
-Both sides compute the same shared secret:
-  ECDH(operator_priv, user_pub) == ECDH(user_priv, operator_pub)
+Decrypt (CLI):       crypto.Decrypt(userPriv, blob)
+                     → extracts ephemeral_pub from blob
+                     → NaCl box.Open with user_priv + ephemeral_pub
 ```
 
-An attacker who sees the issue comment has:
-- The ciphertext (public)
-- The operator's public key (public)
-- The user's public key (public)
-
-But cannot decrypt without the user's **private** key. The project already uses this construction in `internal/crypto/encrypt.go`.
+No operator key involved. GitHub Actions authentication proves origin (only the Action can post comments). The ephemeral pubkey is embedded in the ciphertext.
 
 ### Failure Semantics
 
@@ -84,7 +85,7 @@ But cannot decrypt without the user's **private** key. The project already uses 
 | Action succeeds, CLI polls + decrypts + persists | Registered + hashes delivered | None |
 | Action fails (missing salt, crypto error, commit fail) | Issue closed `not planned` | Retry join (new issue) |
 | CLI polls, sees issue closed `not planned` | CLI aborts immediately with error | Retry join (new issue) |
-| CLI polls, no reply within 5 min | CLI aborts with timeout message | Re-run CLI — it re-polls the same issue |
+| CLI polls, no reply within 5 min | CLI saves as pending, aborts | Re-run CLI — it re-polls the same issue |
 | CLI decrypts but persist fails (disk error) | CLI shows error | Re-run CLI — issue still has the comment, retries persist |
 | CLI crashes mid-poll | No state lost | Re-run CLI — resumes polling same issue |
 | User already registered | Action still computes hashes, posts encrypted comment, updates `.bin` | CLI still polls + decrypts — same flow every time |
@@ -127,47 +128,24 @@ No REST call. No JWT. No token refresh. Client recomputes on every connect.
 
 ---
 
-## 3. What Gets Removed from Relay
+## 3. What Was Removed from Relay
 
-### Deleted Endpoints
-- `POST /login`
-- `POST /login/refresh`
-- `GET /me`
-
-### Deleted Server Components
-- `jwt.go` / `token.go` — JWT/token signing, verification, storage
-- `TokenStore` — in-memory token management
-- `JWTClaims` / `SignJWT` / `VerifyJWT` / `DeriveJWTSecret`
-- `operatorKey`, `jwtSecret`, `tokenTTL` fields on `Server`
+### Deleted Files
+- `internal/relay/token.go` — token store with TTL
+- `internal/relay/verify.go` — ed25519 verify wrapper
+- `internal/relay/jwt.go` — JWT signing/verification (existed on some branches)
 
 ### Deleted Protocol Frames
 - `AuthRequest` / `AuthResponse` / `Challenge` / `Authenticated` / `RefreshRequest`
 - `TypeAuth` / `TypeChallenge` / `TypeAuthResponse` / `TypeAuthenticated` / `TypeRefresh`
+- `Token` field from `Message` struct
+- `ErrTokenExpired` / `ErrTokenInvalid` error codes
 
 ### Deleted Client Components
 - `authenticate()` method (challenge/response handshake)
 - `refreshLoop()` — no tokens to refresh
-- `Login()` / REST login flow
-- `token` field on Client
-
-### Simplified ServerConfig
-```go
-type ServerConfig struct {
-    PoolURL string
-    Salt    string
-}
-```
-
-### Simplified Server
-```go
-type Server struct {
-    hub      *Hub
-    store    *Store
-    poolURL  string
-    salt     string
-    upgrader websocket.Upgrader
-}
-```
+- `readFrame()` — only used by authenticate
+- `token`, `hashID`, `userID`, `provider` fields on Client
 
 ---
 
@@ -180,14 +158,30 @@ type Server struct {
 | `Session` | Message routing, key exchange, ack handling |
 | `HandleWS` | TOTP verify → upgrade → session |
 | `HandleHealth` | Health check endpoint |
+| `BinHash()` / `MatchHash()` | Hash derivation (for user index sync) |
 | Key exchange | `KeyRequest` / `KeyResponse` for E2E encryption |
 
 ---
 
-## 5. Store Changes
+## 5. Current Structs
 
-`UserEntry` gains `MatchHash`:
+### Relay Server
+```go
+type ServerConfig struct {
+    PoolURL string
+    Salt    string
+}
 
+type Server struct {
+    hub      *Hub
+    store    *Store
+    poolURL  string
+    salt     string
+    upgrader websocket.Upgrader
+}
+```
+
+### Relay Store
 ```go
 type UserEntry struct {
     PubKey    ed25519.PublicKey
@@ -200,12 +194,7 @@ type UserEntry struct {
 
 Store keyed by `bin_hash` (O(1) lookup on connect).
 
----
-
-## 6. Client Config Changes
-
-`Config` for relay client:
-
+### CLI Relay Client
 ```go
 type Config struct {
     RelayURL  string
@@ -217,58 +206,20 @@ type Config struct {
 }
 ```
 
-No `UserID` / `Provider` needed — relay identifies by `bin_hash`.
-
-`setting.toml` per-pool config gains:
-
-```toml
-[pools.example]
-bin_hash = "abc123..."
-match_hash = "def456..."
+### Pool Config (setting.toml)
+```go
+type PoolConfig struct {
+    // ... existing fields ...
+    BinHash   string `toml:"bin_hash,omitempty"`
+    MatchHash string `toml:"match_hash,omitempty"`
+}
 ```
 
 ---
 
-## 7. File Change Summary
+## 6. regcrypt CLI Tool
 
-| File | Changes |
-|------|---------|
-| `internal/relay/server.go` | Remove all auth endpoints. Add TOTP verify in `HandleWS`. Remove `operatorKey`, `jwtSecret`, `tokenTTL`. Simplify `ServerConfig`. |
-| `internal/relay/jwt.go` or `token.go` | **Delete entirely** |
-| `internal/relay/session.go` | Remove auth handshake from `run()`. Session starts post-auth (TOTP already verified at upgrade). Remove `handleAuth`, `handleRefresh`. |
-| `internal/relay/store.go` | Add `MatchHash` to `UserEntry`. Rekey to `bin_hash`. |
-| `internal/protocol/types.go` | Remove `AuthRequest`, `AuthResponse`, `Challenge`, `Authenticated`, `RefreshRequest` and their type constants. |
-| `internal/cli/relay/client.go` | Remove `authenticate()`, `refreshLoop()`, `Login()`. Add TOTP computation in `Connect()`. Config gains `BinHash`, `MatchHash`. Remove `token` field. |
-| `internal/cli/config/config.go` | Add `BinHash`, `MatchHash` to `PoolConfig`. |
-| `internal/crypto/hash.go` | Rename `PublicID` → `IDHash`. |
-| `cmd/relay/main.go` | Remove operator key env vars. Keep `POOL_URL`, `POOL_SALT`. |
-| `internal/relay/relay_e2e_test.go` | Rewrite: no auth handshake, connect with `?bin=&sig=`. Add `MatchHash` to test `UserEntry`. |
-| `internal/cli/relay/client_test.go` | Update for new `Config` shape. Remove token/auth tests. |
-| `internal/cli/` (registration flow) | Add polling for encrypted issue comment reply, decrypt NaCl box blob, persist hashes to config. No new package — extends existing join/registration flow. |
-| **New**: `cmd/regcrypt/` | Standalone CLI tool for GitHub Actions — computes hashes, NaCl box encrypts, outputs base64. Pre-built binary published as GitHub Release artifact. |
-| **New**: `.github/workflows/release-regcrypt.yml` | Build + publish `regcrypt-linux-amd64` to `vutran1710/regcrypt` releases on tag push. |
-| `.github/workflows/register.yml` | Update to compute id_hash→bin_hash→match_hash, call `regcrypt`, post encrypted comment. |
-| `dating-test-pool/.github/workflows/register.yml` | Same changes as above (pool repo copy). |
-
----
-
-## 8. GitHub Actions: Registration Workflow Changes
-
-### Current Flow
-1. Extract blob from issue body
-2. Compute hash for filename: `sha256(salt:repo:github:author_id)[:16]`
-3. Write `.bin` file, commit, close issue
-
-### New Flow
-1. Extract blob + pubkey from issue body
-2. Build `cmd/regcrypt` tool (Go, same crypto as the rest of the project)
-3. Run `regcrypt` with inputs → outputs base64 encrypted blob
-4. Post encrypted blob as issue comment
-5. Write `.bin` file (with bin_hash filename), commit, close issue
-
-### `cmd/regcrypt/` Tool
-
-Standalone Go CLI used by GitHub Actions. Pre-built and published as a GitHub Release artifact on `dating-dev`. The Action downloads it — no Go toolchain needed in the workflow.
+Standalone Go binary at `cmd/regcrypt/`. Pre-built for `linux/amd64` and published to `vutran1710/regcrypt` (public repo, manual upload).
 
 ```
 Usage: regcrypt \
@@ -276,127 +227,46 @@ Usage: regcrypt \
   --provider <github> \
   --user-id <issue_author_id> \
   --salt <pool_salt> \
-  --user-pubkey <hex_ed25519_pubkey> \
-  --operator-privkey <hex_ed25519_privkey>
+  --user-pubkey <hex_ed25519_pubkey>
 
 Output (stdout):
   Line 1: bin_hash (16 hex chars)
-  Line 2: base64 NaCl box encrypted {bin_hash, match_hash}
+  Line 2: base64 ephemeral NaCl box encrypted {bin_hash, match_hash}
 ```
 
-The Action captures both lines:
-- `bin_hash` → used for `.bin` filename
-- Encrypted blob → posted as issue comment
+No `--operator-privkey` flag — uses ephemeral encryption.
 
 ### Distribution
 
-Built for `linux/amd64` (GitHub Actions runner). Published to the public repo `vutran1710/regcrypt` (releases only, no source):
 ```
 https://github.com/vutran1710/regcrypt/releases/latest/download/regcrypt-linux-amd64
 ```
 
-A release workflow in `dating-dev` cross-compiles and uploads the binary to `vutran1710/regcrypt` releases. No PAT needed — the repo is public.
-
-### Updated Workflow
-
-```yaml
-- name: Download regcrypt
-  run: |
-    curl -sL https://github.com/vutran1710/regcrypt/releases/latest/download/regcrypt-linux-amd64 -o regcrypt
-    chmod +x regcrypt
-
-- name: Compute and encrypt hashes
-  env:
-    POOL_SALT: ${{ secrets.POOL_SALT }}
-    OPERATOR_PRIVATE_KEY: ${{ secrets.OPERATOR_PRIVATE_KEY }}
-  run: |
-    # Extract pubkey from issue body
-    PUB_KEY=$(echo "$ISSUE_BODY" | ...)
-
-    # regcrypt computes id_hash → bin_hash → match_hash,
-    # encrypts {bin_hash, match_hash} with NaCl box
-    OUTPUT=$(./regcrypt \
-      --pool-url "${{ github.repository }}" \
-      --provider "github" \
-      --user-id "$ISSUE_AUTHOR_ID" \
-      --salt "$POOL_SALT" \
-      --user-pubkey "$PUB_KEY" \
-      --operator-privkey "$OPERATOR_PRIVATE_KEY")
-
-    BIN_HASH=$(echo "$OUTPUT" | head -1)
-    ENCRYPTED_BLOB=$(echo "$OUTPUT" | tail -1)
-
-    echo "BIN_HASH=$BIN_HASH" >> $GITHUB_ENV
-    echo "ENCRYPTED_BLOB=$ENCRYPTED_BLOB" >> $GITHUB_ENV
-
-- name: Post encrypted hashes as comment
-  run: |
-    gh issue comment "$ISSUE_NUMBER" --body "$ENCRYPTED_BLOB"
-
-- name: Commit registration
-  run: |
-    # Write .bin file, commit, push (same as before but with BIN_HASH)
-    echo "$BLOB_HEX" | xxd -r -p > "users/${BIN_HASH}.bin"
-    git add "users/${BIN_HASH}.bin"
-    git commit -m "Register user ${BIN_HASH}"
-    git push
-```
+Binary uploaded manually. No cross-repo release workflow (will automate when dating-dev goes public).
 
 ### Action Secrets Required
 
 | Secret | Purpose | Notes |
 |--------|---------|-------|
 | `POOL_SALT` | Derives bin_hash and match_hash | Already exists |
-| `OPERATOR_PRIVATE_KEY` | NaCl box encryption — sender's private key | Already exists |
 
-### Failure Handling
-
-If `regcrypt` fails, or the comment post fails, or the commit fails → close issue as `not planned`. The Action already has this pattern. `regcrypt` exits non-zero on any crypto error, which triggers `set -euo pipefail`.
+`OPERATOR_PRIVATE_KEY` is **not** needed by regcrypt (ephemeral encryption).
 
 ---
 
-## 9. Registration Polling (CLI)
+## 7. Crypto Functions
 
-No new package — extends the existing join/registration flow. After submitting the join issue, the CLI polls for the Action's encrypted reply.
-
-### Added to Registration Flow
-
-1. After issue creation, poll comments every 5s (max 5 min)
-2. Find comment by `github-actions[bot]` containing base64 blob
-3. Decrypt with NaCl box (`user_priv` + `operator_pub`)
-4. Decode msgpack → `{bin_hash, match_hash}`
-5. Persist to pool config in `setting.toml`
-
----
-
-## 9. Crypto Functions
-
-### TOTP Signature (Client)
+### TOTP Signature (Client) — `internal/crypto/totp.go`
 
 ```go
-func TOTPSign(binHash, matchHash string, priv ed25519.PrivateKey) string {
-    tw := time.Now().Unix() / 300
-    msg := sha256.Sum256([]byte(binHash + matchHash + strconv.FormatInt(tw, 10)))
-    sig := ed25519.Sign(priv, msg[:])
-    return hex.EncodeToString(sig)
-}
+func TOTPSign(binHash, matchHash string, priv ed25519.PrivateKey) string
+func TOTPSignAt(binHash, matchHash string, priv ed25519.PrivateKey, timeWindow int64) string
+func TOTPVerify(binHash, matchHash, sigHex string, pub ed25519.PublicKey) bool
 ```
 
-### TOTP Verify (Relay)
+### IDHash — `internal/crypto/hash.go`
 
 ```go
-func TOTPVerify(binHash, matchHash, sigHex string, pub ed25519.PublicKey) bool {
-    sigBytes, err := hex.DecodeString(sigHex)
-    if err != nil || len(sigBytes) != ed25519.SignatureSize {
-        return false
-    }
-    now := time.Now().Unix() / 300
-    for _, tw := range []int64{now, now - 1, now + 1} {
-        msg := sha256.Sum256([]byte(binHash + matchHash + strconv.FormatInt(tw, 10)))
-        if ed25519.Verify(pub, msg[:], sigBytes) {
-            return true
-        }
-    }
-    return false
-}
+type IDHash string  // was PublicID
+func UserHash(poolRepo, provider, providerUserID string) IDHash
 ```
