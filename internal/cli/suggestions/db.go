@@ -18,7 +18,21 @@ type Record struct {
 
 // Pack is the complete pool suggestion index.
 type Pack struct {
-	Records []Record `msgpack:"records"`
+	Records []Record        `msgpack:"records"`
+	Seen    map[string]bool `msgpack:"seen,omitempty"`
+}
+
+// MarkSeen marks a match_hash as seen so it won't be shown again.
+func (p *Pack) MarkSeen(matchHash string) {
+	if p.Seen == nil {
+		p.Seen = make(map[string]bool)
+	}
+	p.Seen[matchHash] = true
+}
+
+// ResetSeen clears all seen marks.
+func (p *Pack) ResetSeen() {
+	p.Seen = nil
 }
 
 // Load loads a suggestions pack from disk.

@@ -114,7 +114,7 @@ func TestFullDiscoverFlow(t *testing.T) {
 		t.Fatal("alice not found")
 	}
 
-	ranked := RankSuggestions(schema, *me, pack.Records, 10)
+	ranked := RankSuggestions(schema, *me, pack.Records, nil, 10)
 
 	// Alice (F→M, dating, 28):
 	// - Bob: M→F, dating, 30 → PASS (gender OK, age |28-30|=2, intent exact match)
@@ -167,7 +167,7 @@ func TestFullDiscoverFlow_NoSchema(t *testing.T) {
 	pack.SyncFromRecDir(indexDir)
 
 	me := pack.Find("a")
-	ranked := RankSuggestions(nil, *me, pack.Records, 10)
+	ranked := RankSuggestions(nil, *me, pack.Records, nil, 10)
 	// No filter → all 2 others pass
 	if len(ranked) != 2 {
 		t.Fatalf("ranked = %d, want 2", len(ranked))
@@ -194,7 +194,7 @@ func TestFullDiscoverFlow_AllFiltered(t *testing.T) {
 	}}
 
 	me := pack.Find("a")
-	ranked := RankSuggestions(schema, *me, pack.Records, 10)
+	ranked := RankSuggestions(schema, *me, pack.Records, nil, 10)
 	if len(ranked) != 0 {
 		t.Errorf("ranked = %d, want 0 (all filtered — same gender, targeting opposite)", len(ranked))
 	}
