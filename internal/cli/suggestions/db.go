@@ -9,11 +9,14 @@ import (
 	gh "github.com/vutran1710/dating-dev/internal/github"
 )
 
-// Record holds a user's filter values + similarity vector.
+// Record holds a user's filter values + similarity vector + display info.
 type Record struct {
-	MatchHash string          `msgpack:"m"`
-	Filters   gh.FilterValues `msgpack:"f"`
-	Vector    []float32       `msgpack:"v"`
+	MatchHash   string          `msgpack:"m"`
+	Filters     gh.FilterValues `msgpack:"f"`
+	Vector      []float32       `msgpack:"v"`
+	DisplayName string          `msgpack:"n,omitempty"`
+	About       string          `msgpack:"a,omitempty"`
+	Bio         string          `msgpack:"b,omitempty"`
 }
 
 // Pack is the complete pool suggestion index.
@@ -98,9 +101,12 @@ func (p *Pack) SyncFromRecDir(dir string) (int, error) {
 			continue
 		}
 		p.Records = append(p.Records, Record{
-			MatchHash: nr.MatchHash,
-			Filters:   nr.Record.Filters,
-			Vector:    nr.Record.Vector,
+			MatchHash:   nr.MatchHash,
+			Filters:     nr.Record.Filters,
+			Vector:      nr.Record.Vector,
+			DisplayName: nr.Record.DisplayName,
+			About:       nr.Record.About,
+			Bio:         nr.Record.Bio,
 		})
 		added++
 	}

@@ -1,6 +1,10 @@
 package github
 
-import "math"
+import (
+	"fmt"
+	"math"
+	"strings"
+)
 
 // EncodeFieldValue encodes a profile field value into vector dimensions per the schema field type.
 func EncodeFieldValue(field SchemaField, value any) []float32 {
@@ -209,6 +213,43 @@ func multiBitmask(field SchemaField, val any) int {
 		}
 	}
 	return mask
+}
+
+// DecodeFilterLabel returns a human-readable label for a filter field value.
+func DecodeFilterLabel(field SchemaField, value int) string {
+	switch field.Type {
+	case "enum":
+		if value >= 0 && value < len(field.Values) {
+			return field.Values[value]
+		}
+	case "multi":
+		var labels []string
+		for i, v := range field.Values {
+			if value&(1<<i) != 0 {
+				labels = append(labels, v)
+			}
+		}
+		return strings.Join(labels, ", ")
+	case "range":
+		return fmt.Sprintf("%d", value)
+	}
+	return ""
+}
+
+// DecodeFilters returns human-readable labels for all filter values.
+func DecodeFilters(schema *PoolSchema, fv FilterValues) map[string]string {
+	labels := make(map[string]string)
+	for _, field := range schema.Fields {
+		val, ok := fv.Fields[field.Name]
+		if !ok {
+			continue
+		}
+		label := DecodeFilterLabel(field, val)
+		if label != "" {
+			labels[field.Name] = label
+		}
+	}
+	return labels
 }
 
 func toInt(val any) int {

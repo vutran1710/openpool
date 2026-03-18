@@ -22,6 +22,7 @@ type DiscoverMsg struct {
 	Filtered    int
 	Pack        *suggestions.Pack
 	PackPath    string
+	Schema      *gh.PoolSchema
 	Err         error
 }
 
@@ -32,6 +33,7 @@ type DiscoverScreen struct {
 	filtered    int
 	pack        *suggestions.Pack
 	packPath    string
+	schema      *gh.PoolSchema
 	Loading     bool
 	Empty       bool
 	Width       int
@@ -114,6 +116,7 @@ func LoadDiscoverCmd(poolName string) tea.Cmd {
 			Filtered:    filtered,
 			Pack:        pack,
 			PackPath:    packPath,
+			Schema:      schema,
 		}
 	}
 }
@@ -144,6 +147,7 @@ func (s DiscoverScreen) Update(msg tea.Msg) (DiscoverScreen, tea.Cmd) {
 		s.filtered = msg.Filtered
 		s.pack = msg.Pack
 		s.packPath = msg.PackPath
+		s.schema = msg.Schema
 		s.index = 0
 		s.Empty = len(s.suggestions) == 0
 		// Mark first suggestion as seen
@@ -224,12 +228,41 @@ func (s DiscoverScreen) View() string {
 		theme.BrandStyle.Render("Discover"),
 		s.index+1, len(s.suggestions), s.filtered)
 
-	// Card
-	card := fmt.Sprintf(
-		"\n  %s\n  Score: %s\n",
-		theme.BoldStyle.Render(cur.MatchHash),
-		theme.BrandStyle.Render(fmt.Sprintf("%.2f", cur.Score)),
+	// Profile card
+	var card string
+
+	// Display name + score
+	rec := s.pack.Find(cur.MatchHash)
+	name := cur.MatchHash[:12] + "..."
+	if rec != nil && rec.DisplayName != "" {
+		name = rec.DisplayName
+	}
+	card += fmt.Sprintf("\n  %s  %s\n",
+		theme.BoldStyle.Render(name),
+		theme.DimStyle.Render(fmt.Sprintf("(%.0f%% match)", cur.Score*100)),
 	)
+
+	// Bio/About
+	if rec != nil {
+		if rec.Bio != "" {
+			card += fmt.Sprintf("  %s\n", theme.TextStyle.Render(rec.Bio))
+		}
+		if rec.About != "" {
+			card += fmt.Sprintf("  %s\n", theme.DimStyle.Render(rec.About))
+		}
+	}
+
+	// Filter fields decoded
+	if rec != nil && s.schema != nil {
+		labels := gh.DecodeFilters(s.schema, rec.Filters)
+		for _, field := range s.schema.Fields {
+			if label, ok := labels[field.Name]; ok && label != "" {
+				card += fmt.Sprintf("  %s: %s\n",
+					theme.DimStyle.Render(field.Name),
+					theme.TextStyle.Render(label))
+			}
+		}
+	}
 
 	// Actions
 	actions := fmt.Sprintf(
