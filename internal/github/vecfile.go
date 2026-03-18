@@ -1,67 +1,69 @@
 package github
 
 import (
-	"encoding/binary"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/vmihailenco/msgpack/v5"
 )
 
-// WriteVecFile writes a vector as raw little-endian float32 bytes.
-func WriteVecFile(path string, vec []float32) error {
-	buf := make([]byte, len(vec)*4)
-	for i, f := range vec {
-		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(f))
+// IndexRecord is a single user's filter values + similarity vector, stored in the pool repo.
+type IndexRecord struct {
+	Filters FilterValues `msgpack:"f"`
+	Vector  []float32    `msgpack:"v"`
+}
+
+// WriteRecFile writes an index record as msgpack.
+func WriteRecFile(path string, rec IndexRecord) error {
+	data, err := msgpack.Marshal(rec)
+	if err != nil {
+		return fmt.Errorf("encoding record: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return fmt.Errorf("creating directory: %w", err)
 	}
-	return os.WriteFile(path, buf, 0600)
+	return os.WriteFile(path, data, 0600)
 }
 
-// ReadVecFile reads a vector from raw little-endian float32 bytes.
-func ReadVecFile(path string) ([]float32, error) {
+// ReadRecFile reads an index record from msgpack.
+func ReadRecFile(path string) (*IndexRecord, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	return decodeVecBytes(data), nil
+	var rec IndexRecord
+	if err := msgpack.Unmarshal(data, &rec); err != nil {
+		return nil, fmt.Errorf("decoding record: %w", err)
+	}
+	return &rec, nil
 }
 
-// VecRecord is a match_hash + vector pair read from the index directory.
-type VecRecord struct {
+// NamedRecord is a match_hash + index record read from the index directory.
+type NamedRecord struct {
 	MatchHash string
-	Vector    []float32
+	Record    IndexRecord
 }
 
-// ReadVecDir reads all .vec files from a directory.
+// ReadRecDir reads all .rec files from a directory.
 // The match_hash is extracted from the filename (without extension).
-func ReadVecDir(dir string) ([]VecRecord, error) {
+func ReadRecDir(dir string) ([]NamedRecord, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("reading directory: %w", err)
 	}
-	var records []VecRecord
+	var records []NamedRecord
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".vec") {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".rec") {
 			continue
 		}
-		matchHash := strings.TrimSuffix(e.Name(), ".vec")
-		vec, err := ReadVecFile(filepath.Join(dir, e.Name()))
+		matchHash := strings.TrimSuffix(e.Name(), ".rec")
+		rec, err := ReadRecFile(filepath.Join(dir, e.Name()))
 		if err != nil {
 			continue
 		}
-		records = append(records, VecRecord{MatchHash: matchHash, Vector: vec})
+		records = append(records, NamedRecord{MatchHash: matchHash, Record: *rec})
 	}
 	return records, nil
-}
-
-func decodeVecBytes(data []byte) []float32 {
-	vec := make([]float32, len(data)/4)
-	for i := range vec {
-		vec[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[i*4:]))
-	}
-	return vec
 }

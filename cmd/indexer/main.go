@@ -1,4 +1,4 @@
-// indexer processes encrypted .bin profiles into weighted vectors for discovery.
+// indexer processes encrypted .bin profiles into filter values + weighted vectors for discovery.
 // Used by GitHub Actions registration workflows.
 //
 // Single-user mode:
@@ -31,25 +31,23 @@ func main() {
 	operatorKeyHex := flag.String("operator-key", "", "operator ed25519 private key (hex)")
 	binFile := flag.String("bin-file", "", "single .bin file to index")
 	matchHash := flag.String("match-hash", "", "match_hash for output filename")
-	outputDir := flag.String("output-dir", "index", "directory for .vec files")
+	outputDir := flag.String("output-dir", "index", "directory for .rec files")
 	rebuild := flag.Bool("rebuild", false, "re-index all .bin files")
 	usersDir := flag.String("users-dir", "users", "path to users/ directory (for --rebuild)")
 	flag.Parse()
 
-	// Resolve weights from flag or env
+	// Resolve weights
 	weights := *weightsStr
 	if weights == "" {
 		weights = os.Getenv("INDEXER_WEIGHTS")
 	}
-
-	// Parse weights
 	var weightMap map[string]float64
 	if weights != "" {
 		if err := json.Unmarshal([]byte(weights), &weightMap); err != nil {
 			log.Fatalf("parsing weights: %v", err)
 		}
 	} else {
-		weightMap = make(map[string]float64) // default weights = 1.0 per field
+		weightMap = make(map[string]float64)
 	}
 
 	// Read pool.json
@@ -90,28 +88,27 @@ func main() {
 }
 
 func indexOne(schema *gh.PoolSchema, weights map[string]float64, operatorKey ed25519.PrivateKey, binPath, mHash, outDir string) {
-	vec, err := processbin(schema, weights, operatorKey, binPath)
+	rec, err := processbin(schema, weights, operatorKey, binPath)
 	if err != nil {
 		log.Fatalf("processing %s: %v", binPath, err)
 	}
 
-	outPath := filepath.Join(outDir, mHash+".vec")
-	if err := gh.WriteVecFile(outPath, vec); err != nil {
+	outPath := filepath.Join(outDir, mHash+".rec")
+	if err := gh.WriteRecFile(outPath, *rec); err != nil {
 		log.Fatalf("writing %s: %v", outPath, err)
 	}
-	fmt.Printf("indexed %s → %s (%d dims)\n", binPath, outPath, len(vec))
+	fmt.Printf("indexed %s → %s (%d dims, %d filters)\n", binPath, outPath, len(rec.Vector), len(rec.Filters.Fields))
 }
 
 func rebuildAll(schema *gh.PoolSchema, weights map[string]float64, operatorKey ed25519.PrivateKey, usersDir, outDir string) {
-	// Delete existing .vec files
+	// Delete existing .rec files
 	entries, _ := os.ReadDir(outDir)
 	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".vec") {
+		if strings.HasSuffix(e.Name(), ".rec") {
 			os.Remove(filepath.Join(outDir, e.Name()))
 		}
 	}
 
-	// Process all .bin files
 	entries, err := os.ReadDir(usersDir)
 	if err != nil {
 		log.Fatalf("reading users dir: %v", err)
@@ -125,26 +122,23 @@ func rebuildAll(schema *gh.PoolSchema, weights map[string]float64, operatorKey e
 		binPath := filepath.Join(usersDir, e.Name())
 		binHash := strings.TrimSuffix(e.Name(), ".bin")
 
-		vec, err := processbin(schema, weights, operatorKey, binPath)
+		rec, err := processbin(schema, weights, operatorKey, binPath)
 		if err != nil {
 			log.Printf("skipping %s: %v", binPath, err)
 			continue
 		}
 
-		// For rebuild, we need match_hash. We don't have it from the filename (that's bin_hash).
-		// Use bin_hash as a proxy — the Action should provide match_hash mapping.
-		// For now, use bin_hash as the vec filename in rebuild mode.
-		outPath := filepath.Join(outDir, binHash+".vec")
-		if err := gh.WriteVecFile(outPath, vec); err != nil {
+		outPath := filepath.Join(outDir, binHash+".rec")
+		if err := gh.WriteRecFile(outPath, *rec); err != nil {
 			log.Printf("skipping %s: write error: %v", binPath, err)
 			continue
 		}
 		count++
 	}
-	fmt.Printf("rebuilt %d vectors in %s\n", count, outDir)
+	fmt.Printf("rebuilt %d records in %s\n", count, outDir)
 }
 
-func processbin(schema *gh.PoolSchema, weights map[string]float64, operatorKey ed25519.PrivateKey, binPath string) ([]float32, error) {
+func processbin(schema *gh.PoolSchema, weights map[string]float64, operatorKey ed25519.PrivateKey, binPath string) (*gh.IndexRecord, error) {
 	binData, err := os.ReadFile(binPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading file: %w", err)
@@ -160,7 +154,12 @@ func processbin(schema *gh.PoolSchema, weights map[string]float64, operatorKey e
 		return nil, fmt.Errorf("parsing profile: %w", err)
 	}
 
+	filters := gh.ExtractFilters(schema, profile)
 	vec := gh.EncodeProfile(schema, profile)
 	vec = gh.ApplyWeights(schema, vec, weights)
-	return vec, nil
+
+	return &gh.IndexRecord{
+		Filters: filters,
+		Vector:  vec,
+	}, nil
 }

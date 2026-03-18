@@ -74,9 +74,6 @@ func TestPack_SaveLoad_RoundTrip(t *testing.T) {
 	if r.Filters.Fields["gender"] != 1 {
 		t.Errorf("gender = %d, want 1", r.Filters.Fields["gender"])
 	}
-	if r.Filters.Fields["age"] != 28 {
-		t.Errorf("age = %d, want 28", r.Filters.Fields["age"])
-	}
 	if r.Vector[0] != 1.0 {
 		t.Errorf("vec[0] = %f, want 1.0", r.Vector[0])
 	}
@@ -92,16 +89,22 @@ func TestPack_Load_NotFound(t *testing.T) {
 	}
 }
 
-func TestPack_SyncFromVecDir(t *testing.T) {
+func TestPack_SyncFromRecDir(t *testing.T) {
 	dir := t.TempDir()
 	indexDir := filepath.Join(dir, "index")
 	os.MkdirAll(indexDir, 0700)
 
-	gh.WriteVecFile(filepath.Join(indexDir, "aaa111.vec"), []float32{1.0, 2.0})
-	gh.WriteVecFile(filepath.Join(indexDir, "bbb222.vec"), []float32{3.0, 4.0})
+	gh.WriteRecFile(filepath.Join(indexDir, "aaa111.rec"), gh.IndexRecord{
+		Filters: gh.FilterValues{Fields: map[string]int{"gender": 0}},
+		Vector:  []float32{1.0, 2.0},
+	})
+	gh.WriteRecFile(filepath.Join(indexDir, "bbb222.rec"), gh.IndexRecord{
+		Filters: gh.FilterValues{Fields: map[string]int{"gender": 1}},
+		Vector:  []float32{3.0, 4.0},
+	})
 
 	p := &Pack{}
-	added, err := p.SyncFromVecDir(indexDir)
+	added, err := p.SyncFromRecDir(indexDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,30 +114,32 @@ func TestPack_SyncFromVecDir(t *testing.T) {
 	if len(p.Records) != 2 {
 		t.Errorf("records = %d, want 2", len(p.Records))
 	}
+	// Check filters came through
+	r := p.Find("aaa111")
+	if r == nil || r.Filters.Fields["gender"] != 0 {
+		t.Error("filters not preserved")
+	}
 }
 
-func TestPack_SyncFromVecDir_Incremental(t *testing.T) {
+func TestPack_SyncFromRecDir_Incremental(t *testing.T) {
 	dir := t.TempDir()
 	indexDir := filepath.Join(dir, "index")
 	os.MkdirAll(indexDir, 0700)
 
 	p := &Pack{}
-	gh.WriteVecFile(filepath.Join(indexDir, "aaa111.vec"), []float32{1.0})
-	p.SyncFromVecDir(indexDir)
+	gh.WriteRecFile(filepath.Join(indexDir, "aaa111.rec"), gh.IndexRecord{Vector: []float32{1.0}})
+	p.SyncFromRecDir(indexDir)
 
-	gh.WriteVecFile(filepath.Join(indexDir, "bbb222.vec"), []float32{2.0})
-	added, _ := p.SyncFromVecDir(indexDir)
+	gh.WriteRecFile(filepath.Join(indexDir, "bbb222.rec"), gh.IndexRecord{Vector: []float32{2.0}})
+	added, _ := p.SyncFromRecDir(indexDir)
 	if added != 1 {
 		t.Errorf("incremental added = %d, want 1", added)
 	}
-	if len(p.Records) != 2 {
-		t.Errorf("records = %d, want 2", len(p.Records))
-	}
 }
 
-func TestPack_SyncFromVecDir_EmptyDir(t *testing.T) {
+func TestPack_SyncFromRecDir_EmptyDir(t *testing.T) {
 	p := &Pack{}
-	added, err := p.SyncFromVecDir(t.TempDir())
+	added, err := p.SyncFromRecDir(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

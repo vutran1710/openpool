@@ -46,7 +46,7 @@ func newPoolSyncCmd() *cobra.Command {
 				return fmt.Errorf("loading suggestions: %w", err)
 			}
 
-			added, err := pack.SyncFromVecDir(indexDir)
+			added, err := pack.SyncFromRecDir(indexDir)
 			if err != nil {
 				return fmt.Errorf("syncing vectors: %w", err)
 			}

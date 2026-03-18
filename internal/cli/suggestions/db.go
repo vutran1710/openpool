@@ -70,22 +70,23 @@ func (p *Pack) Find(matchHash string) *Record {
 	return nil
 }
 
-// SyncFromVecDir reads .vec files and upserts new records (vectors only, no filters).
+// SyncFromRecDir reads .rec files and upserts new records (with filters + vectors).
 // Returns number of new records added.
-func (p *Pack) SyncFromVecDir(dir string) (int, error) {
-	vecRecords, err := gh.ReadVecDir(dir)
+func (p *Pack) SyncFromRecDir(dir string) (int, error) {
+	namedRecords, err := gh.ReadRecDir(dir)
 	if err != nil {
-		return 0, fmt.Errorf("reading vec dir: %w", err)
+		return 0, fmt.Errorf("reading rec dir: %w", err)
 	}
 
 	added := 0
-	for _, vr := range vecRecords {
-		if p.Find(vr.MatchHash) != nil {
+	for _, nr := range namedRecords {
+		if p.Find(nr.MatchHash) != nil {
 			continue
 		}
 		p.Records = append(p.Records, Record{
-			MatchHash: vr.MatchHash,
-			Vector:    vr.Vector,
+			MatchHash: nr.MatchHash,
+			Filters:   nr.Record.Filters,
+			Vector:    nr.Record.Vector,
 		})
 		added++
 	}

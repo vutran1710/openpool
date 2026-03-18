@@ -58,7 +58,7 @@ func newDiscoverCmd() *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("loading: %w", err)
 				}
-				added, _ := pack.SyncFromVecDir(indexDir)
+				added, _ := pack.SyncFromRecDir(indexDir)
 				if added > 0 {
 					pack.Save(packPath)
 					printDim(fmt.Sprintf("  Synced %d new vectors", added))
