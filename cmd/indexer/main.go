@@ -159,7 +159,17 @@ func processbin(schema *gh.PoolSchema, weights map[string]float64, operatorKey e
 	vec = gh.ApplyWeights(schema, vec, weights)
 
 	return &gh.IndexRecord{
-		Filters: filters,
-		Vector:  vec,
+		Filters:     filters,
+		Vector:      vec,
+		DisplayName: strField(profile, "display_name"),
+		About:       strField(profile, "about"),
+		Bio:         strField(profile, "bio"),
 	}, nil
+}
+
+func strField(profile map[string]any, key string) string {
+	if v, ok := profile[key].(string); ok {
+		return v
+	}
+	return ""
 }

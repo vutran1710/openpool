@@ -9,10 +9,13 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
-// IndexRecord is a single user's filter values + similarity vector, stored in the pool repo.
+// IndexRecord is a single user's filter values + similarity vector + display info, stored in the pool repo.
 type IndexRecord struct {
-	Filters FilterValues `msgpack:"f"`
-	Vector  []float32    `msgpack:"v"`
+	Filters     FilterValues `msgpack:"f"`
+	Vector      []float32    `msgpack:"v"`
+	DisplayName string       `msgpack:"n,omitempty"`
+	About       string       `msgpack:"a,omitempty"`
+	Bio         string       `msgpack:"b,omitempty"`
 }
 
 // WriteRecFile writes an index record as msgpack.
