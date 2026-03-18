@@ -134,11 +134,13 @@ Flat binary file. Fixed-stride records. No headers, no framing — just concaten
 ### Record Layout
 
 ```
-[bin_hash 8B][vector D×f32]
+[match_hash 8B][vector D×f32]
 ```
 
-- `bin_hash`: first 8 bytes of the 16-hex-char bin_hash (compact binary form)
+- `match_hash`: first 8 bytes of the 16-hex-char match_hash (compact binary form)
 - `vector`: D float32 values (D = total dimensions from schema)
+
+The index uses `match_hash`, not `bin_hash`. `bin_hash` is for relay routing. `match_hash` is the matching identity — the client compares vectors by `match_hash` and only resolves to `bin_hash` when initiating a relay connection.
 
 ### Record Size
 
@@ -154,11 +156,11 @@ Examples:
 - **Append-friendly**: new registrations append a record
 - **Git-friendly**: binary, but small and grows linearly
 - **No index structure**: brute-force scan is fast at this scale (sub-millisecond for 50K records)
-- **Deterministic order**: sorted by bin_hash for reproducible diffs
+- **Deterministic order**: sorted by match_hash for reproducible diffs
 
-### Bin Hash Lookup
+### Match Hash Lookup
 
-To find a specific user's vector, binary search on sorted bin_hash (8 bytes). Or scan — it's fast enough.
+To find a specific user's vector, binary search on sorted match_hash (8 bytes). Or scan — it's fast enough.
 
 ### Schema Version Check
 
