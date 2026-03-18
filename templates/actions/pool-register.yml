@@ -14,10 +14,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download regcrypt
+      - name: Download tools
         run: |
           curl -sL https://github.com/vutran1710/regcrypt/releases/latest/download/regcrypt-linux-amd64 -o regcrypt
-          chmod +x regcrypt
+          curl -sL https://github.com/vutran1710/regcrypt/releases/latest/download/indexer-linux-amd64 -o indexer
+          chmod +x regcrypt indexer
 
       - name: Parse and register
         env:
@@ -25,6 +26,8 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_AUTHOR_ID: ${{ github.event.issue.user.id }}
           POOL_SALT: ${{ secrets.POOL_SALT }}
+          OPERATOR_PRIVATE_KEY: ${{ secrets.OPERATOR_PRIVATE_KEY }}
+          INDEXER_WEIGHTS: ${{ secrets.INDEXER_WEIGHTS }}
           REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -49,8 +52,9 @@ jobs:
             --salt "$POOL_SALT" \
             --user-pubkey "$PUB_KEY")
 
-          BIN_HASH=$(echo "$OUTPUT" | head -1)
-          ENCRYPTED_BLOB=$(echo "$OUTPUT" | tail -1)
+          BIN_HASH=$(echo "$OUTPUT" | sed -n '1p')
+          MATCH_HASH=$(echo "$OUTPUT" | sed -n '2p')
+          ENCRYPTED_BLOB=$(echo "$OUTPUT" | sed -n '3p')
 
           # Post encrypted hashes as comment (CLI will poll for this)
           gh issue comment "$ISSUE_NUMBER" --body "$ENCRYPTED_BLOB"
@@ -59,10 +63,19 @@ jobs:
           mkdir -p users
           echo "$BLOB_HEX" | xxd -r -p > "users/${BIN_HASH}.bin"
 
+          # Index user vector
+          mkdir -p index
+          ./indexer \
+            --pool-json pool.json \
+            --operator-key "$OPERATOR_PRIVATE_KEY" \
+            --bin-file "users/${BIN_HASH}.bin" \
+            --match-hash "$MATCH_HASH" \
+            --output-dir index/
+
           # Commit and push
           git config user.name "dating-bot"
           git config user.email "bot@dating-pool.dev"
-          git add "users/${BIN_HASH}.bin"
+          git add "users/${BIN_HASH}.bin" "index/${MATCH_HASH}.vec"
           git commit -m "Register user ${BIN_HASH}"
           git push
 
