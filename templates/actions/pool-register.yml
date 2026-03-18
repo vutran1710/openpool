@@ -44,11 +44,26 @@ jobs:
             exit 0
           fi
 
+          # Determine provider + user_id
+          # If operator (repo owner) submits, check for custom provider:user_id in issue body
+          REPO_OWNER=$(echo "$REPO" | cut -d/ -f1)
+          ISSUE_AUTHOR=$(gh api "repos/$REPO/issues/$ISSUE_NUMBER" --jq '.user.login')
+          CUSTOM_ID=$(echo "$ISSUE_BODY" | sed -n '/\*\*Custom ID:\*\*/,/```/{/```/!p}' | grep -v '^\*\*' | tr -d '[:space:]')
+
+          if [ "$ISSUE_AUTHOR" = "$REPO_OWNER" ] && [ -n "$CUSTOM_ID" ] && echo "$CUSTOM_ID" | grep -q ':'; then
+            PROVIDER=$(echo "$CUSTOM_ID" | cut -d: -f1)
+            USER_ID=$(echo "$CUSTOM_ID" | cut -d: -f2-)
+            echo "Operator registration: provider=$PROVIDER user_id=$USER_ID"
+          else
+            PROVIDER="github"
+            USER_ID="$ISSUE_AUTHOR_ID"
+          fi
+
           # Compute hashes + encrypt for user
           OUTPUT=$(./regcrypt \
             --pool-url "$REPO" \
-            --provider "github" \
-            --user-id "$ISSUE_AUTHOR_ID" \
+            --provider "$PROVIDER" \
+            --user-id "$USER_ID" \
             --salt "$POOL_SALT" \
             --user-pubkey "$PUB_KEY")
 
