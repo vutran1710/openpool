@@ -24,6 +24,7 @@ func newProfileCmd() *cobra.Command {
 
 func newProfileCreateCmd() *cobra.Command {
 	var profilePath string
+	var poolRepo string
 
 	cmd := &cobra.Command{
 		Use:   "create <pool>",
@@ -85,10 +86,16 @@ Edit the generated file, then run: dating pool join <pool>`,
 			}
 
 			// Source 3: scaffold from pool schema
-			pool := findPool(cfg, poolName)
+			repoURL := poolRepo
+			if repoURL == "" {
+				pool := findPool(cfg, poolName)
+				if pool != nil {
+					repoURL = pool.Repo
+				}
+			}
 			var schema *gh.PoolSchema
-			if pool != nil && pool.Repo != "" {
-				repo, err := gitrepo.Clone(gitrepo.EnsureGitURL(pool.Repo))
+			if repoURL != "" {
+				repo, err := gitrepo.Clone(gitrepo.EnsureGitURL(repoURL))
 				if err == nil {
 					repo.Sync()
 					manifest, err := loadManifest(repo.LocalDir)
@@ -121,6 +128,7 @@ Edit the generated file, then run: dating pool join <pool>`,
 	}
 
 	cmd.Flags().StringVar(&profilePath, "profile", "", "path to existing profile JSON to copy")
+	cmd.Flags().StringVar(&poolRepo, "pool-repo", "", "pool repo (owner/name) to fetch schema from")
 	return cmd
 }
 

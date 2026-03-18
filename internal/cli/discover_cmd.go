@@ -101,11 +101,16 @@ func newDiscoverCmd() *cobra.Command {
 				return nil
 			}
 
+			total := len(pack.Records) - 1 // exclude self
+			filtered := total - len(ranked)
+
 			fmt.Println()
-			fmt.Printf("  %s (%d users)\n\n", bold.Render("Suggestions for "+poolName), len(pack.Records))
+			fmt.Printf("  %s (%d users, %d filtered out)\n\n", bold.Render("Suggestions for "+poolName), total, filtered)
 			for i, s := range ranked {
 				fmt.Printf("  %2d. %s  score: %.2f\n", i+1, s.MatchHash, s.Score)
 			}
+			fmt.Println()
+			printDim("  Like someone: dating like <match_hash>")
 			fmt.Println()
 			return nil
 		},
