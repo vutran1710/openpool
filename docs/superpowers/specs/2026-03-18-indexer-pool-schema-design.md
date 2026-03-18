@@ -1,4 +1,4 @@
-# Pool Schema + Indexer + Client-Side Suggestions
+# Pool Schema + Indexer + Client-Side Discovery
 
 **Status**: Spec
 
@@ -6,9 +6,11 @@
 
 ## Summary
 
-Each pool defines a schema in `pool.json` that describes the profile fields (interests, gender, age, etc.). The indexer — a Go binary run inside the registration GitHub Action — reads each profile, applies operator-defined weights, and produces a fixed-dimension vector. These vectors are stored in a flat binary index file committed to the pool repo.
+Each pool defines a schema in `pool.json` that describes profile fields (interests, gender, age, etc.). The indexer — a Go binary run inside the registration GitHub Action — reads each profile, applies operator-defined weights, and produces a fixed-dimension vector stored as one `.vec` file per user in the pool repo. No shared index file — race-free.
 
-The client reads the index, computes cosine similarity against all users, groups results into tiers, shuffles within tiers, and presents suggestions. No relay needed for discovery — just the git repo.
+The client syncs the pool repo, builds a local SQLite DB from `.vec` files, computes cosine similarity, and presents tier-shuffled suggestions. No relay needed for discovery.
+
+All CLI commands are non-interactive with flag overrides for full scriptability and testability.
 
 ---
 
@@ -42,7 +44,7 @@ The schema defines what profile fields exist and how they encode into vectors. L
 | `multi` | `["hiking", "music"]` | multi-hot: `[1, 0, 0, 0, 1, ...]` | len(values) |
 | `range` | `28` | normalized: `(val - min) / (max - min)` | 1 |
 
-Three types. No special cases, no filter flags. Every field is a vector component.
+Three types. No special cases. Every field is a vector component.
 
 ### Vector Dimensions
 
@@ -64,55 +66,48 @@ When the operator changes the schema (adds an interest, removes a field), they b
 
 ## 2. Operator Weights (Private)
 
-The operator defines weights per field. This is NOT in `pool.json` — it's a private config stored as a GitHub Actions secret or a private file.
+The operator defines weights per field. NOT in `pool.json` — stored as a GitHub Actions secret (`INDEXER_WEIGHTS`).
 
 ```json
 {
-  "weights": {
-    "gender": 10.0,
-    "gender_target": 10.0,
-    "age": 5.0,
-    "intent": 3.0,
-    "interests": 1.0
-  }
+  "gender": 10.0,
+  "gender_target": 10.0,
+  "age": 5.0,
+  "intent": 3.0,
+  "interests": 1.0
 }
 ```
 
-The indexer multiplies each field's vector segment by its weight before writing to the index. Gender dimensions get 10x amplification — cosine similarity naturally punishes mismatches without any filtering logic.
+The indexer multiplies each field's vector segment by its weight. Gender gets 10x amplification — cosine similarity naturally punishes mismatches without filtering logic.
 
-### What Weights Control
-
-- **High weight** (gender: 10.0) → strong match signal, mismatches tank similarity
-- **Low weight** (interests: 1.0) → nice-to-have, doesn't dominate
-- **Zero weight** (0.0) → field exists in schema (for profile display) but doesn't affect matching
+- **High weight** → strong match signal, mismatches tank similarity
+- **Low weight** → nice-to-have, doesn't dominate
+- **Zero weight** → field exists in schema (for display) but doesn't affect matching
 
 The client never sees the weights. It just compares pre-weighted vectors.
-
-### Weight Distribution
-
-The weight applies uniformly to all dimensions of a field. For a `multi` field with 10 values and weight 2.0, all 10 dimensions are multiplied by 2.0.
 
 ---
 
 ## 3. Indexer Binary
 
-`cmd/indexer/` — standalone Go binary, run by the registration GitHub Action. Same distribution model as `regcrypt` (pre-built, published to a public release repo).
+`cmd/indexer/` — standalone Go binary, run by the registration GitHub Action. Same distribution model as `regcrypt` (pre-built, published to public release repo).
 
 ### What It Does
 
-1. Reads `pool.json` schema
-2. Reads operator weights (from env var or file)
-3. For each `.bin` file in `users/`:
-   - Decrypt profile with operator private key
-   - Extract field values per schema
-   - Encode to vector (one-hot, multi-hot, normalized)
-   - Multiply by weights
-4. Write all vectors to `index.db`
+For a single user (on registration):
+
+1. Read `pool.json` schema
+2. Read operator weights (from `INDEXER_WEIGHTS` env var)
+3. Decrypt the user's `.bin` file (operator private key)
+4. Extract field values per schema
+5. Encode to vector (one-hot, multi-hot, normalized)
+6. Multiply by weights
+7. Write `index/{match_hash}.vec` — single binary file
 
 ### When It Runs
 
-- **On registration**: Action runs indexer after committing the new `.bin` file
-- **On schema change**: Full re-index (version bump detected)
+- **On registration**: indexer processes the new `.bin` file, writes one `.vec` file
+- **On schema change**: full re-index — delete all `.vec` files, reprocess all `.bin` files
 
 ### CLI
 
@@ -121,56 +116,101 @@ Usage: indexer \
   --pool-json <path>           pool.json with schema
   --weights <json_string>      operator weights (or INDEXER_WEIGHTS env var)
   --operator-key <hex>         operator private key for .bin decryption
-  --users-dir <path>           path to users/ directory
-  --output <path>              output index.db path
+  --bin-file <path>            single .bin file to index (registration mode)
+  --match-hash <hash>          match_hash for the user (output filename)
+  --output-dir <path>          directory for .vec files (default: index/)
+  --rebuild                    re-index all .bin files (schema change mode)
+  --users-dir <path>           path to users/ directory (for --rebuild)
+```
+
+### Output: `.vec` File Format
+
+Fixed-size binary file. Just the raw vector — no header, no framing.
+
+```
+[D × float32]
+```
+
+- D = total dimensions from schema
+- 20 dimensions = 80 bytes per file
+- Filename is the match_hash: `index/{match_hash}.vec`
+
+---
+
+## 4. Per-User `.vec` Files (Race-Free)
+
+Each user gets their own `.vec` file in the pool repo:
+
+```
+index/
+  a1b2c3d4e5f67890.vec    ← 80 bytes (20 dims × 4 bytes)
+  f0e1d2c3b4a59876.vec
+  ...
+```
+
+### Why Per-File
+
+Two registrations happening simultaneously write different files — **no race condition**. No shared `index.db` to conflict on.
+
+### Scale
+
+- 10K users × 80 bytes = 800 KB total (plus git overhead for 10K tree entries)
+- `git clone --depth 1` handles this fine
+- `git pull` only fetches new `.vec` files (delta)
+
+### Schema Version Change
+
+On schema version bump, the Action deletes all `.vec` files and rebuilds from all `.bin` files. This is rare and uses a GitHub Actions concurrency group to prevent races:
+
+```yaml
+concurrency:
+  group: reindex
+  cancel-in-progress: false
 ```
 
 ---
 
-## 4. Index File Format (index.db)
+## 5. Local SQLite DB (Client-Side)
 
-Flat binary file. Fixed-stride records. No headers, no framing — just concatenated records.
+The client maintains a local SQLite database per pool for fast discovery queries.
 
-### Record Layout
+### Location
 
 ```
-[match_hash 8B][vector D×f32]
+~/.dating/pools/{pool-name}/suggestions.db
 ```
 
-- `match_hash`: first 8 bytes of the 16-hex-char match_hash (compact binary form)
-- `vector`: D float32 values (D = total dimensions from schema)
+### Schema
 
-The index uses `match_hash`, not `bin_hash`. `bin_hash` is for relay routing. `match_hash` is the matching identity — the client compares vectors by `match_hash` and only resolves to `bin_hash` when initiating a relay connection.
+```sql
+CREATE TABLE vectors (
+  match_hash TEXT PRIMARY KEY,
+  vector     BLOB NOT NULL
+);
+```
 
-### Record Size
+### Sync Flow
 
-`8 + D × 4` bytes per user.
+On `dating pool sync` or `dating discover`:
 
-Examples:
-- 20 dimensions: `8 + 80 = 88 bytes` per user
-- 10K users: 880 KB
-- 50K users: 4.4 MB
+1. `git pull` the pool repo
+2. Detect new/changed `.vec` files in `index/` (compare against DB)
+3. `INSERT OR REPLACE` into `suggestions.db`
+4. Ready for queries
 
-### File Properties
+### Why SQLite
 
-- **Append-friendly**: new registrations append a record
-- **Git-friendly**: binary, but small and grows linearly
-- **No index structure**: brute-force scan is fast at this scale (sub-millisecond for 50K records)
-- **Deterministic order**: sorted by match_hash for reproducible diffs
-
-### Match Hash Lookup
-
-To find a specific user's vector, binary search on sorted match_hash (8 bytes). Or scan — it's fast enough.
-
-### Schema Version Check
-
-The client computes expected record size from the schema: `8 + D × 4`. If the file's size isn't divisible by this, the schema version has changed and the index is stale — re-clone the repo.
+- Incremental updates: `INSERT` new records only (~1.8ms for 50 records)
+- Full load into memory: ~5.6ms for 10K records
+- Pure Go: `modernc.org/sqlite` (no CGo, no system dependency)
+- Persistent: no rebuild on every query
+- Only used by CLI, not relay
 
 ---
 
-## 5. Profile Creation (Schema-Driven)
+## 6. Profile Creation (Schema-Driven)
 
-`dating profile create <pool>` must read `pool.json` to scaffold the profile with the correct fields.
+`dating profile create <pool>` reads `pool.json` to scaffold the profile with correct fields.
 
 ### Flow
 
@@ -188,7 +228,14 @@ The client computes expected record size from the schema: `8 + D × 4`. If the f
 }
 ```
 
-4. For `enum` and `multi` fields, include valid values as a comment or separate `profile.schema.json` for editor autocompletion
+4. Write a `profile.schema.json` alongside for editor reference:
+
+```json
+{
+  "gender": {"type": "enum", "values": ["male", "female", "non-binary"]},
+  "interests": {"type": "multi", "values": ["hiking", "cooking", ...]}
+}
+```
 
 ### Validation
 
@@ -200,28 +247,35 @@ The client computes expected record size from the schema: `8 + D × 4`. If the f
 
 ---
 
-## 6. Client-Side Suggestions
+## 7. Client-Side Discovery
 
-The client reads `index.db` and the user's own vector to produce suggestions.
+### CLI Commands
 
-### Flow
+All non-interactive, fully scriptable:
 
-1. Read `index.db` from cloned pool repo
-2. Compute user's own vector from their profile (same encoding, no weights — weights are baked into the index)
-3. Actually: user's vector IS in the index (they're registered). Read it.
+```
+dating discover <pool>                Show suggestions for a pool
+  --limit <N>                          Max suggestions to show (default: 20)
+  --sync                               Force sync before discovering
+
+dating pool sync <pool>               Sync pool repo + update local SQLite
+```
+
+### Discovery Flow
+
+1. Open `suggestions.db`
+2. Load all vectors into memory (~5ms for 10K)
+3. Find own vector by own match_hash
 4. Compute cosine similarity against all other vectors
 5. Group into tiers (top 10%, next 10%, ...)
 6. Shuffle within each tier
-7. Present in order
-
-### Wait — User's Vector Has Weights Baked In
-
-The user's vector in the index already has operator weights applied. Cosine similarity between two weighted vectors naturally reflects the operator's priorities. No additional weighting needed at query time.
+7. Present top N results
 
 ### Tier-Based Shuffled Ranking
 
 ```
-all_users = read index.db
+all_users = load all from suggestions.db
+my_vector = lookup my match_hash
 scores = [(user, cosine(my_vector, user.vector)) for user in all_users if user != me]
 sort by score descending
 tier_size = len(scores) / 10
@@ -229,14 +283,28 @@ for each tier (0..9):
     tier_users = scores[tier * tier_size : (tier+1) * tier_size]
     shuffle(tier_users)
     append to result
-show result
+show result[:limit]
 ```
 
-No threshold. No fixed N. Just a ranked, shuffled list. User scrolls until bored.
+No threshold. No fixed N. Just a ranked, shuffled list.
+
+### Output Format
+
+```
+dating discover berlin-singles
+
+  Suggestions for berlin-singles (10050 users)
+
+  1. a1b2c3d4e5f67890  score: 0.94
+  2. f0e1d2c3b4a59876  score: 0.91
+  3. ...
+
+  Show full profile: dating profile view <match_hash> --pool berlin-singles
+```
 
 ---
 
-## 7. Action Pipeline (Updated)
+## 8. Action Pipeline (Updated)
 
 ```
 Issue created (registration)
@@ -248,23 +316,37 @@ Action: regcrypt
     ↓
 Action: commit users/{bin_hash}.bin
     ↓
-Action: indexer
+Action: indexer --bin-file users/{bin_hash}.bin --match-hash {match_hash}
     → decrypt .bin → extract fields → encode → apply weights
-    → append to index.db (or full rebuild on schema version change)
-    → commit updated index.db
+    → write index/{match_hash}.vec
+    → commit
     ↓
 Issue closed
 ```
 
 ---
 
-## 8. File Summary
+## 9. File Summary
 
 | File | Location | Purpose |
 |------|----------|---------|
 | `pool.json` | Pool repo root | Schema + pool metadata (public) |
 | `users/{bin_hash}.bin` | Pool repo | Encrypted profiles |
-| `index.db` | Pool repo root | Flat binary vector index (public) |
-| Operator weights | Actions secret / private | Weight config (private) |
+| `index/{match_hash}.vec` | Pool repo | Per-user weighted vector (public) |
+| `suggestions.db` | Local `~/.dating/pools/{name}/` | Client-side SQLite for discovery queries |
+| Operator weights | Actions secret (`INDEXER_WEIGHTS`) | Weight config (private) |
 | `cmd/indexer/` | dating-dev repo | Indexer binary source |
 | `templates/actions/pool-register.yml` | dating-dev repo | Action template (includes indexer step) |
+
+---
+
+## 10. Implementation Order
+
+1. **Pool schema parsing** — read `pool.json` schema, validate fields
+2. **Vector encoding** — enum/multi/range → vector with weights
+3. **Indexer binary** (`cmd/indexer/`) — decrypt .bin, encode, write .vec
+4. **Profile create** — schema-driven scaffolding + validation
+5. **Local SQLite** — sync .vec files into suggestions.db
+6. **Discover command** — cosine similarity, tier shuffle, display
+7. **Updated Action template** — add indexer step after regcrypt
+8. **E2E test** — register user → indexer → sync → discover
