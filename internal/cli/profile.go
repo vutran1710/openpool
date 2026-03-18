@@ -10,6 +10,7 @@ import (
 	"github.com/vutran1710/dating-dev/internal/cli/config"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
 	gh "github.com/vutran1710/dating-dev/internal/github"
+	"github.com/vutran1710/dating-dev/internal/gitrepo"
 )
 
 func newProfileCmd() *cobra.Command {
@@ -83,21 +84,34 @@ Edit the generated file, then run: dating pool join <pool>`,
 				return nil
 			}
 
-			// Source 3: base template from config
-			profile := map[string]any{
-				"display_name": cfg.User.DisplayName,
-				"bio":          "",
-				"location":     "",
-				"interests":    []string{},
-				"intent":       []string{},
-				"about":        "",
+			// Source 3: scaffold from pool schema
+			pool := findPool(cfg, poolName)
+			var schema *gh.PoolSchema
+			if pool != nil && pool.Repo != "" {
+				repo, err := gitrepo.Clone(gitrepo.EnsureGitURL(pool.Repo))
+				if err == nil {
+					repo.Sync()
+					manifest, err := loadManifest(repo.LocalDir)
+					if err == nil && manifest.Schema != nil {
+						schema = manifest.Schema
+					}
+				}
 			}
+
+			profile := scaffoldProfile(cfg, schema)
 			data, err := json.MarshalIndent(profile, "", "  ")
 			if err != nil {
 				return fmt.Errorf("marshaling template: %w", err)
 			}
 			if err := writeProfileFile(outPath, data); err != nil {
 				return err
+			}
+
+			// Write schema reference file for editor help
+			if schema != nil {
+				schemaRef := buildSchemaRef(schema)
+				schemaData, _ := json.MarshalIndent(schemaRef, "", "  ")
+				writeProfileFile(config.PoolProfilePath(poolName)+".schema.json", schemaData)
 			}
 
 			printSuccess("Profile template created")
@@ -181,3 +195,70 @@ func printProfileHint(poolName, path string) {
 	fmt.Printf("    dating pool join %s\n", poolName)
 	fmt.Println()
 }
+
+// loadManifest reads pool.json from a local repo directory.
+func loadManifest(repoDir string) (*gh.PoolManifest, error) {
+	data, err := os.ReadFile(filepath.Join(repoDir, "pool.json"))
+	if err != nil {
+		return nil, err
+	}
+	var manifest gh.PoolManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return nil, err
+	}
+	return &manifest, nil
+}
+
+// scaffoldProfile creates a profile template from the pool schema.
+// If no schema, falls back to basic fields.
+func scaffoldProfile(cfg *config.Config, schema *gh.PoolSchema) map[string]any {
+	profile := map[string]any{
+		"display_name": cfg.User.DisplayName,
+	}
+
+	if schema == nil {
+		// Fallback: basic fields
+		profile["bio"] = ""
+		profile["interests"] = []string{}
+		profile["intent"] = []string{}
+		return profile
+	}
+
+	// Scaffold from schema fields
+	for _, field := range schema.Fields {
+		switch field.Type {
+		case "enum":
+			profile[field.Name] = ""
+		case "multi":
+			profile[field.Name] = []string{}
+		case "range":
+			profile[field.Name] = 0
+		}
+	}
+	return profile
+}
+
+// buildSchemaRef creates a reference file showing valid values for each field.
+func buildSchemaRef(schema *gh.PoolSchema) map[string]any {
+	ref := make(map[string]any)
+	for _, field := range schema.Fields {
+		entry := map[string]any{"type": field.Type}
+		if len(field.Values) > 0 {
+			entry["values"] = field.Values
+		}
+		if field.Match != "" {
+			entry["match"] = field.Match
+		}
+		if field.Min != nil {
+			entry["min"] = *field.Min
+		}
+		if field.Max != nil {
+			entry["max"] = *field.Max
+		}
+		ref[field.Name] = entry
+	}
+	return ref
+}
+
+// Ensure gitrepo import is used
+var _ = gitrepo.Clone

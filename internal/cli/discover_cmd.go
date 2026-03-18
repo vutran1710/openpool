@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
 	"github.com/vutran1710/dating-dev/internal/cli/suggestions"
+	gh "github.com/vutran1710/dating-dev/internal/github"
 	"github.com/vutran1710/dating-dev/internal/gitrepo"
 )
 
@@ -83,9 +84,17 @@ func newDiscoverCmd() *cobra.Command {
 				return nil
 			}
 
-			// TODO: load pool.json schema for filter-based ranking
-			// For now, rank without filters (schema = nil)
-			ranked := suggestions.RankSuggestions(nil, *me, pack.Records, limit)
+			// Load pool schema for filter-based ranking
+			var schema *gh.PoolSchema
+			repo, repoErr := gitrepo.Clone(gitrepo.EnsureGitURL(pool.Repo))
+			if repoErr == nil {
+				manifest, mErr := loadManifest(repo.LocalDir)
+				if mErr == nil && manifest.Schema != nil {
+					schema = manifest.Schema
+				}
+			}
+
+			ranked := suggestions.RankSuggestions(schema, *me, pack.Records, limit)
 
 			if len(ranked) == 0 {
 				printDim("  No suggestions found.")
