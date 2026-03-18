@@ -32,12 +32,48 @@ type Issue struct {
 }
 
 type PoolManifest struct {
-	Name             string `json:"name"`
-	Description      string `json:"description"`
-	Version          int    `json:"version"`
-	CreatedAt        string `json:"created_at"`
-	OperatorPubKey   string `json:"operator_public_key"`
-	RelayURL         string `json:"relay_url,omitempty"`
+	Name           string      `json:"name"`
+	Description    string      `json:"description"`
+	Version        int         `json:"version"`
+	CreatedAt      string      `json:"created_at"`
+	OperatorPubKey string      `json:"operator_public_key"`
+	RelayURL       string      `json:"relay_url,omitempty"`
+	Schema         *PoolSchema `json:"schema,omitempty"`
+}
+
+// PoolSchema defines profile fields and vector encoding for a pool.
+type PoolSchema struct {
+	Version int           `json:"version"`
+	Fields  []SchemaField `json:"fields"`
+}
+
+// SchemaField defines a single profile field and how it maps to vector dimensions.
+type SchemaField struct {
+	Name   string   `json:"name"`
+	Type   string   `json:"type"`            // "enum", "multi", "range"
+	Values []string `json:"values,omitempty"` // for enum/multi
+	Min    *int     `json:"min,omitempty"`    // for range
+	Max    *int     `json:"max,omitempty"`    // for range
+}
+
+// Dimensions returns the vector dimensions for this field.
+func (f SchemaField) Dimensions() int {
+	switch f.Type {
+	case "enum", "multi":
+		return len(f.Values)
+	case "range":
+		return 1
+	}
+	return 0
+}
+
+// Dimensions returns the total vector dimensions across all fields.
+func (s *PoolSchema) Dimensions() int {
+	d := 0
+	for _, f := range s.Fields {
+		d += f.Dimensions()
+	}
+	return d
 }
 
 func decodeBase64(encoded string) ([]byte, error) {
