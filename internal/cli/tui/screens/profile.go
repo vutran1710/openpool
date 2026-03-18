@@ -411,9 +411,8 @@ func (s ProfileScreen) View() string {
 		modeLabel = "Compact"
 	}
 
-	header := theme.BoldStyle.Render("Profile") +
-		theme.DimStyle.Render("  mode: ") + theme.AccentStyle.Render(modeLabel) +
-		theme.DimStyle.Render("  tab to switch  ·  e to edit")
+	hints := theme.DimStyle.Render("mode: ") + theme.AccentStyle.Render(modeLabel) +
+		"  " + components.DimHints("tab to switch", "e to edit")
 
 	var content string
 	switch s.mode {
@@ -423,7 +422,7 @@ func (s ProfileScreen) View() string {
 		content = s.cachedCompact
 	}
 
-	return header + "\n\n" + content
+	return components.ScreenLayout("Profile", hints, content)
 }
 
 func (s ProfileScreen) editView() string {
