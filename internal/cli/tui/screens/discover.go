@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
 	"github.com/vutran1710/dating-dev/internal/cli/suggestions"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
@@ -223,56 +225,149 @@ func (s DiscoverScreen) View() string {
 		return "\n  " + theme.DimStyle.Render("End of suggestions.") + "\n"
 	}
 
-	// Header
-	header := fmt.Sprintf("  %s  (%d/%d, %d filtered)",
-		theme.BrandStyle.Render("Discover"),
-		s.index+1, len(s.suggestions), s.filtered)
-
-	// Profile card
-	var card string
-
-	// Display name + score
 	rec := s.pack.Find(cur.MatchHash)
+
+	// Build card content
+	width := s.Width - 6
+	if width < 40 {
+		width = 40
+	}
+	if width > 60 {
+		width = 60
+	}
+
+	var lines []string
+
+	// Row 1: Name + age + match %
 	name := cur.MatchHash[:12] + "..."
 	if rec != nil && rec.DisplayName != "" {
 		name = rec.DisplayName
 	}
-	card += fmt.Sprintf("\n  %s  %s\n",
-		theme.BoldStyle.Render(name),
-		theme.DimStyle.Render(fmt.Sprintf("(%.0f%% match)", cur.Score*100)),
-	)
-
-	// Bio/About
+	age := ""
 	if rec != nil {
-		if rec.Bio != "" {
-			card += fmt.Sprintf("  %s\n", theme.TextStyle.Render(rec.Bio))
-		}
-		if rec.About != "" {
-			card += fmt.Sprintf("  %s\n", theme.DimStyle.Render(rec.About))
+		if a, ok := rec.Filters.Fields["age"]; ok && a > 0 {
+			age = fmt.Sprintf(", %d", a)
 		}
 	}
+	matchPct := fmt.Sprintf("%.0f%%", cur.Score*100)
+	matchColor := theme.DimStyle
+	if cur.Score > 0.7 {
+		matchColor = theme.GreenStyle
+	} else if cur.Score > 0.4 {
+		matchColor = theme.AmberStyle
+	}
+	heartScore := matchColor.Render("♥ " + matchPct)
+	nameAge := theme.BoldStyle.Render(name+age)
+	gap := width - lipgloss.Width(nameAge) - lipgloss.Width(heartScore)
+	if gap < 1 {
+		gap = 1
+	}
+	lines = append(lines, nameAge+spaces(gap)+heartScore)
 
-	// Filter fields decoded
+	// Row 2: Gender + intent tags
 	if rec != nil && s.schema != nil {
 		labels := gh.DecodeFilters(s.schema, rec.Filters)
-		for _, field := range s.schema.Fields {
-			if label, ok := labels[field.Name]; ok && label != "" {
-				card += fmt.Sprintf("  %s: %s\n",
-					theme.DimStyle.Render(field.Name),
-					theme.TextStyle.Render(label))
+		var tags []string
+		if g, ok := labels["gender"]; ok {
+			tags = append(tags, g)
+		}
+		if i, ok := labels["intent"]; ok {
+			tags = append(tags, i)
+		}
+		if gt, ok := labels["gender_target"]; ok {
+			tags = append(tags, "→ "+gt)
+		}
+		if len(tags) > 0 {
+			tagLine := ""
+			for i, tag := range tags {
+				if i > 0 {
+					tagLine += theme.DimStyle.Render(" · ")
+				}
+				tagLine += theme.AccentStyle.Render(tag)
 			}
+			lines = append(lines, tagLine)
 		}
 	}
 
-	// Actions
-	actions := fmt.Sprintf(
-		"\n  %s  %s  %s",
-		theme.BrandStyle.Render("[l]")+theme.TextStyle.Render(" like"),
-		theme.DimStyle.Render("[s/→]")+theme.TextStyle.Render(" next"),
-		theme.DimStyle.Render("[←]")+theme.TextStyle.Render(" prev"),
-	)
+	// Row 3: Bio
+	if rec != nil && rec.Bio != "" {
+		bio := rec.Bio
+		if len(bio) > width-4 {
+			bio = bio[:width-7] + "..."
+		}
+		lines = append(lines, "")
+		lines = append(lines, theme.DimStyle.Render("\""+bio+"\""))
+	}
 
-	return "\n" + header + card + actions + "\n"
+	// Row 4: Interests as tags
+	if rec != nil && s.schema != nil {
+		labels := gh.DecodeFilters(s.schema, rec.Filters)
+		if interests, ok := labels["interests"]; ok && interests != "" {
+			lines = append(lines, "")
+			parts := splitComma(interests)
+			tagLine := ""
+			for i, p := range parts {
+				if i > 0 {
+					tagLine += "  "
+				}
+				tagLine += theme.BrandStyle.Render("♦") + " " + theme.TextStyle.Render(p)
+			}
+			lines = append(lines, tagLine)
+		}
+	}
+
+	// Actions row
+	lines = append(lines, "")
+	actions := theme.BrandStyle.Render("[l]") + theme.TextStyle.Render(" ♥ like") + "   " +
+		theme.DimStyle.Render("[→]") + theme.TextStyle.Render(" next") + "   " +
+		theme.DimStyle.Render("[←]") + theme.TextStyle.Render(" prev")
+	lines = append(lines, actions)
+
+	// Render card with border
+	content := ""
+	for i, line := range lines {
+		content += line
+		if i < len(lines)-1 {
+			content += "\n"
+		}
+	}
+
+	cardStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(theme.Violet).
+		Width(width).
+		Padding(1, 2)
+
+	card := cardStyle.Render(content)
+
+	// Footer below card
+	footer := theme.DimStyle.Render(fmt.Sprintf(
+		"  %d/%d · %d filtered",
+		s.index+1, len(s.suggestions), s.filtered))
+
+	return "\n" + card + "\n" + footer + "\n"
+}
+
+func spaces(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	s := ""
+	for i := 0; i < n; i++ {
+		s += " "
+	}
+	return s
+}
+
+func splitComma(s string) []string {
+	var parts []string
+	for _, p := range strings.Split(s, ", ") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	return parts
 }
 
 func (s DiscoverScreen) HelpBindings() []components.KeyBind {
