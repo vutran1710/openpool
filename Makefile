@@ -1,12 +1,18 @@
-.PHONY: build cli relay test coverage clean lint
+.PHONY: build cli relay indexer regcrypt test coverage clean lint
 
-build: cli relay
+build: cli relay indexer regcrypt
 
 cli:
 	go build -o bin/dating ./cmd/dating
 
 relay:
 	go build -o bin/relay ./cmd/relay
+
+indexer:
+	go build -o bin/indexer ./cmd/indexer
+
+regcrypt:
+	go build -o bin/regcrypt ./cmd/regcrypt
 
 test:
 	DATING_HOME=$(shell mktemp -d) go test ./...

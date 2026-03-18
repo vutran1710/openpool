@@ -62,6 +62,7 @@ func NewRootCmd() *cobra.Command {
 		newChatCmd(),
 		newCommitCmd(),
 		newProfileCmd(),
+		newDiscoverCmd(),
 		newResetCmd(),
 	)
 

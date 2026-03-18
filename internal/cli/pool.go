@@ -74,6 +74,7 @@ func newPoolCmd() *cobra.Command {
 		newPoolListCmd(),
 		newPoolSwitchCmd(),
 		newPoolBrowseCmd(),
+		newPoolSyncCmd(),
 	)
 	return cmd
 }
