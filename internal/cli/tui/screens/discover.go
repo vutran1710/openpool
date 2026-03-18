@@ -345,8 +345,11 @@ func (s DiscoverScreen) View() string {
 		"%d/%d · %d filtered",
 		s.index+1, len(s.suggestions), s.filtered))
 
-	// Title header — fixed at top
-	header := "  " + theme.BrandStyle.Render("♥ Discover") + "  " + theme.DimStyle.Render("Find someone interesting")
+	// Title header — matches Profile screen style
+	header := theme.BoldStyle.Render("Discover") + "   " +
+		theme.DimStyle.Render("browse profiles") + "  " +
+		theme.DimStyle.Render("·") + "  " +
+		theme.DimStyle.Render("l to like")
 
 	// Center card + footer
 	centered := lipgloss.NewStyle().Width(s.Width).Align(lipgloss.Center)
