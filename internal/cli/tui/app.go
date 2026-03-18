@@ -445,6 +445,8 @@ func (a app) handleMenuSelect(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "discover":
 		a.screen = screenDiscover
+		a.discover = screens.NewDiscoverScreen()
+		return a, screens.LoadDiscoverCmd(a.pool)
 	case "matches":
 		a.screen = screenMatches
 	case "pools":
@@ -501,7 +503,9 @@ func (a app) handleSubmit(msg components.SubmitMsg) (tea.Model, tea.Cmd) {
 			a.updateHelp()
 		case "/discover", "/fetch":
 			a.screen = screenDiscover
+			a.discover = screens.NewDiscoverScreen()
 			a.updateHelp()
+			return a, screens.LoadDiscoverCmd(a.pool)
 		case "/matches":
 			a.screen = screenMatches
 			a.updateHelp()
@@ -623,7 +627,7 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if cmd != nil {
 		// Don't forward to input during onboarding (it steals key events)
-		if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenProfile || a.screen == screenSettings || a.screen == screenInbox {
+		if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenProfile || a.screen == screenSettings || a.screen == screenInbox || a.screen == screenDiscover {
 			return a, cmd
 		}
 		var inputCmd tea.Cmd
@@ -631,7 +635,7 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(cmd, inputCmd)
 	}
 
-	if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenProfile || a.screen == screenSettings || a.screen == screenInbox {
+	if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenProfile || a.screen == screenSettings || a.screen == screenInbox || a.screen == screenDiscover {
 		return a, nil
 	}
 
