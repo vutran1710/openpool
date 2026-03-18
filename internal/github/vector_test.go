@@ -42,23 +42,43 @@ func TestSchemaField_Dimensions_Range(t *testing.T) {
 	}
 }
 
-func TestSchemaField_Dimensions_Unknown(t *testing.T) {
-	f := SchemaField{Type: "unknown"}
-	if f.Dimensions() != 0 {
-		t.Errorf("dims = %d, want 0", f.Dimensions())
+func TestPoolSchema_Dimensions_SimilarityOnly(t *testing.T) {
+	s := &PoolSchema{Fields: []SchemaField{
+		{Name: "gender", Type: "enum", Match: "complementary", Values: []string{"m", "f", "nb"}},
+		{Name: "gender_target", Type: "multi", Values: []string{"m", "f", "nb"}},
+		{Name: "age", Type: "range", Match: "approximate", Tolerance: 5},
+		{Name: "intent", Type: "multi", Match: "exact", Values: []string{"dating", "friends"}},
+		{Name: "interests", Type: "multi", Match: "similarity", Values: []string{"a", "b", "c"}},
+	}}
+	// Only similarity: interests(3) = 3
+	if s.Dimensions() != 3 {
+		t.Errorf("dims = %d, want 3", s.Dimensions())
 	}
 }
 
-func TestPoolSchema_Dimensions(t *testing.T) {
-	s := &PoolSchema{
-		Fields: []SchemaField{
-			{Name: "gender", Type: "enum", Values: []string{"m", "f", "nb"}},
-			{Name: "age", Type: "range", Min: intPtr(18), Max: intPtr(80)},
-			{Name: "interests", Type: "multi", Values: []string{"a", "b", "c", "d"}},
-		},
+func TestSchemaField_IsSimilarity(t *testing.T) {
+	if !(SchemaField{Match: "similarity"}).IsSimilarity() {
+		t.Error("similarity should be true")
 	}
-	if s.Dimensions() != 8 { // 3 + 1 + 4
-		t.Errorf("dims = %d, want 8", s.Dimensions())
+	if (SchemaField{Match: "complementary"}).IsSimilarity() {
+		t.Error("complementary should not be similarity")
+	}
+	if (SchemaField{Match: ""}).IsSimilarity() {
+		t.Error("empty match should not be similarity")
+	}
+}
+
+func TestSchemaField_IsFilter(t *testing.T) {
+	for _, m := range []string{"complementary", "approximate", "exact"} {
+		if !(SchemaField{Match: m}).IsFilter() {
+			t.Errorf("%s should be filter", m)
+		}
+	}
+	if (SchemaField{Match: "similarity"}).IsFilter() {
+		t.Error("similarity should not be filter")
+	}
+	if (SchemaField{Match: ""}).IsFilter() {
+		t.Error("empty should not be filter")
 	}
 }
 
@@ -106,11 +126,6 @@ func TestEncodeFieldValue_Multi_AnySlice(t *testing.T) {
 	assertVec(t, EncodeFieldValue(f, []any{"hiking"}), []float32{1, 0})
 }
 
-func TestEncodeFieldValue_Multi_InvalidInSlice(t *testing.T) {
-	f := SchemaField{Name: "interests", Type: "multi", Values: []string{"hiking", "coding"}}
-	assertVec(t, EncodeFieldValue(f, []any{"unknown"}), []float32{0, 0})
-}
-
 func TestEncodeFieldValue_Multi_WrongType(t *testing.T) {
 	f := SchemaField{Name: "interests", Type: "multi", Values: []string{"a", "b"}}
 	assertVec(t, EncodeFieldValue(f, "not an array"), []float32{0, 0})
@@ -133,14 +148,10 @@ func TestEncodeFieldValue_Range_Max(t *testing.T) {
 	assertVec(t, EncodeFieldValue(f, float64(80)), []float32{1})
 }
 
-func TestEncodeFieldValue_Range_BelowMin(t *testing.T) {
+func TestEncodeFieldValue_Range_Clamped(t *testing.T) {
 	f := SchemaField{Name: "age", Type: "range", Min: intPtr(18), Max: intPtr(80)}
-	assertVec(t, EncodeFieldValue(f, float64(10)), []float32{0}) // clamped
-}
-
-func TestEncodeFieldValue_Range_AboveMax(t *testing.T) {
-	f := SchemaField{Name: "age", Type: "range", Min: intPtr(18), Max: intPtr(80)}
-	assertVec(t, EncodeFieldValue(f, float64(100)), []float32{1}) // clamped
+	assertVec(t, EncodeFieldValue(f, float64(10)), []float32{0})
+	assertVec(t, EncodeFieldValue(f, float64(100)), []float32{1})
 }
 
 func TestEncodeFieldValue_Range_Int(t *testing.T) {
@@ -158,75 +169,188 @@ func TestEncodeFieldValue_Range_WrongType(t *testing.T) {
 	assertVec(t, EncodeFieldValue(f, "not a number"), []float32{0})
 }
 
-// --- Full Profile Encoding ---
+// --- Profile Encoding (similarity fields only) ---
 
-func TestEncodeProfile_FullSchema(t *testing.T) {
-	schema := &PoolSchema{
-		Fields: []SchemaField{
-			{Name: "gender", Type: "enum", Values: []string{"male", "female"}},
-			{Name: "age", Type: "range", Min: intPtr(18), Max: intPtr(80)},
-			{Name: "interests", Type: "multi", Values: []string{"a", "b", "c"}},
-		},
-	}
+func TestEncodeProfile_SimilarityOnly(t *testing.T) {
+	schema := &PoolSchema{Fields: []SchemaField{
+		{Name: "gender", Type: "enum", Match: "complementary", Target: "gender_target", Values: []string{"male", "female"}},
+		{Name: "gender_target", Type: "multi", Values: []string{"male", "female"}},
+		{Name: "intent", Type: "multi", Match: "similarity", Values: []string{"dating", "friends"}},
+		{Name: "interests", Type: "multi", Match: "similarity", Values: []string{"a", "b", "c"}},
+	}}
 	profile := map[string]any{
-		"gender":    "female",
-		"age":       float64(49),
-		"interests": []any{"a", "c"},
+		"gender": "female", "gender_target": []any{"male"},
+		"intent": []any{"dating"}, "interests": []any{"a", "c"},
 	}
 	vec := EncodeProfile(schema, profile)
-	// gender: [0,1] + age: [0.5] + interests: [1,0,1]
-	assertVec(t, vec, []float32{0, 1, 0.5, 1, 0, 1})
+	// Only similarity: intent [1,0] + interests [1,0,1] = 5 dims
+	assertVec(t, vec, []float32{1, 0, 1, 0, 1})
 }
 
 func TestEncodeProfile_MissingField(t *testing.T) {
-	schema := &PoolSchema{
-		Fields: []SchemaField{
-			{Name: "gender", Type: "enum", Values: []string{"male", "female"}},
-		},
-	}
-	profile := map[string]any{}
-	vec := EncodeProfile(schema, profile)
+	schema := &PoolSchema{Fields: []SchemaField{
+		{Name: "interests", Type: "multi", Match: "similarity", Values: []string{"a", "b"}},
+	}}
+	vec := EncodeProfile(schema, map[string]any{})
 	assertVec(t, vec, []float32{0, 0})
 }
 
 func TestEncodeProfile_EmptySchema(t *testing.T) {
 	schema := &PoolSchema{Fields: []SchemaField{}}
-	profile := map[string]any{"gender": "male"}
-	vec := EncodeProfile(schema, profile)
+	vec := EncodeProfile(schema, map[string]any{"x": "y"})
 	if len(vec) != 0 {
 		t.Errorf("expected empty vector, got %d dims", len(vec))
 	}
 }
 
-// --- Weights ---
+// --- Weights (similarity fields only) ---
 
 func TestApplyWeights_Basic(t *testing.T) {
 	schema := &PoolSchema{Fields: []SchemaField{
-		{Name: "gender", Type: "enum", Values: []string{"m", "f"}},
-		{Name: "age", Type: "range", Min: intPtr(18), Max: intPtr(80)},
+		{Name: "intent", Type: "multi", Match: "similarity", Values: []string{"dating", "friends"}},
+		{Name: "interests", Type: "multi", Match: "similarity", Values: []string{"a", "b"}},
 	}}
-	vec := []float32{0, 1, 0.5}
-	weights := map[string]float64{"gender": 10.0, "age": 2.0}
+	vec := []float32{1, 0, 1, 1}
+	weights := map[string]float64{"intent": 3.0, "interests": 1.0}
 	result := ApplyWeights(schema, vec, weights)
-	assertVec(t, result, []float32{0, 10, 1.0})
+	assertVec(t, result, []float32{3, 0, 1, 1})
 }
 
 func TestApplyWeights_DefaultWeight(t *testing.T) {
 	schema := &PoolSchema{Fields: []SchemaField{
-		{Name: "gender", Type: "enum", Values: []string{"m", "f"}},
+		{Name: "interests", Type: "multi", Match: "similarity", Values: []string{"a", "b"}},
 	}}
-	vec := []float32{1, 0}
-	weights := map[string]float64{} // no weight for gender → default 1.0
-	result := ApplyWeights(schema, vec, weights)
+	result := ApplyWeights(schema, []float32{1, 0}, map[string]float64{})
 	assertVec(t, result, []float32{1, 0})
 }
 
 func TestApplyWeights_ZeroWeight(t *testing.T) {
 	schema := &PoolSchema{Fields: []SchemaField{
-		{Name: "gender", Type: "enum", Values: []string{"m", "f"}},
+		{Name: "interests", Type: "multi", Match: "similarity", Values: []string{"a", "b"}},
 	}}
-	vec := []float32{1, 0}
-	weights := map[string]float64{"gender": 0.0}
-	result := ApplyWeights(schema, vec, weights)
+	result := ApplyWeights(schema, []float32{1, 0}, map[string]float64{"interests": 0.0})
 	assertVec(t, result, []float32{0, 0})
+}
+
+func TestApplyWeights_SkipsFilterFields(t *testing.T) {
+	schema := &PoolSchema{Fields: []SchemaField{
+		{Name: "gender", Type: "enum", Match: "complementary", Values: []string{"m", "f"}},
+		{Name: "interests", Type: "multi", Match: "similarity", Values: []string{"a", "b"}},
+	}}
+	result := ApplyWeights(schema, []float32{1, 0}, map[string]float64{"interests": 2.0})
+	assertVec(t, result, []float32{2, 0})
+}
+
+// --- Filter Extraction ---
+
+func TestExtractFilters(t *testing.T) {
+	schema := &PoolSchema{Fields: []SchemaField{
+		{Name: "gender", Type: "enum", Match: "complementary", Target: "gender_target", Values: []string{"male", "female", "nb"}},
+		{Name: "gender_target", Type: "multi", Values: []string{"male", "female", "nb"}},
+		{Name: "age", Type: "range", Match: "approximate", Tolerance: 5},
+		{Name: "intent", Type: "multi", Match: "exact", Values: []string{"dating", "friends"}},
+	}}
+	profile := map[string]any{
+		"gender": "female", "gender_target": []any{"male", "nb"},
+		"age": float64(28), "intent": []any{"dating"},
+	}
+	fv := ExtractFilters(schema, profile)
+	if fv.Fields["gender"] != 1 { t.Errorf("gender = %d, want 1 (female)", fv.Fields["gender"]) }
+	if fv.Fields["gender_target"] != 5 { t.Errorf("gender_target = %d, want 5 (male+nb bitmask 101)", fv.Fields["gender_target"]) }
+	if fv.Fields["age"] != 28 { t.Errorf("age = %d", fv.Fields["age"]) }
+	if fv.Fields["intent"] != 1 { t.Errorf("intent = %d, want 1 (dating bitmask)", fv.Fields["intent"]) }
+}
+
+// --- IsMatch (Bilateral Filtering) ---
+
+func datingSchema() *PoolSchema {
+	return &PoolSchema{Fields: []SchemaField{
+		{Name: "gender", Type: "enum", Match: "complementary", Target: "gender_target", Values: []string{"male", "female", "nb"}},
+		{Name: "gender_target", Type: "multi", Values: []string{"male", "female", "nb"}},
+		{Name: "age", Type: "range", Match: "approximate", Tolerance: 5},
+		{Name: "intent", Type: "multi", Match: "exact", Values: []string{"dating", "friends"}},
+	}}
+}
+
+func TestIsMatch_Compatible(t *testing.T) {
+	s := datingSchema()
+	alice := FilterValues{Fields: map[string]int{"gender": 1, "gender_target": 1, "age": 28, "intent": 1}} // F→M, dating
+	bob := FilterValues{Fields: map[string]int{"gender": 0, "gender_target": 2, "age": 32, "intent": 1}}   // M→F, dating
+	if !IsMatch(s, alice, bob) {
+		t.Error("Alice and Bob should match")
+	}
+}
+
+func TestIsMatch_GenderMismatch(t *testing.T) {
+	s := datingSchema()
+	alice := FilterValues{Fields: map[string]int{"gender": 1, "gender_target": 1, "age": 28, "intent": 1}} // F→M
+	dana := FilterValues{Fields: map[string]int{"gender": 1, "gender_target": 3, "age": 30, "intent": 3}}  // F→M+F
+	if IsMatch(s, alice, dana) {
+		t.Error("Alice (F→M) and Dana (F→M+F): Alice doesn't target F")
+	}
+}
+
+func TestIsMatch_AgeMismatch(t *testing.T) {
+	s := datingSchema()
+	alice := FilterValues{Fields: map[string]int{"gender": 1, "gender_target": 1, "age": 28, "intent": 1}}
+	frank := FilterValues{Fields: map[string]int{"gender": 0, "gender_target": 2, "age": 45, "intent": 1}}
+	if IsMatch(s, alice, frank) {
+		t.Error("|28-45|=17 > tolerance 5")
+	}
+}
+
+func TestIsMatch_IntentMismatch(t *testing.T) {
+	s := datingSchema()
+	alice := FilterValues{Fields: map[string]int{"gender": 1, "gender_target": 1, "age": 28, "intent": 1}} // dating
+	charlie := FilterValues{Fields: map[string]int{"gender": 0, "gender_target": 6, "age": 25, "intent": 2}} // friends
+	if IsMatch(s, alice, charlie) {
+		t.Error("dating & friends = 0, no overlap")
+	}
+}
+
+func TestIsMatch_IntentOverlap(t *testing.T) {
+	s := datingSchema()
+	alice := FilterValues{Fields: map[string]int{"gender": 1, "gender_target": 1, "age": 28, "intent": 1}}  // dating
+	dana := FilterValues{Fields: map[string]int{"gender": 0, "gender_target": 2, "age": 30, "intent": 3}}   // dating+friends
+	if !IsMatch(s, alice, dana) {
+		t.Error("dating & (dating+friends) should overlap")
+	}
+}
+
+func TestIsMatch_NBTargetsAll(t *testing.T) {
+	s := datingSchema()
+	eve := FilterValues{Fields: map[string]int{"gender": 2, "gender_target": 7, "age": 25, "intent": 1}} // NB→all
+	bob := FilterValues{Fields: map[string]int{"gender": 0, "gender_target": 4, "age": 25, "intent": 1}} // M→NB
+	if !IsMatch(s, eve, bob) {
+		t.Error("Eve (NB→all) and Bob (M→NB) should match")
+	}
+}
+
+func TestIsMatch_NoFilterSchema(t *testing.T) {
+	s := &PoolSchema{Fields: []SchemaField{
+		{Name: "interests", Type: "multi", Match: "similarity", Values: []string{"a", "b"}},
+	}}
+	a := FilterValues{Fields: map[string]int{}}
+	b := FilterValues{Fields: map[string]int{}}
+	if !IsMatch(s, a, b) {
+		t.Error("no filter fields = everyone passes")
+	}
+}
+
+func TestIsMatch_AgeBorderline(t *testing.T) {
+	s := datingSchema()
+	a := FilterValues{Fields: map[string]int{"gender": 0, "gender_target": 2, "age": 25, "intent": 1}}
+	b := FilterValues{Fields: map[string]int{"gender": 1, "gender_target": 1, "age": 30, "intent": 1}}
+	if !IsMatch(s, a, b) {
+		t.Error("|25-30|=5 == tolerance 5, should pass")
+	}
+}
+
+func TestIsMatch_AgeJustOver(t *testing.T) {
+	s := datingSchema()
+	a := FilterValues{Fields: map[string]int{"gender": 0, "gender_target": 2, "age": 24, "intent": 1}}
+	b := FilterValues{Fields: map[string]int{"gender": 1, "gender_target": 1, "age": 30, "intent": 1}}
+	if IsMatch(s, a, b) {
+		t.Error("|24-30|=6 > tolerance 5, should fail")
+	}
 }

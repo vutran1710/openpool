@@ -1,135 +1,93 @@
 package suggestions
 
 import (
-	"database/sql"
-	"encoding/binary"
 	"fmt"
-	"math"
+	"os"
+	"path/filepath"
 
+	"github.com/vmihailenco/msgpack/v5"
 	gh "github.com/vutran1710/dating-dev/internal/github"
-	_ "modernc.org/sqlite"
 )
 
-// DB is a local SQLite database for discovery suggestions.
-type DB struct {
-	conn *sql.DB
-}
-
-// Record is a match_hash + vector pair.
+// Record holds a user's filter values + similarity vector.
 type Record struct {
-	MatchHash string
-	Vector    []float32
+	MatchHash string          `msgpack:"m"`
+	Filters   gh.FilterValues `msgpack:"f"`
+	Vector    []float32       `msgpack:"v"`
 }
 
-// Open opens or creates a suggestions database.
-func Open(path string) (*DB, error) {
-	conn, err := sql.Open("sqlite", path)
+// Pack is the complete pool suggestion index.
+type Pack struct {
+	Records []Record `msgpack:"records"`
+}
+
+// Load loads a suggestions pack from disk.
+func Load(path string) (*Pack, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("opening database: %w", err)
-	}
-	conn.Exec("PRAGMA journal_mode=WAL")
-	conn.Exec("PRAGMA synchronous=NORMAL")
-	_, err = conn.Exec(`CREATE TABLE IF NOT EXISTS vectors (
-		match_hash TEXT PRIMARY KEY,
-		vector     BLOB NOT NULL
-	)`)
-	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("creating table: %w", err)
-	}
-	return &DB{conn: conn}, nil
-}
-
-// Close closes the database.
-func (db *DB) Close() error {
-	return db.conn.Close()
-}
-
-// Upsert inserts or replaces a vector record.
-func (db *DB) Upsert(matchHash string, vector []float32) error {
-	_, err := db.conn.Exec(
-		"INSERT OR REPLACE INTO vectors (match_hash, vector) VALUES (?, ?)",
-		matchHash, encodeVector(vector),
-	)
-	return err
-}
-
-// Exists checks if a match_hash exists in the database.
-func (db *DB) Exists(matchHash string) bool {
-	var count int
-	db.conn.QueryRow("SELECT COUNT(*) FROM vectors WHERE match_hash = ?", matchHash).Scan(&count)
-	return count > 0
-}
-
-// LoadAll loads all records into memory.
-func (db *DB) LoadAll() ([]Record, error) {
-	rows, err := db.conn.Query("SELECT match_hash, vector FROM vectors")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var records []Record
-	for rows.Next() {
-		var mh string
-		var blob []byte
-		if err := rows.Scan(&mh, &blob); err != nil {
-			return nil, err
+		if os.IsNotExist(err) {
+			return &Pack{}, nil
 		}
-		records = append(records, Record{
-			MatchHash: mh,
-			Vector:    decodeVector(blob),
-		})
+		return nil, fmt.Errorf("reading pack: %w", err)
 	}
-	return records, rows.Err()
+	var pack Pack
+	if err := msgpack.Unmarshal(data, &pack); err != nil {
+		return nil, fmt.Errorf("decoding pack: %w", err)
+	}
+	return &pack, nil
 }
 
-// SyncFromDir reads .vec files from a directory and upserts new/changed records.
-// Returns the number of records added/updated.
-func (db *DB) SyncFromDir(dir string) (int, error) {
+// Save writes the suggestions pack to disk.
+func (p *Pack) Save(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return fmt.Errorf("creating directory: %w", err)
+	}
+	data, err := msgpack.Marshal(p)
+	if err != nil {
+		return fmt.Errorf("encoding pack: %w", err)
+	}
+	return os.WriteFile(path, data, 0600)
+}
+
+// Upsert adds or updates a record by match_hash.
+func (p *Pack) Upsert(r Record) {
+	for i, existing := range p.Records {
+		if existing.MatchHash == r.MatchHash {
+			p.Records[i] = r
+			return
+		}
+	}
+	p.Records = append(p.Records, r)
+}
+
+// Find returns a record by match_hash, or nil if not found.
+func (p *Pack) Find(matchHash string) *Record {
+	for i := range p.Records {
+		if p.Records[i].MatchHash == matchHash {
+			return &p.Records[i]
+		}
+	}
+	return nil
+}
+
+// SyncFromVecDir reads .vec files and upserts new records (vectors only, no filters).
+// Returns number of new records added.
+func (p *Pack) SyncFromVecDir(dir string) (int, error) {
 	vecRecords, err := gh.ReadVecDir(dir)
 	if err != nil {
 		return 0, fmt.Errorf("reading vec dir: %w", err)
 	}
 
 	added := 0
-	tx, err := db.conn.Begin()
-	if err != nil {
-		return 0, err
-	}
-	stmt, err := tx.Prepare("INSERT OR REPLACE INTO vectors (match_hash, vector) VALUES (?, ?)")
-	if err != nil {
-		tx.Rollback()
-		return 0, err
-	}
-	defer stmt.Close()
-
-	for _, r := range vecRecords {
-		if db.Exists(r.MatchHash) {
+	for _, vr := range vecRecords {
+		if p.Find(vr.MatchHash) != nil {
 			continue
 		}
-		if _, err := stmt.Exec(r.MatchHash, encodeVector(r.Vector)); err != nil {
-			tx.Rollback()
-			return 0, err
-		}
+		p.Records = append(p.Records, Record{
+			MatchHash: vr.MatchHash,
+			Vector:    vr.Vector,
+		})
 		added++
 	}
-
-	return added, tx.Commit()
-}
-
-func encodeVector(v []float32) []byte {
-	buf := make([]byte, len(v)*4)
-	for i, f := range v {
-		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(f))
-	}
-	return buf
-}
-
-func decodeVector(b []byte) []float32 {
-	v := make([]float32, len(b)/4)
-	for i := range v {
-		v[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[i*4:]))
-	}
-	return v
+	return added, nil
 }

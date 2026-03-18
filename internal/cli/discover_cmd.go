@@ -12,8 +12,8 @@ import (
 
 func newDiscoverCmd() *cobra.Command {
 	var (
-		limit   int
-		doSync  bool
+		limit  int
+		doSync bool
 	)
 
 	cmd := &cobra.Command{
@@ -40,6 +40,8 @@ func newDiscoverCmd() *cobra.Command {
 				return nil
 			}
 
+			packPath := filepath.Join(config.Dir(), "pools", poolName, "suggestions.pack")
+
 			// Sync if requested
 			if doSync {
 				fmt.Println("  Syncing...")
@@ -52,51 +54,38 @@ func newDiscoverCmd() *cobra.Command {
 				}
 
 				indexDir := filepath.Join(repo.LocalDir, "index")
-				dbPath := filepath.Join(config.Dir(), "pools", poolName, "suggestions.db")
-				db, err := suggestions.Open(dbPath)
+				pack, err := suggestions.Load(packPath)
 				if err != nil {
-					return fmt.Errorf("opening DB: %w", err)
+					return fmt.Errorf("loading: %w", err)
 				}
-				added, _ := db.SyncFromDir(indexDir)
-				db.Close()
+				added, _ := pack.SyncFromVecDir(indexDir)
 				if added > 0 {
+					pack.Save(packPath)
 					printDim(fmt.Sprintf("  Synced %d new vectors", added))
 				}
 			}
 
-			// Open DB
-			dbPath := filepath.Join(config.Dir(), "pools", poolName, "suggestions.db")
-			db, err := suggestions.Open(dbPath)
+			// Load pack
+			pack, err := suggestions.Load(packPath)
 			if err != nil {
-				return fmt.Errorf("opening suggestions DB: %w", err)
-			}
-			defer db.Close()
-
-			records, err := db.LoadAll()
-			if err != nil {
-				return fmt.Errorf("loading vectors: %w", err)
+				return fmt.Errorf("loading suggestions: %w", err)
 			}
 
-			if len(records) == 0 {
-				printDim("  No vectors in suggestions DB. Run: dating pool sync " + poolName)
+			if len(pack.Records) == 0 {
+				printDim("  No vectors. Run: dating pool sync " + poolName)
 				return nil
 			}
 
-			// Find own vector
-			var myVec []float32
-			for _, r := range records {
-				if r.MatchHash == pool.MatchHash {
-					myVec = r.Vector
-					break
-				}
-			}
-			if myVec == nil {
-				printError("Your vector not found in suggestions DB. Run: dating pool sync " + poolName)
+			// Find own record
+			me := pack.Find(pool.MatchHash)
+			if me == nil {
+				printError("Your vector not found. Run: dating pool sync " + poolName)
 				return nil
 			}
 
-			// Rank
-			ranked := suggestions.RankSuggestions(myVec, pool.MatchHash, records, limit)
+			// TODO: load pool.json schema for filter-based ranking
+			// For now, rank without filters (schema = nil)
+			ranked := suggestions.RankSuggestions(nil, *me, pack.Records, limit)
 
 			if len(ranked) == 0 {
 				printDim("  No suggestions found.")
@@ -104,7 +93,7 @@ func newDiscoverCmd() *cobra.Command {
 			}
 
 			fmt.Println()
-			fmt.Printf("  %s (%d users)\n\n", bold.Render("Suggestions for "+poolName), len(records))
+			fmt.Printf("  %s (%d users)\n\n", bold.Render("Suggestions for "+poolName), len(pack.Records))
 			for i, s := range ranked {
 				fmt.Printf("  %2d. %s  score: %.2f\n", i+1, s.MatchHash, s.Score)
 			}
