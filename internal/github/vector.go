@@ -84,22 +84,23 @@ func encodeRange(field SchemaField, value any) []float32 {
 	return []float32{float32(normalized)}
 }
 
-// EncodeProfile encodes an entire profile into a vector per the schema.
+// EncodeProfile encodes similarity fields of a profile into a vector.
+// Filter fields (complementary, approximate, exact) are excluded.
 func EncodeProfile(schema *PoolSchema, profile map[string]any) []float32 {
 	var vec []float32
-	for _, field := range schema.Fields {
+	for _, field := range schema.SimilarityFields() {
 		value := profile[field.Name]
 		vec = append(vec, EncodeFieldValue(field, value)...)
 	}
 	return vec
 }
 
-// ApplyWeights multiplies each field's vector segment by its weight.
+// ApplyWeights multiplies each similarity field's vector segment by its weight.
 func ApplyWeights(schema *PoolSchema, vec []float32, weights map[string]float64) []float32 {
 	result := make([]float32, len(vec))
 	copy(result, vec)
 	offset := 0
-	for _, field := range schema.Fields {
+	for _, field := range schema.SimilarityFields() {
 		dims := field.Dimensions()
 		w, ok := weights[field.Name]
 		if !ok {
@@ -113,4 +114,111 @@ func ApplyWeights(schema *PoolSchema, vec []float32, weights map[string]float64)
 		offset += dims
 	}
 	return result
+}
+
+// FilterValues holds encoded filter field values for matching.
+type FilterValues struct {
+	Fields map[string]int `msgpack:"f"` // field name → encoded value (enum index, bitmask, or raw int)
+}
+
+// ExtractFilters extracts filter field values from a profile per the schema.
+func ExtractFilters(schema *PoolSchema, profile map[string]any) FilterValues {
+	fv := FilterValues{Fields: make(map[string]int)}
+	for _, field := range schema.Fields {
+		val := profile[field.Name]
+		if val == nil {
+			continue
+		}
+		switch field.Type {
+		case "enum":
+			fv.Fields[field.Name] = enumIndex(field, val)
+		case "multi":
+			fv.Fields[field.Name] = multiBitmask(field, val)
+		case "range":
+			fv.Fields[field.Name] = toInt(val)
+		}
+	}
+	return fv
+}
+
+// IsMatch checks if two users pass all bilateral filters defined in the schema.
+func IsMatch(schema *PoolSchema, a, b FilterValues) bool {
+	for _, field := range schema.FilterFields() {
+		switch field.Match {
+		case "complementary":
+			targetField := field.Target
+			myVal := a.Fields[field.Name]
+			theirTarget := b.Fields[targetField]
+			theirVal := b.Fields[field.Name]
+			myTarget := a.Fields[targetField]
+			if (theirTarget&(1<<myVal)) == 0 || (myTarget&(1<<theirVal)) == 0 {
+				return false
+			}
+		case "approximate":
+			myVal := a.Fields[field.Name]
+			theirVal := b.Fields[field.Name]
+			diff := myVal - theirVal
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff > field.Tolerance {
+				return false
+			}
+		case "exact":
+			myVal := a.Fields[field.Name]
+			theirVal := b.Fields[field.Name]
+			if myVal&theirVal == 0 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func enumIndex(field SchemaField, val any) int {
+	s, ok := val.(string)
+	if !ok {
+		return 0
+	}
+	for i, v := range field.Values {
+		if v == s {
+			return i
+		}
+	}
+	return 0
+}
+
+func multiBitmask(field SchemaField, val any) int {
+	var selected []string
+	switch v := val.(type) {
+	case []string:
+		selected = v
+	case []any:
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				selected = append(selected, s)
+			}
+		}
+	}
+	mask := 0
+	for _, s := range selected {
+		for i, v := range field.Values {
+			if v == s {
+				mask |= 1 << i
+			}
+		}
+	}
+	return mask
+}
+
+func toInt(val any) int {
+	switch v := val.(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case int64:
+		return int(v)
+	}
+	return 0
 }

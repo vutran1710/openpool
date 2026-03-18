@@ -4,6 +4,8 @@ import (
 	"math"
 	"math/rand"
 	"sort"
+
+	gh "github.com/vutran1710/dating-dev/internal/github"
 )
 
 // Suggestion is a ranked match_hash with similarity score.
@@ -12,17 +14,21 @@ type Suggestion struct {
 	Score     float64
 }
 
-// RankSuggestions computes cosine similarity against all records,
-// groups into tiers, shuffles within tiers, returns top N.
-func RankSuggestions(myVec []float32, myHash string, records []Record, limit int) []Suggestion {
+// RankSuggestions filters by schema-driven bilateral checks, then ranks by cosine similarity.
+// Groups into tiers, shuffles within tiers, returns top N.
+func RankSuggestions(schema *gh.PoolSchema, me Record, records []Record, limit int) []Suggestion {
 	var scored []Suggestion
 	for _, r := range records {
-		if r.MatchHash == myHash {
+		if r.MatchHash == me.MatchHash {
+			continue
+		}
+		// Schema-driven filter
+		if schema != nil && !gh.IsMatch(schema, me.Filters, r.Filters) {
 			continue
 		}
 		scored = append(scored, Suggestion{
 			MatchHash: r.MatchHash,
-			Score:     cosine(myVec, r.Vector),
+			Score:     cosine(me.Vector, r.Vector),
 		})
 	}
 
@@ -38,7 +44,7 @@ func RankSuggestions(myVec []float32, myHash string, records []Record, limit int
 			start := t * tierSize
 			end := start + tierSize
 			if t == 9 {
-				end = len(scored) // last tier gets remainder
+				end = len(scored)
 			}
 			tier := scored[start:end]
 			rand.Shuffle(len(tier), func(i, j int) {

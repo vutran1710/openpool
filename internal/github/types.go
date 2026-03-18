@@ -47,13 +47,26 @@ type PoolSchema struct {
 	Fields  []SchemaField `json:"fields"`
 }
 
-// SchemaField defines a single profile field and how it maps to vector dimensions.
+// SchemaField defines a single profile field and how it's matched.
 type SchemaField struct {
-	Name   string   `json:"name"`
-	Type   string   `json:"type"`            // "enum", "multi", "range"
-	Values []string `json:"values,omitempty"` // for enum/multi
-	Min    *int     `json:"min,omitempty"`    // for range
-	Max    *int     `json:"max,omitempty"`    // for range
+	Name      string   `json:"name"`
+	Type      string   `json:"type"`                // "enum", "multi", "range"
+	Match     string   `json:"match,omitempty"`      // "complementary", "approximate", "exact", "similarity"
+	Target    string   `json:"target,omitempty"`     // for complementary: name of the target field
+	Tolerance int      `json:"tolerance,omitempty"`  // for approximate: max allowed difference
+	Values    []string `json:"values,omitempty"`     // for enum/multi
+	Min       *int     `json:"min,omitempty"`        // for range
+	Max       *int     `json:"max,omitempty"`        // for range
+}
+
+// IsSimilarity returns true if this field contributes to the similarity vector.
+func (f SchemaField) IsSimilarity() bool {
+	return f.Match == "similarity"
+}
+
+// IsFilter returns true if this field is a filter (complementary, approximate, exact).
+func (f SchemaField) IsFilter() bool {
+	return f.Match == "complementary" || f.Match == "approximate" || f.Match == "exact"
 }
 
 // Dimensions returns the vector dimensions for this field.
@@ -67,13 +80,37 @@ func (f SchemaField) Dimensions() int {
 	return 0
 }
 
-// Dimensions returns the total vector dimensions across all fields.
+// Dimensions returns the total vector dimensions for similarity fields only.
 func (s *PoolSchema) Dimensions() int {
 	d := 0
 	for _, f := range s.Fields {
-		d += f.Dimensions()
+		if f.IsSimilarity() {
+			d += f.Dimensions()
+		}
 	}
 	return d
+}
+
+// SimilarityFields returns fields that go into the similarity vector.
+func (s *PoolSchema) SimilarityFields() []SchemaField {
+	var fields []SchemaField
+	for _, f := range s.Fields {
+		if f.IsSimilarity() {
+			fields = append(fields, f)
+		}
+	}
+	return fields
+}
+
+// FilterFields returns fields used for bilateral filtering.
+func (s *PoolSchema) FilterFields() []SchemaField {
+	var fields []SchemaField
+	for _, f := range s.Fields {
+		if f.IsFilter() {
+			fields = append(fields, f)
+		}
+	}
+	return fields
 }
 
 func decodeBase64(encoded string) ([]byte, error) {

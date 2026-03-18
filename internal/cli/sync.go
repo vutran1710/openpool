@@ -13,7 +13,7 @@ import (
 func newPoolSyncCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "sync <pool>",
-		Short: "Sync pool repo and update local suggestions DB",
+		Short: "Sync pool repo and update local suggestions",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			poolName := args[0]
@@ -39,21 +39,23 @@ func newPoolSyncCmd() *cobra.Command {
 			}
 
 			indexDir := filepath.Join(repo.LocalDir, "index")
-			dbPath := filepath.Join(config.Dir(), "pools", poolName, "suggestions.db")
+			packPath := filepath.Join(config.Dir(), "pools", poolName, "suggestions.pack")
 
-			db, err := suggestions.Open(dbPath)
+			pack, err := suggestions.Load(packPath)
 			if err != nil {
-				return fmt.Errorf("opening suggestions DB: %w", err)
+				return fmt.Errorf("loading suggestions: %w", err)
 			}
-			defer db.Close()
 
-			added, err := db.SyncFromDir(indexDir)
+			added, err := pack.SyncFromVecDir(indexDir)
 			if err != nil {
 				return fmt.Errorf("syncing vectors: %w", err)
 			}
 
-			records, _ := db.LoadAll()
-			printSuccess(fmt.Sprintf("Synced %d new vectors (total %d)", added, len(records)))
+			if err := pack.Save(packPath); err != nil {
+				return fmt.Errorf("saving suggestions: %w", err)
+			}
+
+			printSuccess(fmt.Sprintf("Synced %d new vectors (total %d)", added, len(pack.Records)))
 			return nil
 		},
 	}
