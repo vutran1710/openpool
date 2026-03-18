@@ -94,7 +94,13 @@ func newDiscoverCmd() *cobra.Command {
 				}
 			}
 
-			ranked := suggestions.RankSuggestions(schema, *me, pack.Records, limit)
+			ranked := suggestions.RankSuggestions(schema, *me, pack.Records, pack.Seen, limit)
+
+			// Mark shown as seen + save
+			for _, s := range ranked {
+				pack.MarkSeen(s.MatchHash)
+			}
+			pack.Save(packPath)
 
 			if len(ranked) == 0 {
 				printDim("  No suggestions found.")

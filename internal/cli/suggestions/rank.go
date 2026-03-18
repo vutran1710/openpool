@@ -14,15 +14,21 @@ type Suggestion struct {
 	Score     float64
 }
 
-// RankSuggestions filters by schema-driven bilateral checks, then ranks by cosine similarity.
-// Groups into tiers, shuffles within tiers, returns top N.
-func RankSuggestions(schema *gh.PoolSchema, me Record, records []Record, limit int) []Suggestion {
+// Tier boundaries: top 5%, 5-20%, 20-50%, 50-100%
+var tierBounds = []float64{0.05, 0.20, 0.50, 1.00}
+
+// RankSuggestions filters by schema, excludes self + seen, then produces
+// a tier-ordered shuffled list: top 5% first (shuffled), then 5-20%, then 20-50%, then 50-100%.
+func RankSuggestions(schema *gh.PoolSchema, me Record, records []Record, seen map[string]bool, limit int) []Suggestion {
+	// Score all candidates
 	var scored []Suggestion
 	for _, r := range records {
 		if r.MatchHash == me.MatchHash {
 			continue
 		}
-		// Schema-driven filter
+		if seen != nil && seen[r.MatchHash] {
+			continue
+		}
 		if schema != nil && !gh.IsMatch(schema, me.Filters, r.Filters) {
 			continue
 		}
@@ -37,26 +43,31 @@ func RankSuggestions(schema *gh.PoolSchema, me Record, records []Record, limit i
 		return scored[i].Score > scored[j].Score
 	})
 
-	// Tier-based shuffling: 10 tiers, shuffle within each
-	if len(scored) > 10 {
-		tierSize := len(scored) / 10
-		for t := 0; t < 10; t++ {
-			start := t * tierSize
-			end := start + tierSize
-			if t == 9 {
-				end = len(scored)
-			}
-			tier := scored[start:end]
-			rand.Shuffle(len(tier), func(i, j int) {
-				tier[i], tier[j] = tier[j], tier[i]
-			})
+	// Tier-based shuffling: 5%, 20%, 50%, 100%
+	var result []Suggestion
+	n := len(scored)
+	prev := 0
+	for _, bound := range tierBounds {
+		end := int(float64(n) * bound)
+		if end > n {
+			end = n
 		}
+		if end <= prev {
+			continue
+		}
+		tier := make([]Suggestion, end-prev)
+		copy(tier, scored[prev:end])
+		rand.Shuffle(len(tier), func(i, j int) {
+			tier[i], tier[j] = tier[j], tier[i]
+		})
+		result = append(result, tier...)
+		prev = end
 	}
 
-	if limit > 0 && len(scored) > limit {
-		scored = scored[:limit]
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
 	}
-	return scored
+	return result
 }
 
 func cosine(a, b []float32) float64 {

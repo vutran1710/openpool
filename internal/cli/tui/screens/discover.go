@@ -20,6 +20,8 @@ type DiscoverMsg struct {
 	Suggestions []suggestions.Suggestion
 	Total       int
 	Filtered    int
+	Pack        *suggestions.Pack
+	PackPath    string
 	Err         error
 }
 
@@ -28,6 +30,8 @@ type DiscoverScreen struct {
 	index       int
 	total       int
 	filtered    int
+	pack        *suggestions.Pack
+	packPath    string
 	Loading     bool
 	Empty       bool
 	Width       int
@@ -100,7 +104,7 @@ func LoadDiscoverCmd(poolName string) tea.Cmd {
 			}
 		}
 
-		ranked := suggestions.RankSuggestions(schema, *me, pack.Records, 50)
+		ranked := suggestions.RankSuggestions(schema, *me, pack.Records, pack.Seen, 50)
 		total := len(pack.Records) - 1
 		filtered := total - len(ranked)
 
@@ -108,6 +112,8 @@ func LoadDiscoverCmd(poolName string) tea.Cmd {
 			Suggestions: ranked,
 			Total:       total,
 			Filtered:    filtered,
+			Pack:        pack,
+			PackPath:    packPath,
 		}
 	}
 }
@@ -136,8 +142,14 @@ func (s DiscoverScreen) Update(msg tea.Msg) (DiscoverScreen, tea.Cmd) {
 		s.suggestions = msg.Suggestions
 		s.total = msg.Total
 		s.filtered = msg.Filtered
+		s.pack = msg.Pack
+		s.packPath = msg.PackPath
 		s.index = 0
 		s.Empty = len(s.suggestions) == 0
+		// Mark first suggestion as seen
+		if cur := s.current(); cur != nil {
+			s.markCurrentSeen()
+		}
 		return s, nil
 
 	case tea.KeyMsg:
@@ -167,6 +179,18 @@ func (s DiscoverScreen) Update(msg tea.Msg) (DiscoverScreen, tea.Cmd) {
 func (s *DiscoverScreen) advance() {
 	if s.index < len(s.suggestions)-1 {
 		s.index++
+		s.markCurrentSeen()
+	}
+}
+
+func (s *DiscoverScreen) markCurrentSeen() {
+	if s.pack == nil {
+		return
+	}
+	cur := s.current()
+	if cur != nil {
+		s.pack.MarkSeen(cur.MatchHash)
+		s.pack.Save(s.packPath) // persist immediately
 	}
 }
 
