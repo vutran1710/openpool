@@ -63,8 +63,9 @@ func main() {
 		log.Fatalf("encrypt: %v", err)
 	}
 
-	// Output: line 1 = bin_hash, line 2 = base64 encrypted blob
+	// Output: line 1 = bin_hash, line 2 = match_hash, line 3 = base64 encrypted blob
 	fmt.Println(binH)
+	fmt.Println(matchH)
 	fmt.Println(base64.StdEncoding.EncodeToString(encrypted))
 }
 
