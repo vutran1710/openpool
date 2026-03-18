@@ -102,12 +102,19 @@ type PoolStats struct {
 	Relationships int
 }
 
-// Stats returns pool statistics from the local clone.
+// Stats returns pool statistics. Uses local clone if available, falls back to API.
 func (p *Pool) Stats() PoolStats {
-	var stats PoolStats
-	if p.repo == nil {
-		return stats
+	if p.repo != nil {
+		return p.statsFromRepo()
 	}
+	if p.client != nil {
+		return p.statsFromAPI()
+	}
+	return PoolStats{}
+}
+
+func (p *Pool) statsFromRepo() PoolStats {
+	var stats PoolStats
 	if users, err := p.repo.ListDir("users"); err == nil {
 		for _, u := range users {
 			if strings.HasSuffix(u, ".bin") {
@@ -119,6 +126,25 @@ func (p *Pool) Stats() PoolStats {
 		stats.Matches = len(dirs)
 	}
 	if dirs, err := p.repo.ListDir("relationships"); err == nil {
+		stats.Relationships = len(dirs)
+	}
+	return stats
+}
+
+func (p *Pool) statsFromAPI() PoolStats {
+	ctx := context.Background()
+	var stats PoolStats
+	if users, err := p.client.ListDir(ctx, "users"); err == nil {
+		for _, u := range users {
+			if strings.HasSuffix(u, ".bin") {
+				stats.Members++
+			}
+		}
+	}
+	if dirs, err := p.client.ListDir(ctx, "matches"); err == nil {
+		stats.Matches = len(dirs)
+	}
+	if dirs, err := p.client.ListDir(ctx, "relationships"); err == nil {
 		stats.Relationships = len(dirs)
 	}
 	return stats

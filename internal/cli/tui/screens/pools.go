@@ -104,16 +104,20 @@ func (s PoolsScreen) fetchPools() tea.Msg {
 			}
 		}
 
-		// Only fetch stats for joined pools (skip unjoined — saves clone time)
+		// Fetch stats: use local clone for joined pools, API for unjoined
 		var stats gh.PoolStats
 		isJoined := s.poolStatus[e.Name] == "active" || s.poolStatus[e.Name] == "pending"
 		if isJoined {
 			poolURL := gitrepo.EnsureGitURL(e.Repo)
 			if poolRepo, err := gitrepo.Clone(poolURL); err == nil {
-				poolRepo.Sync() // smart sync — skip if no changes
+				poolRepo.Sync()
 				pool := gh.NewLocalPool(poolRepo)
 				stats = pool.Stats()
 			}
+		} else {
+			// Unjoined: use API (no token needed for public repos)
+			pool := gh.NewPool(e.Repo, "")
+			stats = pool.Stats()
 		}
 
 		// Get logo (cached as logo.txt — instant after first render)
