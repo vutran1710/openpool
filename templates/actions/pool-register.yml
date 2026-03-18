@@ -75,7 +75,7 @@ jobs:
           # Commit and push
           git config user.name "dating-bot"
           git config user.email "bot@dating-pool.dev"
-          git add "users/${BIN_HASH}.bin" "index/${MATCH_HASH}.vec"
+          git add "users/${BIN_HASH}.bin" "index/${MATCH_HASH}.rec"
           git commit -m "Register user ${BIN_HASH}"
           git push
 
