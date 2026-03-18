@@ -15,6 +15,7 @@ import (
 	"github.com/vutran1710/dating-dev/internal/cli/config"
 	"github.com/vutran1710/dating-dev/internal/crypto"
 	gh "github.com/vutran1710/dating-dev/internal/github"
+	"github.com/vutran1710/dating-dev/internal/gitrepo"
 )
 
 func parseCSV(s string) []string {
@@ -295,10 +296,25 @@ Prerequisites:
 				}
 				return fmt.Errorf("reading profile: %w", err)
 			}
-			// Validate JSON
-			var check map[string]any
-			if err := json.Unmarshal(plaintext, &check); err != nil {
+			// Validate JSON + schema
+			var profileData map[string]any
+			if err := json.Unmarshal(plaintext, &profileData); err != nil {
 				return fmt.Errorf("invalid profile JSON at %s: %w", profilePath, err)
+			}
+
+			// Validate against pool schema if available
+			repo, repoErr := gitrepo.Clone(gitrepo.EnsureGitURL(entry.Repo))
+			if repoErr == nil {
+				repo.Sync()
+				manifest, mErr := loadManifest(repo.LocalDir)
+				if mErr == nil && manifest.Schema != nil {
+					if err := gh.ValidateProfile(manifest.Schema, profileData); err != nil {
+						printError(fmt.Sprintf("Profile validation failed: %v", err))
+						printDim(fmt.Sprintf("  Check your profile at: %s", profilePath))
+						return nil
+					}
+					printSuccess("Profile validated against pool schema")
+				}
 			}
 
 			// Encrypt profile to operator's pubkey
