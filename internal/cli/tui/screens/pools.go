@@ -215,21 +215,21 @@ func (s PoolsScreen) Update(msg tea.Msg) (PoolsScreen, tea.Cmd) {
 
 func (s PoolsScreen) View() string {
 	if s.loading {
-		return lipgloss.NewStyle().Padding(2, 3).Render(
-			fmt.Sprintf("%s Fetching pools from registry...", s.spinner.View()),
-		)
+		return components.ScreenLayout("Pools",
+			components.DimHints("browse and join"),
+			fmt.Sprintf("%s Fetching pools from registry...", s.spinner.View()))
 	}
 
 	if s.err != nil {
-		return lipgloss.NewStyle().Padding(2, 3).Render(
-			theme.RedStyle.Render("Error: " + s.err.Error()),
-		)
+		return components.ScreenLayout("Pools",
+			components.DimHints("browse and join"),
+			theme.RedStyle.Render("Error: "+s.err.Error()))
 	}
 
 	if len(s.pools) == 0 {
-		return lipgloss.NewStyle().Padding(2, 3).Render(
-			theme.DimStyle.Render("No pools registered yet."),
-		)
+		return components.ScreenLayout("Pools",
+			components.DimHints("browse and join"),
+			theme.DimStyle.Render("No pools registered yet."))
 	}
 
 	totalWidth := s.Width
@@ -245,7 +245,11 @@ func (s PoolsScreen) View() string {
 	leftPanel := s.renderList(listWidth)
 	rightPanel := s.renderDetail(detailWidth)
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, "  ", rightPanel)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, "  ", rightPanel)
+
+	return components.ScreenLayout("Pools",
+		components.DimHints("browse and join"),
+		body)
 }
 
 func (s PoolsScreen) renderList(width int) string {
@@ -253,7 +257,7 @@ func (s PoolsScreen) renderList(width int) string {
 		Width(width).
 		Padding(1, 1)
 
-	title := theme.BoldStyle.Render("Pools") + "\n\n"
+	title := ""
 	maxDesc := width - 8
 
 	var items string
