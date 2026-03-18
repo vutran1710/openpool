@@ -59,7 +59,9 @@ func (c *Client) do(ctx context.Context, method, url string, body io.Reader) (*h
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
