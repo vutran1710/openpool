@@ -30,7 +30,7 @@ func (s HomeScreen) Update(msg tea.Msg) (HomeScreen, tea.Cmd) {
 }
 
 func (s HomeScreen) View() string {
-	return s.Menu.View()
+	return components.ScreenLayout("Home", "", s.Menu.View())
 }
 
 func (s HomeScreen) HelpBindings() []components.KeyBind {

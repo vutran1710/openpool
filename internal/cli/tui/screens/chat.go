@@ -77,20 +77,13 @@ func (s ChatScreen) Update(msg tea.Msg) (ChatScreen, tea.Cmd) {
 }
 
 func (s ChatScreen) View() string {
-	header := lipgloss.NewStyle().
-		Padding(0, 2).
-		Render(
-			theme.BrandStyle.Render("♥ ") +
-				theme.BoldStyle.Render("chat") +
-				theme.DimStyle.Render(":"+s.TargetID),
-		)
-
 	separator := lipgloss.NewStyle().
 		Width(s.Width).
 		Foreground(theme.Border).
 		Render(components.Repeat("─", s.Width))
 
-	return header + "\n" + separator + "\n" + s.Viewport.View()
+	body := separator + "\n" + s.Viewport.View()
+	return components.ScreenLayout("Chat", components.DimHints(s.TargetID), body)
 }
 
 func (s ChatScreen) renderMessages() string {

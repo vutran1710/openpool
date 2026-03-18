@@ -24,10 +24,13 @@ func (s MatchesScreen) Update(msg tea.Msg) (MatchesScreen, tea.Cmd) {
 }
 
 func (s MatchesScreen) View() string {
+	var body string
 	if s.Empty {
-		return "\n  " + theme.DimStyle.Render("No matches yet. Try discovering profiles.") + "\n"
+		body = theme.DimStyle.Render("No matches yet. Try discovering profiles.")
+	} else {
+		body = s.Menu.View()
 	}
-	return s.Menu.View()
+	return components.ScreenLayout("Matches", components.DimHints("your connections"), body)
 }
 
 func (s MatchesScreen) HelpBindings() []components.KeyBind {

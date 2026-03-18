@@ -126,11 +126,6 @@ func (s SettingsScreen) View() string {
 		return s.pickerView()
 	}
 
-	titleStyle := lipgloss.NewStyle().
-		Foreground(theme.Dim).
-		MarginBottom(1).
-		MarginLeft(2)
-
 	cardStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(theme.Border).
@@ -159,7 +154,8 @@ func (s SettingsScreen) View() string {
 	idCard := renderSettingsCard("⬡", "Identity", idValue, "dating auth whoami", s.cursor == settingsIdentity, cardStyle, activeCardStyle)
 	cards = append(cards, idCard)
 
-	return titleStyle.Render("SETTINGS") + "\n" + lipgloss.JoinVertical(lipgloss.Left, cards...)
+	body := lipgloss.JoinVertical(lipgloss.Left, cards...)
+	return components.ScreenLayout("Settings", components.DimHints("pool, registry, identity"), body)
 }
 
 func (s SettingsScreen) pickerView() string {

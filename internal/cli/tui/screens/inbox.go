@@ -147,30 +147,30 @@ func (s InboxScreen) View() string {
 			label = "Processing..."
 		}
 		content = s.spinner.View() + " " + theme.DimStyle.Render(label)
-		return centerPanel(content, panelWidth, s.Width, s.Height)
+		return components.ScreenLayout("Inbox", components.DimHints("incoming interests"), centerPanel(content, panelWidth, s.Width, s.Height))
 	}
 
 	if s.err != nil {
 		content = theme.RedStyle.Render("Error: " + s.err.Error())
-		return centerPanel(content, panelWidth, s.Width, s.Height)
+		return components.ScreenLayout("Inbox", components.DimHints("incoming interests"), centerPanel(content, panelWidth, s.Width, s.Height))
 	}
 
 	if !s.loaded {
 		content = theme.DimStyle.Render("Press enter to load inbox")
-		return centerPanel(content, panelWidth, s.Width, s.Height)
+		return components.ScreenLayout("Inbox", components.DimHints("incoming interests"), centerPanel(content, panelWidth, s.Width, s.Height))
 	}
 
 	if len(s.likes) == 0 {
 		content = theme.DimStyle.Render("No incoming interests yet")
-		return centerPanel(content, panelWidth, s.Width, s.Height)
+		return components.ScreenLayout("Inbox", components.DimHints("incoming interests"), centerPanel(content, panelWidth, s.Width, s.Height))
 	}
 
 	// Current like
 	item := s.likes[s.cursor]
 	counter := theme.DimStyle.Render(fmt.Sprintf("(%d/%d)", s.cursor+1, len(s.likes)))
 
-	// Header
-	header := lipgloss.NewStyle().Foreground(theme.Pink).Bold(true).Render("♥ Someone likes you") +
+	// Card header
+	cardHeader := lipgloss.NewStyle().Foreground(theme.Pink).Bold(true).Render("♥ Someone likes you") +
 		"  " + counter
 
 	// Liker info
@@ -192,7 +192,7 @@ func (s InboxScreen) View() string {
 		theme.DimStyle.Render("esc") + " back"
 
 	lines := []string{
-		header,
+		cardHeader,
 		"",
 		likerLine,
 		timeLine,
@@ -203,7 +203,7 @@ func (s InboxScreen) View() string {
 	}
 
 	content = strings.Join(lines, "\n")
-	return centerPanel(content, panelWidth, s.Width, s.Height)
+	return components.ScreenLayout("Inbox", components.DimHints("incoming interests"), centerPanel(content, panelWidth, s.Width, s.Height))
 }
 
 func centerPanel(content string, panelWidth, screenWidth, screenHeight int) string {
