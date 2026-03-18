@@ -342,10 +342,13 @@ func (s DiscoverScreen) View() string {
 
 	// Footer below card
 	footer := theme.DimStyle.Render(fmt.Sprintf(
-		"  %d/%d · %d filtered",
+		"%d/%d · %d filtered",
 		s.index+1, len(s.suggestions), s.filtered))
 
-	return "\n" + card + "\n" + footer + "\n"
+	// Center card + footer horizontally
+	centered := lipgloss.NewStyle().Width(s.Width).Align(lipgloss.Center)
+
+	return "\n" + centered.Render(card) + "\n" + centered.Render(footer) + "\n"
 }
 
 func spaces(n int) string {
