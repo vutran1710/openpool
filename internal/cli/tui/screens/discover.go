@@ -345,10 +345,13 @@ func (s DiscoverScreen) View() string {
 		"%d/%d · %d filtered",
 		s.index+1, len(s.suggestions), s.filtered))
 
-	// Center card + footer horizontally
+	// Title header — fixed at top
+	header := "  " + theme.BrandStyle.Render("♥ Discover") + "  " + theme.DimStyle.Render("Find someone interesting")
+
+	// Center card + footer
 	centered := lipgloss.NewStyle().Width(s.Width).Align(lipgloss.Center)
 
-	return "\n" + centered.Render(card) + "\n" + centered.Render(footer) + "\n"
+	return "\n" + header + "\n\n" + centered.Render(card) + "\n" + centered.Render(footer) + "\n"
 }
 
 func spaces(n int) string {
