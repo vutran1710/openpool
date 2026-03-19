@@ -83,11 +83,15 @@ func LoadDiscoverCmd(poolName string) tea.Cmd {
 
 		// Sync new .rec files
 		if repo != nil {
-			indexDir := filepath.Join(repo.LocalDir, "index")
-			added, _ := pack.SyncFromRecDir(indexDir)
-			if added > 0 {
-				pack.Save(packPath)
+			// Prefer index.pack, fall back to index/ directory
+			indexPackPath := filepath.Join(repo.LocalDir, "index.pack")
+			if _, err := os.Stat(indexPackPath); err == nil {
+				pack.SyncFromIndexPack(indexPackPath)
+			} else {
+				indexDir := filepath.Join(repo.LocalDir, "index")
+				pack.SyncFromRecDir(indexDir)
 			}
+			pack.Save(packPath)
 		}
 
 		if len(pack.Records) == 0 {

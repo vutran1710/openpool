@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -38,7 +39,6 @@ func newPoolSyncCmd() *cobra.Command {
 				return fmt.Errorf("syncing pool repo: %w", err)
 			}
 
-			indexDir := filepath.Join(repo.LocalDir, "index")
 			packPath := filepath.Join(config.Dir(), "pools", poolName, "suggestions.pack")
 
 			pack, err := suggestions.Load(packPath)
@@ -46,16 +46,28 @@ func newPoolSyncCmd() *cobra.Command {
 				return fmt.Errorf("loading suggestions: %w", err)
 			}
 
-			added, err := pack.SyncFromRecDir(indexDir)
-			if err != nil {
-				return fmt.Errorf("syncing vectors: %w", err)
+			// Prefer index.pack (cron-built), fall back to index/ directory (.rec files)
+			indexPackPath := filepath.Join(repo.LocalDir, "index.pack")
+			if _, err := os.Stat(indexPackPath); err == nil {
+				loaded, err := pack.SyncFromIndexPack(indexPackPath)
+				if err != nil {
+					return fmt.Errorf("loading index.pack: %w", err)
+				}
+				if err := pack.Save(packPath); err != nil {
+					return fmt.Errorf("saving suggestions: %w", err)
+				}
+				printSuccess(fmt.Sprintf("Synced %d profiles from index.pack", loaded))
+			} else {
+				indexDir := filepath.Join(repo.LocalDir, "index")
+				added, err := pack.SyncFromRecDir(indexDir)
+				if err != nil {
+					return fmt.Errorf("syncing vectors: %w", err)
+				}
+				if err := pack.Save(packPath); err != nil {
+					return fmt.Errorf("saving suggestions: %w", err)
+				}
+				printSuccess(fmt.Sprintf("Synced %d new vectors (total %d)", added, len(pack.Records)))
 			}
-
-			if err := pack.Save(packPath); err != nil {
-				return fmt.Errorf("saving suggestions: %w", err)
-			}
-
-			printSuccess(fmt.Sprintf("Synced %d new vectors (total %d)", added, len(pack.Records)))
 			return nil
 		},
 	}

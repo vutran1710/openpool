@@ -1,17 +1,18 @@
-// indexer processes encrypted .bin profiles into filter values + weighted vectors for discovery.
-// Used by GitHub Actions registration workflows.
+// indexer processes encrypted .bin profiles into a single index.pack for discovery.
+// Used by GitHub Actions (cron) to rebuild the pool's discovery index.
 //
-// Single-user mode:
+// Rebuild mode (cron):
 //
-//	indexer --pool-json pool.json --bin-file users/abc.bin --match-hash abc123 --operator-key hex
+//	indexer --pool-json pool.json --rebuild --users-dir users/ --output index.pack --operator-key hex
 //
-// Rebuild mode:
+// Single-user mode (legacy):
 //
-//	indexer --pool-json pool.json --rebuild --users-dir users/ --operator-key hex
+//	indexer --pool-json pool.json --bin-file users/abc.bin --match-hash abc123 --operator-key hex --output-dir index/
 package main
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -21,6 +22,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/vmihailenco/msgpack/v5"
 	"github.com/vutran1710/dating-dev/internal/crypto"
 	gh "github.com/vutran1710/dating-dev/internal/github"
 )
@@ -31,9 +33,12 @@ func main() {
 	operatorKeyHex := flag.String("operator-key", "", "operator ed25519 private key (hex)")
 	binFile := flag.String("bin-file", "", "single .bin file to index")
 	matchHash := flag.String("match-hash", "", "match_hash for output filename")
-	outputDir := flag.String("output-dir", "index", "directory for .rec files")
-	rebuild := flag.Bool("rebuild", false, "re-index all .bin files")
-	usersDir := flag.String("users-dir", "users", "path to users/ directory (for --rebuild)")
+	outputDir := flag.String("output-dir", "index", "directory for .rec files (single-user mode)")
+	output := flag.String("output", "", "output file path for index.pack (rebuild mode)")
+	rebuild := flag.Bool("rebuild", false, "rebuild entire index from all .bin files")
+	usersDir := flag.String("users-dir", "users", "path to users/ directory")
+	salt := flag.String("salt", "", "pool salt (or POOL_SALT env var, needed for hash computation in rebuild)")
+	poolURL := flag.String("pool-url", "", "pool URL (or from pool.json, needed for hash computation in rebuild)")
 	flag.Parse()
 
 	// Resolve weights
@@ -75,14 +80,27 @@ func main() {
 		log.Fatal("invalid operator key: must be 128 hex chars (64 bytes)")
 	}
 
-	os.MkdirAll(*outputDir, 0755)
-
 	if *rebuild {
-		rebuildAll(manifest.Schema, weightMap, ed25519.PrivateKey(operatorKey), *usersDir, *outputDir)
+		// Resolve salt + poolURL for hash computation
+		poolSalt := *salt
+		if poolSalt == "" {
+			poolSalt = os.Getenv("POOL_SALT")
+		}
+		pURL := *poolURL
+		if pURL == "" {
+			pURL = manifest.Name
+		}
+
+		outPath := *output
+		if outPath == "" {
+			outPath = "index.pack"
+		}
+		rebuildAll(manifest.Schema, weightMap, ed25519.PrivateKey(operatorKey), poolSalt, pURL, *usersDir, outPath)
 	} else {
 		if *binFile == "" || *matchHash == "" {
 			log.Fatal("single-user mode requires --bin-file and --match-hash")
 		}
+		os.MkdirAll(*outputDir, 0755)
 		indexOne(manifest.Schema, weightMap, ed25519.PrivateKey(operatorKey), *binFile, *matchHash, *outputDir)
 	}
 }
@@ -100,21 +118,14 @@ func indexOne(schema *gh.PoolSchema, weights map[string]float64, operatorKey ed2
 	fmt.Printf("indexed %s → %s (%d dims, %d filters)\n", binPath, outPath, len(rec.Vector), len(rec.Filters.Fields))
 }
 
-func rebuildAll(schema *gh.PoolSchema, weights map[string]float64, operatorKey ed25519.PrivateKey, usersDir, outDir string) {
-	// Delete existing .rec files
-	entries, _ := os.ReadDir(outDir)
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".rec") {
-			os.Remove(filepath.Join(outDir, e.Name()))
-		}
-	}
-
+// rebuildAll processes all .bin files into a single index.pack (msgpack).
+func rebuildAll(schema *gh.PoolSchema, weights map[string]float64, operatorKey ed25519.PrivateKey, poolSalt, poolURL, usersDir, outPath string) {
 	entries, err := os.ReadDir(usersDir)
 	if err != nil {
 		log.Fatalf("reading users dir: %v", err)
 	}
 
-	count := 0
+	var records []gh.NamedRecord
 	for _, e := range entries {
 		if !strings.HasSuffix(e.Name(), ".bin") {
 			continue
@@ -128,14 +139,24 @@ func rebuildAll(schema *gh.PoolSchema, weights map[string]float64, operatorKey e
 			continue
 		}
 
-		outPath := filepath.Join(outDir, binHash+".rec")
-		if err := gh.WriteRecFile(outPath, *rec); err != nil {
-			log.Printf("skipping %s: write error: %v", binPath, err)
-			continue
-		}
-		count++
+		// Compute match_hash from bin_hash
+		matchHash := sha256Short(poolSalt + ":" + binHash)
+
+		records = append(records, gh.NamedRecord{
+			MatchHash: matchHash,
+			Record:    *rec,
+		})
 	}
-	fmt.Printf("rebuilt %d records in %s\n", count, outDir)
+
+	// Write index.pack
+	data, err := msgpack.Marshal(records)
+	if err != nil {
+		log.Fatalf("marshaling index: %v", err)
+	}
+	if err := os.WriteFile(outPath, data, 0644); err != nil {
+		log.Fatalf("writing %s: %v", outPath, err)
+	}
+	fmt.Printf("rebuilt %d records → %s (%d bytes)\n", len(records), outPath, len(data))
 }
 
 func processbin(schema *gh.PoolSchema, weights map[string]float64, operatorKey ed25519.PrivateKey, binPath string) (*gh.IndexRecord, error) {
@@ -172,4 +193,9 @@ func strField(profile map[string]any, key string) string {
 		return v
 	}
 	return ""
+}
+
+func sha256Short(input string) string {
+	h := sha256.Sum256([]byte(input))
+	return hex.EncodeToString(h[:])[:16]
 }
