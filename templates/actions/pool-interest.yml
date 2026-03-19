@@ -1,0 +1,97 @@
+name: Process Interest
+
+on:
+  pull_request:
+    types: [opened]
+
+jobs:
+  match:
+    if: contains(github.event.pull_request.labels.*.name, 'interest')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download matchcrypt
+        run: |
+          curl -sL https://github.com/vutran1710/regcrypt/releases/latest/download/matchcrypt-linux-amd64 -o matchcrypt
+          chmod +x matchcrypt
+
+      - name: Check for mutual interest
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          OPERATOR_PRIVATE_KEY: ${{ secrets.OPERATOR_PRIVATE_KEY }}
+          POOL_SALT: ${{ secrets.POOL_SALT }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Decrypt current PR body → get author info
+          AUTHOR_INFO=$(./matchcrypt decrypt --operator-key "$OPERATOR_PRIVATE_KEY" --body "$PR_BODY")
+          AUTHOR_BIN_HASH=$(echo "$AUTHOR_INFO" | jq -r '.author_bin_hash')
+          AUTHOR_MATCH_HASH=$(echo "$AUTHOR_INFO" | jq -r '.author_match_hash')
+          AUTHOR_GREETING=$(echo "$AUTHOR_INFO" | jq -r '.greeting')
+          TARGET_MATCH_HASH="$PR_TITLE"
+
+          echo "Author: bin=$AUTHOR_BIN_HASH match=$AUTHOR_MATCH_HASH"
+          echo "Target: match=$TARGET_MATCH_HASH"
+
+          # Search for reciprocal PR: label=interest, title=author's match_hash
+          RECIPROCAL=$(gh pr list --repo "$REPO" --state open --label interest --json number,title,body \
+            | jq -r ".[] | select(.title == \"$AUTHOR_MATCH_HASH\")")
+
+          if [ -z "$RECIPROCAL" ]; then
+            echo "No reciprocal interest found. Leaving PR open."
+            exit 0
+          fi
+
+          RECIP_NUMBER=$(echo "$RECIPROCAL" | jq -r '.number')
+          RECIP_BODY=$(echo "$RECIPROCAL" | jq -r '.body')
+
+          echo "Mutual interest detected! Reciprocal PR #$RECIP_NUMBER"
+
+          # Decrypt reciprocal PR body
+          RECIP_INFO=$(./matchcrypt decrypt --operator-key "$OPERATOR_PRIVATE_KEY" --body "$RECIP_BODY")
+          RECIP_BIN_HASH=$(echo "$RECIP_INFO" | jq -r '.author_bin_hash')
+          RECIP_MATCH_HASH=$(echo "$RECIP_INFO" | jq -r '.author_match_hash')
+          RECIP_GREETING=$(echo "$RECIP_INFO" | jq -r '.greeting')
+
+          # Get pubkeys from .bin files
+          AUTHOR_PUBKEY=$(./matchcrypt pubkey --operator-key "$OPERATOR_PRIVATE_KEY" --bin-file "users/${AUTHOR_BIN_HASH}.bin")
+          RECIP_PUBKEY=$(./matchcrypt pubkey --operator-key "$OPERATOR_PRIVATE_KEY" --bin-file "users/${RECIP_BIN_HASH}.bin")
+
+          # Commit match file
+          PAIR_HASH=$(echo -n "${AUTHOR_MATCH_HASH}:${RECIP_MATCH_HASH}" | sort | sha256sum | cut -c1-12)
+          mkdir -p matches
+          echo "{\"match_hash_1\":\"$AUTHOR_MATCH_HASH\",\"match_hash_2\":\"$RECIP_MATCH_HASH\",\"created_at\":$(date +%s)}" > "matches/${PAIR_HASH}.json"
+
+          git config user.name "dating-bot"
+          git config user.email "bot@dating-pool.dev"
+          git add "matches/${PAIR_HASH}.json"
+          git commit -m "Match: ${PAIR_HASH}"
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push && break
+            echo "Push attempt $i failed, retrying..."
+            sleep 2
+          done
+
+          # Encrypt match notification for the current PR author
+          # → tells them the reciprocal person's bin_hash + greeting
+          AUTHOR_NOTIFICATION=$(./matchcrypt encrypt --user-pubkey "$AUTHOR_PUBKEY" --bin-hash "$RECIP_BIN_HASH" --greeting "$RECIP_GREETING")
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$AUTHOR_NOTIFICATION"
+
+          # Encrypt match notification for the reciprocal PR author
+          # → tells them the current person's bin_hash + greeting
+          RECIP_NOTIFICATION=$(./matchcrypt encrypt --user-pubkey "$RECIP_PUBKEY" --bin-hash "$AUTHOR_BIN_HASH" --greeting "$AUTHOR_GREETING")
+          gh pr comment "$RECIP_NUMBER" --repo "$REPO" --body "$RECIP_NOTIFICATION"
+
+          # Close both PRs
+          gh pr close "$PR_NUMBER" --repo "$REPO"
+          gh pr close "$RECIP_NUMBER" --repo "$REPO"
+
+          echo "Match created and both parties notified!"
