@@ -2,6 +2,7 @@ package screens
 
 import (
 	"context"
+	"crypto/ed25519"
 	"fmt"
 	"time"
 
@@ -13,7 +14,6 @@ import (
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
 	"github.com/vutran1710/dating-dev/internal/crypto"
-	"github.com/vutran1710/dating-dev/internal/protocol"
 )
 
 type ChatMessage struct {
@@ -31,19 +31,25 @@ type ChatConnectedMsg struct {
 
 // ChatIncomingMsg carries an incoming message from the relay.
 type ChatIncomingMsg struct {
-	Message protocol.Message
+	SenderMatchHash string
+	Plaintext       []byte
+}
+
+// ChatControlMsg carries a control message from the relay.
+type ChatControlMsg struct {
+	Message string
 }
 
 type ChatScreen struct {
-	TargetID string
-	Messages []ChatMessage
-	Viewport viewport.Model
-	Width    int
-	Height   int
-	Ready    bool
-	client   *relayclient.Client
+	TargetID  string
+	Messages  []ChatMessage
+	Viewport  viewport.Model
+	Width     int
+	Height    int
+	Ready     bool
+	client    *relayclient.Client
 	connected bool
-	err      error
+	err       error
 }
 
 func NewChatScreen(targetID string, width, height int) ChatScreen {
@@ -59,7 +65,7 @@ func NewChatScreen(targetID string, width, height int) ChatScreen {
 }
 
 // ConnectChatCmd connects to the relay for chatting.
-func ConnectChatCmd(targetBinHash string) tea.Cmd {
+func ConnectChatCmd(targetMatchHash string, peerPub ed25519.PublicKey) tea.Cmd {
 	return func() tea.Msg {
 		cfg, err := config.Load()
 		if err != nil {
@@ -75,14 +81,22 @@ func ConnectChatCmd(targetBinHash string) tea.Cmd {
 			return ChatConnectedMsg{Err: err}
 		}
 
+		idHash := pool.IDHash
+		if idHash == "" {
+			idHash = string(crypto.UserHash(pool.Repo, cfg.User.Provider, cfg.User.ProviderUserID))
+		}
+
 		client := relayclient.NewClient(relayclient.Config{
 			RelayURL:  pool.RelayURL,
 			PoolURL:   pool.Repo,
-			BinHash:   pool.BinHash,
+			IDHash:    idHash,
 			MatchHash: pool.MatchHash,
 			Pub:       pub,
 			Priv:      priv,
 		})
+
+		// Set the peer's pubkey so we can derive shared secret for encryption
+		client.SetPeerKey(targetMatchHash, peerPub)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -110,20 +124,29 @@ func (s ChatScreen) Update(msg tea.Msg) (ChatScreen, tea.Cmd) {
 		return s, s.listenForMessages()
 
 	case ChatIncomingMsg:
-		m := msg.Message
-		sender := m.SourceHash
+		sender := msg.SenderMatchHash
 		if len(sender) > 12 {
 			sender = sender[:12] + "..."
 		}
 		s.Messages = append(s.Messages, ChatMessage{
 			Sender: sender,
-			Body:   m.Body,
+			Body:   string(msg.Plaintext),
 			Time:   time.Now().Format("15:04"),
 			IsMe:   false,
 		})
 		s.Viewport.SetContent(s.renderMessages())
 		s.Viewport.GotoBottom()
 		// Keep listening
+		return s, s.listenForMessages()
+
+	case ChatControlMsg:
+		s.Messages = append(s.Messages, ChatMessage{
+			Sender: "relay",
+			Body:   msg.Message,
+			Time:   time.Now().Format("15:04"),
+		})
+		s.Viewport.SetContent(s.renderMessages())
+		s.Viewport.GotoBottom()
 		return s, s.listenForMessages()
 
 	case components.SubmitMsg:
@@ -168,13 +191,23 @@ func (s ChatScreen) listenForMessages() tea.Cmd {
 	if s.client == nil {
 		return nil
 	}
-	ch := make(chan protocol.Message, 1)
-	s.client.OnMessage(func(m protocol.Message) {
-		ch <- m
+	msgCh := make(chan ChatIncomingMsg, 1)
+	ctrlCh := make(chan ChatControlMsg, 1)
+
+	s.client.OnMessage(func(senderMatchHash string, plaintext []byte) {
+		msgCh <- ChatIncomingMsg{SenderMatchHash: senderMatchHash, Plaintext: plaintext}
 	})
+	s.client.OnControl(func(msg string) {
+		ctrlCh <- ChatControlMsg{Message: msg}
+	})
+
 	return func() tea.Msg {
-		m := <-ch
-		return ChatIncomingMsg{Message: m}
+		select {
+		case m := <-msgCh:
+			return m
+		case c := <-ctrlCh:
+			return c
+		}
 	}
 }
 
