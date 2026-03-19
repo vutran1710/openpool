@@ -106,7 +106,7 @@ type Hub struct {
 ### Offline Queue
 
 - In-memory only (lost on relay restart — acceptable)
-- Capped at 100 messages per user; when full, newest message is rejected with text frame "queue full"
+- Capped at 20 messages per user; when full, newest message is rejected with text frame "queue full"
 - On connect: flush queued messages before entering read loop
 
 ### Session Replacement
@@ -322,7 +322,7 @@ Setup: in-process relay server with injectable pubkey + match caches (pre-popula
 |----------|-------|
 | Auth | Valid chain + sig → upgrade; wrong sig → 401; mismatched chain → 401; missing params → 401; expired sig → 401 |
 | Routing | Both online → message routed; not matched → error; sender match_hash prepended |
-| Queue | Target offline → queued; target connects → flushed; cap enforced (101st rejected with "queue full") |
+| Queue | Target offline → queued; target connects → flushed; cap enforced (21st rejected with "queue full") |
 | Session | Reconnect replaces old session; multiple concurrent users |
 | Cache | Pubkey fetched once and cached; match check cached with 5min TTL; 404 cached as negative; 5xx/network errors NOT cached |
 | Health | `/health` returns `{status, online, queued}` |
