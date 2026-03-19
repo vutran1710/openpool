@@ -87,6 +87,37 @@ func (p *Pack) Find(matchHash string) *Record {
 	return nil
 }
 
+// SyncFromIndexPack loads index.pack from the repo and replaces all records.
+// Returns the number of records loaded.
+func (p *Pack) SyncFromIndexPack(packPath string) (int, error) {
+	data, err := os.ReadFile(packPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("reading index.pack: %w", err)
+	}
+
+	var namedRecords []gh.NamedRecord
+	if err := msgpack.Unmarshal(data, &namedRecords); err != nil {
+		return 0, fmt.Errorf("decoding index.pack: %w", err)
+	}
+
+	// Replace all records (keep Seen intact)
+	p.Records = make([]Record, 0, len(namedRecords))
+	for _, nr := range namedRecords {
+		p.Records = append(p.Records, Record{
+			MatchHash:   nr.MatchHash,
+			Filters:     nr.Record.Filters,
+			Vector:      nr.Record.Vector,
+			DisplayName: nr.Record.DisplayName,
+			About:       nr.Record.About,
+			Bio:         nr.Record.Bio,
+		})
+	}
+	return len(p.Records), nil
+}
+
 // SyncFromRecDir reads .rec files and upserts new records (with filters + vectors).
 // Returns number of new records added.
 func (p *Pack) SyncFromRecDir(dir string) (int, error) {

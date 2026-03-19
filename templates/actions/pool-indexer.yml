@@ -1,0 +1,43 @@
+name: Rebuild Index
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  index:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download indexer
+        run: |
+          curl -sL https://github.com/vutran1710/regcrypt/releases/latest/download/indexer-linux-amd64 -o indexer
+          chmod +x indexer
+
+      - name: Rebuild index
+        env:
+          OPERATOR_PRIVATE_KEY: ${{ secrets.OPERATOR_PRIVATE_KEY }}
+          INDEXER_WEIGHTS: ${{ secrets.INDEXER_WEIGHTS }}
+        run: |
+          ./indexer \
+            --pool-json pool.json \
+            --operator-key "$OPERATOR_PRIVATE_KEY" \
+            --rebuild \
+            --users-dir users/ \
+            --output index.pack
+
+      - name: Commit if changed
+        run: |
+          git config user.name "dating-bot"
+          git config user.email "bot@dating-pool.dev"
+          git add index.pack
+          if git diff --cached --quiet; then
+            echo "No changes to index"
+          else
+            git commit -m "Rebuild index ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
+            git push
+          fi
