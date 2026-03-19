@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -17,6 +18,9 @@ import (
 	"github.com/vutran1710/dating-dev/internal/gitrepo"
 )
 
+// DiscoverPollMsg triggers a background sync check.
+type DiscoverPollMsg struct{}
+
 // DiscoverMsg carries loaded suggestions to the screen.
 type DiscoverMsg struct {
 	Suggestions []suggestions.Suggestion
@@ -25,6 +29,8 @@ type DiscoverMsg struct {
 	Pack        *suggestions.Pack
 	PackPath    string
 	Schema      *gh.PoolSchema
+	PoolName    string
+	PoolRepo    string
 	Err         error
 }
 
@@ -36,6 +42,8 @@ type DiscoverScreen struct {
 	pack        *suggestions.Pack
 	packPath    string
 	schema      *gh.PoolSchema
+	poolName    string
+	poolRepo    string
 	Loading     bool
 	Empty       bool
 	Width       int
@@ -123,6 +131,8 @@ func LoadDiscoverCmd(poolName string) tea.Cmd {
 			Pack:        pack,
 			PackPath:    packPath,
 			Schema:      schema,
+			PoolName:    poolName,
+			PoolRepo:    pool.Repo,
 		}
 	}
 }
@@ -154,13 +164,19 @@ func (s DiscoverScreen) Update(msg tea.Msg) (DiscoverScreen, tea.Cmd) {
 		s.pack = msg.Pack
 		s.packPath = msg.PackPath
 		s.schema = msg.Schema
+		s.poolName = msg.PoolName
+		s.poolRepo = msg.PoolRepo
 		s.index = 0
 		s.Empty = len(s.suggestions) == 0
-		// Mark first suggestion as seen
 		if cur := s.current(); cur != nil {
 			s.markCurrentSeen()
 		}
-		return s, nil
+		// Start background polling every 5 min
+		return s, s.schedulePoll()
+
+	case DiscoverPollMsg:
+		// Background sync — reload if index.pack changed
+		return s, s.backgroundSync()
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -190,6 +206,81 @@ func (s *DiscoverScreen) advance() {
 	if s.index < len(s.suggestions)-1 {
 		s.index++
 		s.markCurrentSeen()
+	}
+}
+
+// schedulePoll returns a tea.Cmd that fires DiscoverPollMsg after 5 minutes.
+func (s DiscoverScreen) schedulePoll() tea.Cmd {
+	return tea.Tick(5*time.Minute, func(t time.Time) tea.Msg {
+		return DiscoverPollMsg{}
+	})
+}
+
+// backgroundSync syncs the pool repo, reloads index.pack, and re-ranks.
+func (s DiscoverScreen) backgroundSync() tea.Cmd {
+	poolRepo := s.poolRepo
+	poolName := s.poolName
+	if poolRepo == "" {
+		return s.schedulePoll()
+	}
+	return func() tea.Msg {
+		// Sync repo
+		repo, err := gitrepo.Clone(gitrepo.EnsureGitURL(poolRepo))
+		if err != nil {
+			return DiscoverPollMsg{} // retry next tick
+		}
+		changed, _ := repo.Sync()
+		if !changed {
+			return DiscoverPollMsg{} // no changes, schedule next poll
+		}
+
+		// Reload index.pack
+		packPath := filepath.Join(config.Dir(), "pools", poolName, "suggestions.pack")
+		pack, err := suggestions.Load(packPath)
+		if err != nil {
+			return DiscoverPollMsg{}
+		}
+
+		indexPackPath := filepath.Join(repo.LocalDir, "index.pack")
+		if _, err := os.Stat(indexPackPath); err == nil {
+			pack.SyncFromIndexPack(indexPackPath)
+			pack.Save(packPath)
+		}
+
+		// Find self + re-rank
+		cfg, _ := config.Load()
+		var matchHash string
+		for _, p := range cfg.Pools {
+			if p.Name == poolName {
+				matchHash = p.MatchHash
+				break
+			}
+		}
+		me := pack.Find(matchHash)
+		if me == nil {
+			return DiscoverPollMsg{}
+		}
+
+		var schema *gh.PoolSchema
+		manifest, mErr := loadManifestFromDir(repo.LocalDir)
+		if mErr == nil && manifest.Schema != nil {
+			schema = manifest.Schema
+		}
+
+		ranked := suggestions.RankSuggestions(schema, *me, pack.Records, pack.Seen, 50)
+		total := len(pack.Records) - 1
+		filtered := total - len(ranked)
+
+		return DiscoverMsg{
+			Suggestions: ranked,
+			Total:       total,
+			Filtered:    filtered,
+			Pack:        pack,
+			PackPath:    packPath,
+			Schema:      schema,
+			PoolName:    poolName,
+			PoolRepo:    poolRepo,
+		}
 	}
 }
 

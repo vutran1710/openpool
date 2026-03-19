@@ -155,9 +155,11 @@ func (r *Repo) Sync() (bool, error) {
 		return false, nil // already up to date
 	}
 
-	// Pull
-	pullCmd := exec.Command("git", "-C", r.LocalDir, "pull", "--ff-only", "-q")
+	// Pull (shallow — client doesn't need history)
+	pullCmd := exec.Command("git", "-C", r.LocalDir, "fetch", "--depth=1", "-q", "origin", "main")
 	pullCmd.Run()
+	resetCmd := exec.Command("git", "-C", r.LocalDir, "reset", "--hard", "origin/main")
+	resetCmd.Run()
 	return true, nil
 }
 
