@@ -1,0 +1,21 @@
+name = "dating-relay"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+account_id = "dddeb101626477a1ba0eb313c36c3ab9"
+
+[durable_objects]
+bindings = [
+  { name = "USER_SESSION", class_name = "UserSession" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["UserSession"]
+
+[[kv_namespaces]]
+binding = "RELAY_KV"
+id = "c1927d7b65394ac2b77a978b2292f1ae"
+
+[vars]
+POOL_URL = "vutran1710/dating-test-pool"
