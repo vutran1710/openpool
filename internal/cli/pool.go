@@ -415,6 +415,7 @@ Prerequisites:
 				OperatorPubKey: entry.OperatorPubKey,
 				RelayURL:       entry.RelayURL,
 				Status:         gh.PoolStatusActive,
+				IDHash:         string(crypto.UserHash(entry.Repo, cfg.User.Provider, cfg.User.ProviderUserID)),
 				BinHash:        binHash,
 				MatchHash:      matchHash,
 			}
@@ -497,6 +498,7 @@ func newPoolListCmd() *cobra.Command {
 							binHash, matchHash, pollErr := poolGH.PollRegistrationResult(pollCtx, p.PendingIssue, priv)
 							cancel()
 							if pollErr == nil {
+								cfg.Pools[i].IDHash = string(crypto.UserHash(cfg.Pools[i].Repo, cfg.User.Provider, cfg.User.ProviderUserID))
 								cfg.Pools[i].BinHash = binHash
 								cfg.Pools[i].MatchHash = matchHash
 								cfg.Pools[i].Status = gh.PoolStatusActive

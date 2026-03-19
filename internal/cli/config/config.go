@@ -36,6 +36,7 @@ type PoolConfig struct {
 	Status         string `toml:"status,omitempty"`
 	UserHash       string `toml:"user_hash,omitempty"`
 	PendingIssue   int    `toml:"pending_issue,omitempty"`
+	IDHash         string `toml:"id_hash,omitempty"`
 	BinHash        string `toml:"bin_hash,omitempty"`
 	MatchHash      string `toml:"match_hash,omitempty"`
 }
