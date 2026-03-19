@@ -60,6 +60,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	srv := server.NewServer(server.ServerConfig{
 		PoolURL: testPoolURL,
 		Salt:    testSalt,
+		DBPath:  ":memory:",
 	})
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(func() { ts.Close() })
