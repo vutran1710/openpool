@@ -30,6 +30,7 @@ const (
 	screenPools
 	screenJoin
 	screenProfile
+	screenProfileForm
 	screenSettings
 	screenInbox
 )
@@ -53,8 +54,9 @@ type app struct {
 	chat       screens.ChatScreen
 	pools      screens.PoolsScreen
 	join       screens.JoinScreen
-	profile    screens.ProfileScreen
-	settings   screens.SettingsScreen
+	profile     screens.ProfileScreen
+	profileForm screens.ProfileFormScreen
+	settings    screens.SettingsScreen
 	inbox      screens.InboxScreen
 
 	user     string
@@ -129,6 +131,8 @@ func (a *app) updateHelp() {
 		bindings = a.join.HelpBindings()
 	case screenProfile:
 		bindings = a.profile.HelpBindings()
+	case screenProfileForm:
+		bindings = a.profileForm.HelpBindings()
 	case screenSettings:
 		bindings = a.settings.HelpBindings()
 	case screenInbox:
@@ -516,6 +520,11 @@ func (a app) handleSubmit(msg components.SubmitMsg) (tea.Model, tea.Cmd) {
 			a.screen = screenProfile
 			a.profile, _ = a.profile.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 			a.updateHelp()
+		case "/profile-edit", "/edit":
+			a.screen = screenProfileForm
+			a.profileForm = screens.NewProfileFormScreen()
+			a.updateHelp()
+			return a, screens.LoadProfileFormCmd(a.pool)
 		case "/inbox":
 			a.screen = screenInbox
 			a.inbox = screens.NewInboxScreen()
@@ -619,6 +628,8 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.updateHelp()
 	case screenProfile:
 		a.profile, cmd = a.profile.Update(msg)
+	case screenProfileForm:
+		a.profileForm, cmd = a.profileForm.Update(msg)
 	case screenSettings:
 		a.settings, cmd = a.settings.Update(msg)
 	case screenInbox:
@@ -627,7 +638,7 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if cmd != nil {
 		// Don't forward to input during onboarding (it steals key events)
-		if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenProfile || a.screen == screenSettings || a.screen == screenInbox || a.screen == screenDiscover {
+		if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenProfile || a.screen == screenProfileForm || a.screen == screenSettings || a.screen == screenInbox || a.screen == screenDiscover {
 			return a, cmd
 		}
 		var inputCmd tea.Cmd
@@ -635,7 +646,7 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(cmd, inputCmd)
 	}
 
-	if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenProfile || a.screen == screenSettings || a.screen == screenInbox || a.screen == screenDiscover {
+	if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenProfile || a.screen == screenProfileForm || a.screen == screenSettings || a.screen == screenInbox || a.screen == screenDiscover {
 		return a, nil
 	}
 
@@ -668,6 +679,8 @@ func (a app) View() string {
 		content = a.join.View()
 	case screenProfile:
 		content = a.profile.View()
+	case screenProfileForm:
+		content = a.profileForm.View()
 	case screenSettings:
 		content = a.settings.View()
 	case screenInbox:
