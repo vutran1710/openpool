@@ -2,9 +2,12 @@ package tui
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -280,6 +283,9 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.toast, cmd = a.toast.Update(msg)
 		cmds = append(cmds, cmd)
 		return a, tea.Batch(cmds...)
+
+	case screens.DiscoverLikeMsg:
+		return a, sendLike(a.pool, a.registry, msg.TargetMatchHash)
 
 	case screens.PoolJoinMsg:
 		if msg.Status == "active" {
@@ -968,6 +974,61 @@ func registries(active string) []string {
 		return cfg.Registries
 	}
 	return []string{active}
+}
+
+func resolveGitHubTokenNonInteractive() (string, error) {
+	out, err := exec.Command("gh", "auth", "token").Output()
+	if err != nil {
+		return "", fmt.Errorf("gh auth token failed: %w", err)
+	}
+	token := strings.TrimSpace(string(out))
+	if token == "" {
+		return "", fmt.Errorf("empty token from gh CLI")
+	}
+	return token, nil
+}
+
+func sendLike(poolName, registry, targetMatchHash string) tea.Cmd {
+	return func() tea.Msg {
+		cfg, err := config.Load()
+		if err != nil {
+			return components.ToastMsg{Text: "Error: " + err.Error(), Level: components.ToastError}
+		}
+		var pool *config.PoolConfig
+		for i := range cfg.Pools {
+			if cfg.Pools[i].Name == poolName {
+				pool = &cfg.Pools[i]
+				break
+			}
+		}
+		if pool == nil || pool.BinHash == "" || pool.MatchHash == "" {
+			return components.ToastMsg{Text: "Not registered in pool", Level: components.ToastError}
+		}
+
+		ghToken, err := resolveGitHubTokenNonInteractive()
+		if err != nil {
+			return components.ToastMsg{Text: "GitHub auth required", Level: components.ToastError}
+		}
+
+		operatorPubBytes, _ := hex.DecodeString(pool.OperatorPubKey)
+		client := gh.NewPool(pool.Repo, ghToken)
+		_, err = client.CreateInterestPR(
+			context.Background(),
+			pool.BinHash,
+			pool.MatchHash,
+			targetMatchHash,
+			"Hey! I'd like to connect.",
+			ed25519.PublicKey(operatorPubBytes),
+		)
+		if err != nil {
+			if strings.Contains(err.Error(), "422") {
+				return components.ToastMsg{Text: "Already liked this person", Level: components.ToastInfo}
+			}
+			return components.ToastMsg{Text: "Error: " + err.Error(), Level: components.ToastError}
+		}
+
+		return components.ToastMsg{Text: "♥ Interest sent!", Level: components.ToastSuccess}
+	}
 }
 
 func padToHeight(s string, height int) string {
