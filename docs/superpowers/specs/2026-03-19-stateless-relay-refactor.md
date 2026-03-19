@@ -29,7 +29,7 @@ Each layer is unlinkable without the salt. The salt only exists in:
 Client sends:
   GET /ws?id=<id_hash>&match=<match_hash>&sig=<hex_sig>
 
-  sig = ed25519.Sign(priv, sha256(id_hash + match_hash + time_window))
+  sig = ed25519.Sign(priv, sha256(time_window))
   time_window = strconv.FormatInt(unix_now / 300, 10)  (5-minute buckets)
 
 Relay validates:
@@ -37,11 +37,11 @@ Relay validates:
   2. expected_match = sha256(salt:bin_hash)[:16]
   3. Assert expected_match == match_hash  → rejects if chain doesn't match
   4. pubkey = fetch users/{bin_hash}.bin[:32] from GitHub (cached, no TTL)
-  5. ed25519.Verify(pubkey, sha256(id_hash + match_hash + time_window), sig)  ±1 window for clock drift
+  5. ed25519.Verify(pubkey, sha256(time_window), sig)  ±1 window for clock drift
   6. Valid → upgrade WebSocket, session keyed by match_hash
 ```
 
-The signature binds to the specific identity (`id_hash + match_hash`) to prevent cross-pool replay attacks. The client proves identity by demonstrating knowledge of both `id_hash` and `match_hash` (which must form a valid chain) plus possession of the private key corresponding to the pubkey in the `.bin` file.
+The signature only signs the time window — identity binding comes from the chain validation (step 3) and pubkey verification (step 5). Cross-pool replay is not a concern because each pool has a different salt, so the chain check fails for a different pool's relay.
 
 ## Wire Format
 
@@ -196,7 +196,7 @@ Removed: `BinHash` (client no longer needs it for relay communication).
 ### Connect
 
 ```go
-sig := ed25519.Sign(priv, sha256(idHash + matchHash + timeWindow))
+sig := ed25519.Sign(priv, sha256(timeWindow))
 GET /ws?id=<id_hash>&match=<match_hash>&sig=<hex_sig>
 ```
 
