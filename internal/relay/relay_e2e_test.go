@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,413 +16,476 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/vutran1710/dating-dev/internal/crypto"
-	"github.com/vutran1710/dating-dev/internal/protocol"
-	server "github.com/vutran1710/dating-dev/internal/relay"
+	relay "github.com/vutran1710/dating-dev/internal/relay"
 )
 
 // --- Test helpers ---
 
-const testPoolURL = "owner/pool"
-const testSalt = "test-salt"
-
-func genKeys(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
-	t.Helper()
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("generate key: %v", err)
-	}
-	return pub, priv
-}
-
-func idHash(poolURL, provider, userID string) string {
-	h := sha256.Sum256([]byte(poolURL + ":" + provider + ":" + userID))
-	return hex.EncodeToString(h[:])
-}
-
-func binHash(salt, idH string) string {
-	h := sha256.Sum256([]byte(salt + ":" + idH))
-	return hex.EncodeToString(h[:])[:16]
-}
-
-func matchHash(salt, binH string) string {
-	h := sha256.Sum256([]byte(salt + ":" + binH))
-	return hex.EncodeToString(h[:])[:16]
-}
-
 type testEnv struct {
-	srv   *server.Server
-	ts    *httptest.Server
-	url   string // http URL
-	wsURL string // ws URL
+	srv     *relay.Server
+	httpSrv *httptest.Server
+	mockGH  *httptest.Server
+	salt    string
 }
 
 func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
-	srv := server.NewServer(server.ServerConfig{
-		PoolURL: testPoolURL,
-		Salt:    testSalt,
-		DBPath:  ":memory:",
+	salt := "test-salt-123"
+
+	mockGH := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(404)
+	}))
+
+	srv := relay.NewServer(relay.ServerConfig{
+		PoolURL:    "test/pool",
+		Salt:       salt,
+		RawBaseURL: mockGH.URL,
 	})
-	ts := httptest.NewServer(srv.Handler())
-	t.Cleanup(func() { ts.Close() })
-	return &testEnv{
-		srv:   srv,
-		ts:    ts,
-		url:   ts.URL,
-		wsURL: "ws" + strings.TrimPrefix(ts.URL, "http"),
-	}
+
+	httpSrv := httptest.NewServer(srv.Handler())
+
+	env := &testEnv{srv: srv, httpSrv: httpSrv, mockGH: mockGH, salt: salt}
+	t.Cleanup(env.close)
+	return env
 }
 
-func (e *testEnv) addUser(userID, provider string, pub ed25519.PublicKey) (bin, match string) {
-	ih := idHash(testPoolURL, provider, userID)
-	bin = binHash(testSalt, ih)
-	match = matchHash(testSalt, bin)
-	e.srv.Store().UpsertUser(server.UserEntry{
-		PubKey:    pub,
-		UserID:    userID,
-		Provider:  provider,
-		BinHash:   bin,
-		MatchHash: match,
-	})
-	return bin, match
+func (e *testEnv) close() {
+	e.httpSrv.Close()
+	e.mockGH.Close()
 }
 
-func (e *testEnv) addMatch(hashA, hashB string) {
-	e.srv.Store().AddMatch(hashA, hashB)
+func (e *testEnv) wsURL() string {
+	return "ws" + strings.TrimPrefix(e.httpSrv.URL, "http")
 }
 
-// connectWS dials a WebSocket with TOTP auth.
-func connectWS(t *testing.T, env *testEnv, binH, matchH string, priv ed25519.PrivateKey) *websocket.Conn {
+func (e *testEnv) registerUser(t *testing.T) (idHash, binHash, matchHash string, pub ed25519.PublicKey, priv ed25519.PrivateKey) {
 	t.Helper()
-	sig := crypto.TOTPSign(binH, matchH, priv)
-	url := fmt.Sprintf("%s/ws?bin=%s&sig=%s", env.wsURL, binH, sig)
+	pub, priv, _ = ed25519.GenerateKey(rand.Reader)
+	idHash = fmt.Sprintf("%x", sha256.Sum256([]byte("test-id-"+hex.EncodeToString(pub[:8]))))
+	binHash = e.srv.BinHash(idHash)
+	matchHash = e.srv.MatchHash(binHash)
+	e.srv.GitHubCache().SetPubkey(binHash, pub)
+	return
+}
 
+func (e *testEnv) connectWS(t *testing.T, idHash, matchHash string, priv ed25519.PrivateKey) *websocket.Conn {
+	t.Helper()
+	sig := crypto.TOTPSign(priv)
+	url := e.wsURL() + "/ws?id=" + idHash + "&match=" + matchHash + "&sig=" + sig
 	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
 	conn, resp, err := dialer.Dial(url, nil)
 	if err != nil {
+		status := 0
 		if resp != nil {
-			t.Fatalf("connect failed (%d): %v", resp.StatusCode, err)
+			status = resp.StatusCode
 		}
-		t.Fatalf("connect: %v", err)
+		t.Fatalf("dial failed: %v (status=%d)", err, status)
 	}
 	t.Cleanup(func() { conn.Close() })
 	return conn
 }
 
-// sendMsg sends a Message frame.
-func sendMsg(t *testing.T, conn *websocket.Conn, msg protocol.Message) {
+func (e *testEnv) dialExpectFail(t *testing.T, url string) int {
 	t.Helper()
-	data, err := protocol.Encode(msg)
-	if err != nil {
-		t.Fatalf("encode: %v", err)
+	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
+	_, resp, err := dialer.Dial(url, nil)
+	if err == nil {
+		t.Fatal("expected dial to fail, but it succeeded")
 	}
-	if err := conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
+	if resp == nil {
+		t.Fatalf("no HTTP response; error: %v", err)
+	}
+	return resp.StatusCode
+}
+
+// readText reads a text message with timeout.
+func readText(t *testing.T, conn *websocket.Conn, timeout time.Duration) string {
+	t.Helper()
+	conn.SetReadDeadline(time.Now().Add(timeout))
+	msgType, data, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if msgType != websocket.TextMessage {
+		t.Fatalf("expected text message, got type %d", msgType)
+	}
+	return string(data)
+}
+
+// readBinary reads a binary message with timeout.
+func readBinary(t *testing.T, conn *websocket.Conn, timeout time.Duration) (senderMatchHash string, payload []byte) {
+	t.Helper()
+	conn.SetReadDeadline(time.Now().Add(timeout))
+	msgType, data, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if msgType != websocket.BinaryMessage {
+		t.Fatalf("expected binary message, got type %d (data=%q)", msgType, string(data))
+	}
+	if len(data) < 8 {
+		t.Fatalf("binary frame too short: %d bytes", len(data))
+	}
+	senderMatchHash = hex.EncodeToString(data[:8])
+	payload = data[8:]
+	return
+}
+
+// sendBinary sends a binary frame: [8B target_match_hash][payload].
+func sendBinary(t *testing.T, conn *websocket.Conn, targetMatchHash string, payload []byte) {
+	t.Helper()
+	targetBytes, err := hex.DecodeString(targetMatchHash)
+	if err != nil {
+		t.Fatalf("decode target match hash: %v", err)
+	}
+	frame := append(targetBytes, payload...)
+	if err := conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 }
 
-// readFrame reads and decodes a frame with timeout.
-func readFrame(t *testing.T, conn *websocket.Conn, timeout time.Duration) any {
-	t.Helper()
-	conn.SetReadDeadline(time.Now().Add(timeout))
-	_, data, err := conn.ReadMessage()
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	frame, err := protocol.DecodeFrame(data)
-	if err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	return frame
-}
+// ==================== Auth Tests ====================
 
-// ==================== TOTP Connect Tests ====================
-
-func TestTOTP_ConnectSuccess(t *testing.T) {
+func TestAuth_ValidChain(t *testing.T) {
 	env := newTestEnv(t)
-	pub, priv := genKeys(t)
-	bin, match := env.addUser("alice", "github", pub)
+	idHash, _, matchHash, _, priv := env.registerUser(t)
 
-	conn := connectWS(t, env, bin, match, priv)
+	conn := env.connectWS(t, idHash, matchHash, priv)
 	if conn == nil {
 		t.Fatal("should have connected")
 	}
 }
 
-func TestTOTP_ConnectBadSig(t *testing.T) {
+func TestAuth_WrongSig(t *testing.T) {
 	env := newTestEnv(t)
-	pub, _ := genKeys(t)
-	_, wrongPriv := genKeys(t)
-	bin, match := env.addUser("alice", "github", pub)
+	idHash, _, matchHash, _, _ := env.registerUser(t)
+	_, wrongPriv, _ := ed25519.GenerateKey(rand.Reader)
 
-	sig := crypto.TOTPSign(bin, match, wrongPriv)
-	url := fmt.Sprintf("%s/ws?bin=%s&sig=%s", env.wsURL, bin, sig)
-
-	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
-	_, resp, err := dialer.Dial(url, nil)
-	if err == nil {
-		t.Fatal("should have failed")
-	}
-	if resp.StatusCode != 401 {
-		t.Errorf("status = %d, want 401", resp.StatusCode)
+	sig := crypto.TOTPSign(wrongPriv)
+	url := env.wsURL() + "/ws?id=" + idHash + "&match=" + matchHash + "&sig=" + sig
+	status := env.dialExpectFail(t, url)
+	if status != 401 {
+		t.Errorf("status = %d, want 401", status)
 	}
 }
 
-func TestTOTP_ConnectUnknownUser(t *testing.T) {
+func TestAuth_MismatchedChain(t *testing.T) {
 	env := newTestEnv(t)
-	_, priv := genKeys(t)
+	idHash, _, _, _, priv := env.registerUser(t)
 
-	sig := crypto.TOTPSign("unknown_bin_hash", "unknown_match_ha", priv)
-	url := fmt.Sprintf("%s/ws?bin=%s&sig=%s", env.wsURL, "unknown_bin_hash", sig)
-
-	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
-	_, resp, err := dialer.Dial(url, nil)
-	if err == nil {
-		t.Fatal("should have failed")
-	}
-	if resp.StatusCode != 401 {
-		t.Errorf("status = %d, want 401", resp.StatusCode)
+	// Use a wrong match_hash that doesn't derive from this id_hash
+	wrongMatch := "abcdef0123456789"
+	sig := crypto.TOTPSign(priv)
+	url := env.wsURL() + "/ws?id=" + idHash + "&match=" + wrongMatch + "&sig=" + sig
+	status := env.dialExpectFail(t, url)
+	if status != 401 {
+		t.Errorf("status = %d, want 401", status)
 	}
 }
 
-func TestTOTP_ConnectExpiredSig(t *testing.T) {
+func TestAuth_MissingParams(t *testing.T) {
 	env := newTestEnv(t)
-	pub, priv := genKeys(t)
-	bin, match := env.addUser("alice", "github", pub)
 
-	// Sign 2 windows ago — should be rejected
+	cases := []struct {
+		name, query string
+	}{
+		{"no params", ""},
+		{"only id", "?id=abc"},
+		{"only match", "?match=abc"},
+		{"only sig", "?sig=abc"},
+		{"missing sig", "?id=abc&match=def"},
+		{"missing id", "?match=abc&sig=def"},
+		{"missing match", "?id=abc&sig=def"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			url := env.wsURL() + "/ws" + tc.query
+			status := env.dialExpectFail(t, url)
+			if status != 401 {
+				t.Errorf("status = %d, want 401", status)
+			}
+		})
+	}
+}
+
+func TestAuth_ExpiredSig(t *testing.T) {
+	env := newTestEnv(t)
+	idHash, _, matchHash, _, priv := env.registerUser(t)
+
+	// Sign 2 windows ago — outside ±1 tolerance
 	tw := time.Now().Unix()/300 - 2
-	sig := crypto.TOTPSignAt(bin, match, priv, tw)
-	url := fmt.Sprintf("%s/ws?bin=%s&sig=%s", env.wsURL, bin, sig)
-
-	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
-	_, resp, err := dialer.Dial(url, nil)
-	if err == nil {
-		t.Fatal("expired sig should be rejected")
-	}
-	if resp.StatusCode != 401 {
-		t.Errorf("status = %d, want 401", resp.StatusCode)
+	sig := crypto.TOTPSignAt(priv, tw)
+	url := env.wsURL() + "/ws?id=" + idHash + "&match=" + matchHash + "&sig=" + sig
+	status := env.dialExpectFail(t, url)
+	if status != 401 {
+		t.Errorf("status = %d, want 401", status)
 	}
 }
 
-func TestTOTP_ConnectMissingSig(t *testing.T) {
+func TestAuth_UnknownUser(t *testing.T) {
 	env := newTestEnv(t)
-	pub, _ := genKeys(t)
-	bin, _ := env.addUser("alice", "github", pub)
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
 
-	url := fmt.Sprintf("%s/ws?bin=%s", env.wsURL, bin)
-	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
-	_, resp, err := dialer.Dial(url, nil)
-	if err == nil {
-		t.Fatal("should fail without sig")
-	}
-	if resp.StatusCode != 401 {
-		t.Errorf("status = %d, want 401", resp.StatusCode)
+	// Use a valid-looking id_hash but no pubkey injected
+	idHash := fmt.Sprintf("%x", sha256.Sum256([]byte("unknown-user")))
+	binHash := env.srv.BinHash(idHash)
+	matchHash := env.srv.MatchHash(binHash)
+	// Do NOT inject pubkey — this user is unknown
+
+	sig := crypto.TOTPSign(priv)
+	url := env.wsURL() + "/ws?id=" + idHash + "&match=" + matchHash + "&sig=" + sig
+	status := env.dialExpectFail(t, url)
+	if status != 401 {
+		t.Errorf("status = %d, want 401", status)
 	}
 }
 
-func TestTOTP_ConnectMissingBin(t *testing.T) {
-	env := newTestEnv(t)
+// ==================== Routing Tests ====================
 
-	url := fmt.Sprintf("%s/ws?sig=deadbeef", env.wsURL)
-	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
-	_, resp, err := dialer.Dial(url, nil)
-	if err == nil {
-		t.Fatal("should fail without bin")
+func TestRouting_BothOnline(t *testing.T) {
+	env := newTestEnv(t)
+	idA, _, matchA, _, privA := env.registerUser(t)
+	idB, _, matchB, _, privB := env.registerUser(t)
+
+	// Set up match
+	pairHash := relay.PairHash(matchA, matchB)
+	env.srv.GitHubCache().SetMatch(pairHash, true)
+
+	connA := env.connectWS(t, idA, matchA, privA)
+	connB := env.connectWS(t, idB, matchB, privB)
+
+	// Allow sessions to register
+	time.Sleep(50 * time.Millisecond)
+
+	// Alice sends to Bob
+	sendBinary(t, connA, matchB, []byte("hello bob"))
+
+	// Bob should receive with Alice's match_hash prepended
+	senderHash, payload := readBinary(t, connB, 2*time.Second)
+	if senderHash != matchA {
+		t.Errorf("sender match_hash = %q, want %q", senderHash, matchA)
 	}
-	if resp.StatusCode != 401 {
-		t.Errorf("status = %d, want 401", resp.StatusCode)
+	if string(payload) != "hello bob" {
+		t.Errorf("payload = %q, want %q", string(payload), "hello bob")
 	}
 }
 
-func TestTOTP_ConnectMalformedSig(t *testing.T) {
+func TestRouting_NotMatched(t *testing.T) {
 	env := newTestEnv(t)
-	pub, _ := genKeys(t)
-	bin, _ := env.addUser("alice", "github", pub)
+	idA, _, matchA, _, privA := env.registerUser(t)
+	_, _, matchB, _, _ := env.registerUser(t)
+	// No match set!
 
-	url := fmt.Sprintf("%s/ws?bin=%s&sig=not-valid-hex-zzz", env.wsURL, bin)
-	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
-	_, resp, err := dialer.Dial(url, nil)
-	if err == nil {
-		t.Fatal("should fail with malformed sig")
-	}
-	if resp.StatusCode != 401 {
-		t.Errorf("status = %d, want 401", resp.StatusCode)
+	connA := env.connectWS(t, idA, matchA, privA)
+	time.Sleep(50 * time.Millisecond)
+
+	sendBinary(t, connA, matchB, []byte("hey!"))
+
+	msg := readText(t, connA, 2*time.Second)
+	if msg != "not matched" {
+		t.Errorf("response = %q, want 'not matched'", msg)
 	}
 }
 
-// ==================== Message Routing Tests ====================
-
-func TestTOTP_MessageRouting_BothOnline(t *testing.T) {
+func TestRouting_SenderMatchHashPrepended(t *testing.T) {
 	env := newTestEnv(t)
-	pubA, privA := genKeys(t)
-	pubB, privB := genKeys(t)
-	binA, matchA := env.addUser("alice", "github", pubA)
-	binB, matchB := env.addUser("bob", "github", pubB)
-	env.addMatch(binA, binB)
+	idA, _, matchA, _, privA := env.registerUser(t)
+	idB, _, matchB, _, privB := env.registerUser(t)
 
-	connA := connectWS(t, env, binA, matchA, privA)
-	connB := connectWS(t, env, binB, matchB, privB)
+	pairHash := relay.PairHash(matchA, matchB)
+	env.srv.GitHubCache().SetMatch(pairHash, true)
 
-	sendMsg(t, connA, protocol.Message{
-		Type:       protocol.TypeMsg,
-		SourceHash: binA,
-		TargetHash: binB,
-		Body:       "hey bob!",
-		Ts:         time.Now().Unix(),
-	})
+	connA := env.connectWS(t, idA, matchA, privA)
+	connB := env.connectWS(t, idB, matchB, privB)
+	time.Sleep(50 * time.Millisecond)
 
-	frame := readFrame(t, connB, 5*time.Second)
-	msg, ok := frame.(*protocol.Message)
-	if !ok {
-		t.Fatalf("expected Message, got %T", frame)
+	payload := []byte("test payload 12345")
+	sendBinary(t, connA, matchB, payload)
+
+	// Read raw binary frame from Bob's connection
+	connB.SetReadDeadline(time.Now().Add(2 * time.Second))
+	msgType, data, err := connB.ReadMessage()
+	if err != nil {
+		t.Fatalf("read: %v", err)
 	}
-	if msg.Body != "hey bob!" {
-		t.Errorf("body = %q, want 'hey bob!'", msg.Body)
+	if msgType != websocket.BinaryMessage {
+		t.Fatalf("expected binary, got type %d", msgType)
 	}
-	if msg.MsgID == "" {
-		t.Error("msg_id should be set by relay")
+
+	// First 8 bytes should be Alice's match_hash (decoded from hex)
+	if len(data) < 8 {
+		t.Fatalf("frame too short: %d bytes", len(data))
+	}
+	gotSenderHex := hex.EncodeToString(data[:8])
+	if gotSenderHex != matchA {
+		t.Errorf("prepended sender hash = %q, want %q", gotSenderHex, matchA)
+	}
+	if string(data[8:]) != "test payload 12345" {
+		t.Errorf("payload = %q, want %q", string(data[8:]), "test payload 12345")
 	}
 }
 
-func TestTOTP_MessageRouting_Bidirectional(t *testing.T) {
+func TestRouting_Bidirectional(t *testing.T) {
 	env := newTestEnv(t)
-	pubA, privA := genKeys(t)
-	pubB, privB := genKeys(t)
-	binA, matchA := env.addUser("alice", "github", pubA)
-	binB, matchB := env.addUser("bob", "github", pubB)
-	env.addMatch(binA, binB)
+	idA, _, matchA, _, privA := env.registerUser(t)
+	idB, _, matchB, _, privB := env.registerUser(t)
 
-	connA := connectWS(t, env, binA, matchA, privA)
-	connB := connectWS(t, env, binB, matchB, privB)
+	pairHash := relay.PairHash(matchA, matchB)
+	env.srv.GitHubCache().SetMatch(pairHash, true)
+
+	connA := env.connectWS(t, idA, matchA, privA)
+	connB := env.connectWS(t, idB, matchB, privB)
+	time.Sleep(50 * time.Millisecond)
 
 	// A → B
-	sendMsg(t, connA, protocol.Message{
-		Type: protocol.TypeMsg, SourceHash: binA, TargetHash: binB,
-		Body: "hello bob", Ts: time.Now().Unix(),
-	})
-	frame := readFrame(t, connB, 5*time.Second)
-	if msg := frame.(*protocol.Message); msg.Body != "hello bob" {
-		t.Errorf("A→B body = %q", msg.Body)
+	sendBinary(t, connA, matchB, []byte("hello bob"))
+	senderHash, payload := readBinary(t, connB, 2*time.Second)
+	if senderHash != matchA || string(payload) != "hello bob" {
+		t.Errorf("A→B: sender=%q payload=%q", senderHash, string(payload))
 	}
 
 	// B → A
-	sendMsg(t, connB, protocol.Message{
-		Type: protocol.TypeMsg, SourceHash: binB, TargetHash: binA,
-		Body: "hello alice", Ts: time.Now().Unix(),
-	})
-	frame = readFrame(t, connA, 5*time.Second)
-	if msg := frame.(*protocol.Message); msg.Body != "hello alice" {
-		t.Errorf("B→A body = %q", msg.Body)
+	sendBinary(t, connB, matchA, []byte("hello alice"))
+	senderHash, payload = readBinary(t, connA, 2*time.Second)
+	if senderHash != matchB || string(payload) != "hello alice" {
+		t.Errorf("B→A: sender=%q payload=%q", senderHash, string(payload))
 	}
 }
 
-func TestTOTP_MessageRouting_NotMatched(t *testing.T) {
+// ==================== Queue Tests ====================
+
+func TestQueue_OfflineQueued(t *testing.T) {
 	env := newTestEnv(t)
-	pubA, privA := genKeys(t)
-	pubB, _ := genKeys(t)
-	binA, matchA := env.addUser("alice", "github", pubA)
-	binB, _ := env.addUser("bob", "github", pubB)
-	// No match added!
+	idA, _, matchA, _, privA := env.registerUser(t)
+	idB, _, matchB, _, privB := env.registerUser(t)
 
-	connA := connectWS(t, env, binA, matchA, privA)
+	pairHash := relay.PairHash(matchA, matchB)
+	env.srv.GitHubCache().SetMatch(pairHash, true)
 
-	sendMsg(t, connA, protocol.Message{
-		Type: protocol.TypeMsg, SourceHash: binA, TargetHash: binB,
-		Body: "hey!", Ts: time.Now().Unix(),
-	})
+	// Only Alice connects; Bob is offline
+	connA := env.connectWS(t, idA, matchA, privA)
+	time.Sleep(50 * time.Millisecond)
 
-	frame := readFrame(t, connA, 5*time.Second)
-	errFrame, ok := frame.(*protocol.Error)
-	if !ok {
-		t.Fatalf("expected Error, got %T", frame)
+	// Alice sends to offline Bob
+	sendBinary(t, connA, matchB, []byte("are you there?"))
+
+	// Alice should get "queued" text frame
+	msg := readText(t, connA, 2*time.Second)
+	if msg != "queued" {
+		t.Errorf("response = %q, want 'queued'", msg)
 	}
-	if errFrame.Code != protocol.ErrNotMatched {
-		t.Errorf("code = %q, want not_matched", errFrame.Code)
+
+	// Bob connects — should receive the queued message
+	connB := env.connectWS(t, idB, matchB, privB)
+	time.Sleep(50 * time.Millisecond)
+
+	senderHash, payload := readBinary(t, connB, 2*time.Second)
+	if senderHash != matchA {
+		t.Errorf("sender = %q, want %q", senderHash, matchA)
 	}
-}
-
-func TestTOTP_MessageRouting_TargetOffline(t *testing.T) {
-	env := newTestEnv(t)
-	pubA, privA := genKeys(t)
-	pubB, _ := genKeys(t)
-	binA, matchA := env.addUser("alice", "github", pubA)
-	binB, _ := env.addUser("bob", "github", pubB)
-	env.addMatch(binA, binB)
-
-	connA := connectWS(t, env, binA, matchA, privA)
-	// Bob NOT connected
-
-	// Should not crash — message silently dropped (TODO: queue)
-	sendMsg(t, connA, protocol.Message{
-		Type: protocol.TypeMsg, SourceHash: binA, TargetHash: binB,
-		Body: "are you there?", Ts: time.Now().Unix(),
-	})
-
-	time.Sleep(100 * time.Millisecond)
-	// No crash = pass
-}
-
-func TestTOTP_MessageRouting_WrongSource(t *testing.T) {
-	env := newTestEnv(t)
-	pubA, privA := genKeys(t)
-	pubB, _ := genKeys(t)
-	binA, matchA := env.addUser("alice", "github", pubA)
-	binB, _ := env.addUser("bob", "github", pubB)
-	env.addMatch(binA, binB)
-
-	connA := connectWS(t, env, binA, matchA, privA)
-
-	// Try to send with wrong source_hash
-	sendMsg(t, connA, protocol.Message{
-		Type: protocol.TypeMsg, SourceHash: "wrong_source_has", TargetHash: binB,
-		Body: "spoofed!", Ts: time.Now().Unix(),
-	})
-
-	frame := readFrame(t, connA, 5*time.Second)
-	errFrame, ok := frame.(*protocol.Error)
-	if !ok {
-		t.Fatalf("expected Error, got %T", frame)
-	}
-	if errFrame.Code != protocol.ErrAuthFailed {
-		t.Errorf("code = %q, want auth_failed", errFrame.Code)
+	if string(payload) != "are you there?" {
+		t.Errorf("payload = %q, want %q", string(payload), "are you there?")
 	}
 }
 
-// ==================== Concurrent + Lifecycle Tests ====================
-
-func TestTOTP_MultipleUsers_Concurrent(t *testing.T) {
+func TestQueue_CapEnforced(t *testing.T) {
 	env := newTestEnv(t)
-	const n = 10
+	idA, _, matchA, _, privA := env.registerUser(t)
+	_, _, matchB, _, _ := env.registerUser(t)
+
+	pairHash := relay.PairHash(matchA, matchB)
+	env.srv.GitHubCache().SetMatch(pairHash, true)
+
+	connA := env.connectWS(t, idA, matchA, privA)
+	time.Sleep(50 * time.Millisecond)
+
+	// Send 21 messages to offline Bob
+	for i := 0; i < 21; i++ {
+		payload := fmt.Sprintf("msg-%d", i)
+		sendBinary(t, connA, matchB, []byte(payload))
+
+		msg := readText(t, connA, 2*time.Second)
+		if i < 20 {
+			if msg != "queued" {
+				t.Fatalf("msg %d: expected 'queued', got %q", i, msg)
+			}
+		} else {
+			if msg != "queue full" {
+				t.Fatalf("msg %d: expected 'queue full', got %q", i, msg)
+			}
+		}
+	}
+}
+
+// ==================== Session Tests ====================
+
+func TestSession_ReconnectReplacesOld(t *testing.T) {
+	env := newTestEnv(t)
+	idA, _, matchA, _, privA := env.registerUser(t)
+	idB, _, matchB, _, privB := env.registerUser(t)
+
+	pairHash := relay.PairHash(matchA, matchB)
+	env.srv.GitHubCache().SetMatch(pairHash, true)
+
+	// Alice connects first session
+	conn1 := env.connectWS(t, idA, matchA, privA)
+	time.Sleep(50 * time.Millisecond)
+
+	// Alice connects second session (should replace first)
+	conn2 := env.connectWS(t, idA, matchA, privA)
+	time.Sleep(50 * time.Millisecond)
+
+	// Old connection should be closed — reading from it should fail
+	conn1.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	_, _, err := conn1.ReadMessage()
+	if err == nil {
+		t.Error("old connection should be closed after replacement")
+	}
+
+	// Bob sends to Alice — should arrive on conn2
+	connB := env.connectWS(t, idB, matchB, privB)
+	time.Sleep(50 * time.Millisecond)
+
+	sendBinary(t, connB, matchA, []byte("which alice?"))
+
+	senderHash, payload := readBinary(t, conn2, 2*time.Second)
+	if senderHash != matchB || string(payload) != "which alice?" {
+		t.Errorf("got sender=%q payload=%q", senderHash, string(payload))
+	}
+}
+
+func TestSession_MultipleConcurrentUsers(t *testing.T) {
+	env := newTestEnv(t)
+	const n = 5
 
 	type user struct {
-		pub   ed25519.PublicKey
-		priv  ed25519.PrivateKey
-		bin   string
-		match string
+		idHash    string
+		matchHash string
+		priv      ed25519.PrivateKey
 	}
 
 	users := make([]user, n)
-	for i := 0; i < n; i++ {
-		pub, priv := genKeys(t)
-		uid := strings.Repeat(string(rune('a'+i)), 3)
-		bin, match := env.addUser(uid, "github", pub)
-		users[i] = user{pub: pub, priv: priv, bin: bin, match: match}
+	for i := range users {
+		idH, _, matchH, _, priv := env.registerUser(t)
+		users[i] = user{idHash: idH, matchHash: matchH, priv: priv}
 	}
 
 	var wg sync.WaitGroup
 	conns := make([]*websocket.Conn, n)
-	for i := 0; i < n; i++ {
+	errors := make([]error, n)
+
+	for i := range users {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
 			u := users[idx]
-			sig := crypto.TOTPSign(u.bin, u.match, u.priv)
-			url := fmt.Sprintf("%s/ws?bin=%s&sig=%s", env.wsURL, u.bin, sig)
+			sig := crypto.TOTPSign(u.priv)
+			url := env.wsURL() + "/ws?id=" + u.idHash + "&match=" + u.matchHash + "&sig=" + sig
 			dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
 			conn, _, err := dialer.Dial(url, nil)
 			if err != nil {
-				t.Errorf("connect user %d: %v", idx, err)
+				errors[idx] = err
 				return
 			}
 			conns[idx] = conn
@@ -429,223 +493,158 @@ func TestTOTP_MultipleUsers_Concurrent(t *testing.T) {
 	}
 	wg.Wait()
 
-	for _, c := range conns {
-		if c != nil {
+	for i, c := range conns {
+		if c == nil {
+			t.Errorf("user %d failed to connect: %v", i, errors[i])
+		} else {
 			c.Close()
 		}
 	}
-	for i, c := range conns {
-		if c == nil {
-			t.Errorf("user %d failed to connect", i)
-		}
-	}
 }
 
-func TestTOTP_DisconnectReconnect(t *testing.T) {
+// ==================== Health Test ====================
+
+func TestHealth_Endpoint(t *testing.T) {
 	env := newTestEnv(t)
-	pub, priv := genKeys(t)
-	bin, match := env.addUser("alice", "github", pub)
 
-	// First connection
-	conn1 := connectWS(t, env, bin, match, priv)
-	conn1.Close()
-	time.Sleep(100 * time.Millisecond)
-
-	// Reconnect with fresh TOTP
-	conn2 := connectWS(t, env, bin, match, priv)
-	if conn2 == nil {
-		t.Fatal("reconnect should succeed")
-	}
-}
-
-func TestTOTP_SessionReplacement(t *testing.T) {
-	env := newTestEnv(t)
-	pubA, privA := genKeys(t)
-	pubB, privB := genKeys(t)
-	binA, matchA := env.addUser("alice", "github", pubA)
-	binB, matchB := env.addUser("bob", "github", pubB)
-	env.addMatch(binA, binB)
-
-	// Alice connects first session
-	_ = connectWS(t, env, binA, matchA, privA)
-
-	// Alice connects second session (replaces first)
-	conn2 := connectWS(t, env, binA, matchA, privA)
-
-	// Bob connects and sends to Alice
-	connB := connectWS(t, env, binB, matchB, privB)
-	sendMsg(t, connB, protocol.Message{
-		Type: protocol.TypeMsg, SourceHash: binB, TargetHash: binA,
-		Body: "which alice?", Ts: time.Now().Unix(),
-	})
-
-	// Message should go to conn2 (newest session)
-	frame := readFrame(t, conn2, 5*time.Second)
-	msg, ok := frame.(*protocol.Message)
-	if !ok {
-		t.Fatalf("expected Message, got %T", frame)
-	}
-	if msg.Body != "which alice?" {
-		t.Errorf("body = %q", msg.Body)
-	}
-}
-
-// ==================== Key Exchange Tests ====================
-
-func TestTOTP_KeyRequest_Success(t *testing.T) {
-	env := newTestEnv(t)
-	pubA, privA := genKeys(t)
-	pubB, _ := genKeys(t)
-	binA, matchA := env.addUser("alice", "github", pubA)
-	binB, _ := env.addUser("bob", "github", pubB)
-	env.addMatch(binA, binB)
-
-	connA := connectWS(t, env, binA, matchA, privA)
-
-	// Request Bob's key
-	data, _ := protocol.Encode(protocol.KeyRequest{
-		Type: protocol.TypeKeyRequest, TargetHash: binB,
-	})
-	connA.WriteMessage(websocket.BinaryMessage, data)
-
-	frame := readFrame(t, connA, 5*time.Second)
-	resp, ok := frame.(*protocol.KeyResponse)
-	if !ok {
-		t.Fatalf("expected KeyResponse, got %T", frame)
-	}
-	if resp.TargetHash != binB {
-		t.Errorf("target = %q, want %q", resp.TargetHash, binB)
-	}
-	keyBytes, _ := hex.DecodeString(resp.PubKey)
-	if !pubB.Equal(ed25519.PublicKey(keyBytes)) {
-		t.Error("returned key doesn't match Bob's pubkey")
-	}
-}
-
-func TestTOTP_KeyRequest_NotMatched(t *testing.T) {
-	env := newTestEnv(t)
-	pubA, privA := genKeys(t)
-	pubB, _ := genKeys(t)
-	binA, matchA := env.addUser("alice", "github", pubA)
-	binB, _ := env.addUser("bob", "github", pubB)
-	// No match!
-
-	connA := connectWS(t, env, binA, matchA, privA)
-
-	data, _ := protocol.Encode(protocol.KeyRequest{
-		Type: protocol.TypeKeyRequest, TargetHash: binB,
-	})
-	connA.WriteMessage(websocket.BinaryMessage, data)
-
-	frame := readFrame(t, connA, 5*time.Second)
-	errFrame, ok := frame.(*protocol.Error)
-	if !ok {
-		t.Fatalf("expected Error, got %T", frame)
-	}
-	if errFrame.Code != protocol.ErrNotMatched {
-		t.Errorf("code = %q, want not_matched", errFrame.Code)
-	}
-}
-
-func TestTOTP_KeyRequest_TargetNotFound(t *testing.T) {
-	env := newTestEnv(t)
-	pubA, privA := genKeys(t)
-	binA, matchA := env.addUser("alice", "github", pubA)
-	fakeHash := "nonexistent12345"
-	env.addMatch(binA, fakeHash)
-
-	connA := connectWS(t, env, binA, matchA, privA)
-
-	data, _ := protocol.Encode(protocol.KeyRequest{
-		Type: protocol.TypeKeyRequest, TargetHash: fakeHash,
-	})
-	connA.WriteMessage(websocket.BinaryMessage, data)
-
-	frame := readFrame(t, connA, 5*time.Second)
-	errFrame, ok := frame.(*protocol.Error)
-	if !ok {
-		t.Fatalf("expected Error, got %T", frame)
-	}
-	if errFrame.Code != protocol.ErrUserNotFound {
-		t.Errorf("code = %q, want user_not_found", errFrame.Code)
-	}
-}
-
-// ==================== Health Endpoint ====================
-
-func TestTOTP_HealthEndpoint(t *testing.T) {
-	env := newTestEnv(t)
-	resp, err := http.Get(env.url + "/health")
+	resp, err := http.Get(env.httpSrv.URL + "/health")
 	if err != nil {
-		t.Fatalf("health: %v", err)
+		t.Fatalf("GET /health: %v", err)
 	}
 	defer resp.Body.Close()
+
 	if resp.StatusCode != 200 {
 		t.Errorf("status = %d, want 200", resp.StatusCode)
 	}
-}
 
-// ==================== Encrypted Message Tests ====================
-
-func TestTOTP_EncryptedMessage_Flagged(t *testing.T) {
-	env := newTestEnv(t)
-	pubA, privA := genKeys(t)
-	pubB, privB := genKeys(t)
-	binA, matchA := env.addUser("alice", "github", pubA)
-	binB, matchB := env.addUser("bob", "github", pubB)
-	env.addMatch(binA, binB)
-
-	connA := connectWS(t, env, binA, matchA, privA)
-	connB := connectWS(t, env, binB, matchB, privB)
-
-	sendMsg(t, connA, protocol.Message{
-		Type: protocol.TypeMsg, SourceHash: binA, TargetHash: binB,
-		Body: "encrypted_payload_here", Ts: time.Now().Unix(), Encrypted: true,
-	})
-
-	frame := readFrame(t, connB, 5*time.Second)
-	msg := frame.(*protocol.Message)
-	if !msg.Encrypted {
-		t.Error("encrypted flag should be preserved")
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode json: %v", err)
 	}
-	if msg.Body != "encrypted_payload_here" {
-		t.Errorf("body = %q", msg.Body)
+
+	if body["status"] != "ok" {
+		t.Errorf("status = %v, want 'ok'", body["status"])
+	}
+
+	// Check that online and queued fields exist
+	if _, ok := body["online"]; !ok {
+		t.Error("missing 'online' field")
+	}
+	if _, ok := body["queued"]; !ok {
+		t.Error("missing 'queued' field")
 	}
 }
 
-// ==================== Multi-turn Conversation ====================
-
-func TestTOTP_Conversation_MultiTurn(t *testing.T) {
+func TestHealth_ReflectsOnlineCount(t *testing.T) {
 	env := newTestEnv(t)
-	pubA, privA := genKeys(t)
-	pubB, privB := genKeys(t)
-	binA, matchA := env.addUser("alice", "github", pubA)
-	binB, matchB := env.addUser("bob", "github", pubB)
-	env.addMatch(binA, binB)
 
-	connA := connectWS(t, env, binA, matchA, privA)
-	connB := connectWS(t, env, binB, matchB, privB)
-
-	turns := []struct {
-		from, to       *websocket.Conn
-		src, tgt, body string
-		readFrom       *websocket.Conn
-	}{
-		{connA, connB, binA, binB, "hey!", connB},
-		{connB, connA, binB, binA, "hi there!", connA},
-		{connA, connB, binA, binB, "how are you?", connB},
-		{connB, connA, binB, binA, "great, you?", connA},
+	// No users connected
+	resp, _ := http.Get(env.httpSrv.URL + "/health")
+	var body map[string]any
+	json.NewDecoder(resp.Body).Decode(&body)
+	resp.Body.Close()
+	if body["online"].(float64) != 0 {
+		t.Errorf("expected 0 online, got %v", body["online"])
 	}
 
-	for i, turn := range turns {
-		sendMsg(t, turn.from, protocol.Message{
-			Type: protocol.TypeMsg, SourceHash: turn.src, TargetHash: turn.tgt,
-			Body: turn.body, Ts: time.Now().Unix(),
-		})
-		frame := readFrame(t, turn.readFrom, 5*time.Second)
-		msg := frame.(*protocol.Message)
-		if msg.Body != turn.body {
-			t.Errorf("turn %d: body = %q, want %q", i, msg.Body, turn.body)
-		}
+	// Connect a user
+	idH, _, matchH, _, priv := env.registerUser(t)
+	_ = env.connectWS(t, idH, matchH, priv)
+	time.Sleep(50 * time.Millisecond)
+
+	resp, _ = http.Get(env.httpSrv.URL + "/health")
+	json.NewDecoder(resp.Body).Decode(&body)
+	resp.Body.Close()
+	if body["online"].(float64) != 1 {
+		t.Errorf("expected 1 online, got %v", body["online"])
+	}
+}
+
+// ==================== Encrypted Roundtrip Test ====================
+
+func TestEncrypted_Roundtrip(t *testing.T) {
+	env := newTestEnv(t)
+	idA, _, matchA, pubA, privA := env.registerUser(t)
+	idB, _, matchB, pubB, privB := env.registerUser(t)
+
+	pairHash := relay.PairHash(matchA, matchB)
+	env.srv.GitHubCache().SetMatch(pairHash, true)
+
+	connA := env.connectWS(t, idA, matchA, privA)
+	connB := env.connectWS(t, idB, matchB, privB)
+	time.Sleep(50 * time.Millisecond)
+
+	// Derive shared secret (both sides produce the same key)
+	sharedAB, err := crypto.SharedSecret(privA, pubB)
+	if err != nil {
+		t.Fatalf("SharedSecret(A→B): %v", err)
+	}
+	sharedBA, err := crypto.SharedSecret(privB, pubA)
+	if err != nil {
+		t.Fatalf("SharedSecret(B→A): %v", err)
+	}
+	if hex.EncodeToString(sharedAB) != hex.EncodeToString(sharedBA) {
+		t.Fatal("shared secrets should match")
+	}
+
+	// Alice encrypts a message to Bob using SealRaw with shared key
+	plaintext := []byte("secret message for bob")
+	ciphertext, err := crypto.SealRaw(sharedAB, plaintext)
+	if err != nil {
+		t.Fatalf("SealRaw: %v", err)
+	}
+
+	// Send encrypted ciphertext via relay
+	sendBinary(t, connA, matchB, ciphertext)
+
+	// Bob receives and decrypts with same shared key
+	_, receivedCiphertext := readBinary(t, connB, 2*time.Second)
+	decrypted, err := crypto.OpenRaw(sharedBA, receivedCiphertext)
+	if err != nil {
+		t.Fatalf("OpenRaw: %v", err)
+	}
+	if string(decrypted) != "secret message for bob" {
+		t.Errorf("decrypted = %q, want %q", string(decrypted), "secret message for bob")
+	}
+}
+
+// ==================== Edge Cases ====================
+
+func TestRouting_InvalidFrame_TooShort(t *testing.T) {
+	env := newTestEnv(t)
+	idA, _, matchA, _, privA := env.registerUser(t)
+	connA := env.connectWS(t, idA, matchA, privA)
+	time.Sleep(50 * time.Millisecond)
+
+	// Send a binary frame that's too short (< 8 bytes)
+	connA.WriteMessage(websocket.BinaryMessage, []byte("short"))
+
+	msg := readText(t, connA, 2*time.Second)
+	if msg != "invalid frame" {
+		t.Errorf("response = %q, want 'invalid frame'", msg)
+	}
+}
+
+func TestRouting_TextFrameIgnored(t *testing.T) {
+	env := newTestEnv(t)
+	idA, _, matchA, _, privA := env.registerUser(t)
+	connA := env.connectWS(t, idA, matchA, privA)
+	time.Sleep(50 * time.Millisecond)
+
+	// Send a text frame — session should ignore it (no crash, no response)
+	connA.WriteMessage(websocket.TextMessage, []byte("some text"))
+
+	// Send a valid binary frame to verify connection is still alive
+	idB, _, matchB, _, privB := env.registerUser(t)
+	pairHash := relay.PairHash(matchA, matchB)
+	env.srv.GitHubCache().SetMatch(pairHash, true)
+
+	connB := env.connectWS(t, idB, matchB, privB)
+	time.Sleep(50 * time.Millisecond)
+
+	sendBinary(t, connA, matchB, []byte("still alive"))
+	_, payload := readBinary(t, connB, 2*time.Second)
+	if string(payload) != "still alive" {
+		t.Errorf("payload = %q, want 'still alive'", string(payload))
 	}
 }
