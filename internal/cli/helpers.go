@@ -28,6 +28,10 @@ func poolClient(pool *config.PoolConfig) *github.Pool {
 	return github.NewPool(pool.Repo, "")
 }
 
+func poolClientWithToken(pool *config.PoolConfig, token string) *github.Pool {
+	return github.NewPool(pool.Repo, token)
+}
+
 func prompt(reader *bufio.Reader, label string) string {
 	fmt.Print(label)
 	input, _ := reader.ReadString('\n')

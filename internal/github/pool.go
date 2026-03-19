@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -194,6 +195,58 @@ func (p *Pool) RegisterUserViaIssue(ctx context.Context, userHash string, encryp
 	)
 
 	return p.client.CreateIssue(ctx, "Registration Request", body, []string{"registration"})
+}
+
+// CreateInterestPR creates a PR expressing interest in another user.
+// Title = target's match_hash. Body = encrypted {author_bin_hash, author_match_hash, greeting}.
+func (p *Pool) CreateInterestPR(ctx context.Context, myBinHash, myMatchHash, targetMatchHash, greeting string, operatorPubKey ed25519.PublicKey) (int, error) {
+	// Encrypt payload to operator
+	payload, _ := json.Marshal(map[string]string{
+		"author_bin_hash":   myBinHash,
+		"author_match_hash": myMatchHash,
+		"greeting":          greeting,
+	})
+	encrypted, err := crypto.Encrypt(operatorPubKey, payload)
+	if err != nil {
+		return 0, fmt.Errorf("encrypting interest: %w", err)
+	}
+	body := base64.StdEncoding.EncodeToString(encrypted)
+
+	// Branch name: deterministic from the pair
+	branchHash := pairHash(myMatchHash, targetMatchHash)
+	branch := fmt.Sprintf("like/%s", branchHash)
+
+	pr := PRRequest{
+		Title:  targetMatchHash,
+		Body:   body,
+		Branch: branch,
+		Labels: []string{"interest"},
+		Files: []PRFile{
+			{Path: fmt.Sprintf("interests/%s.txt", branchHash), Content: []byte("interest")},
+		},
+	}
+
+	return p.client.CreatePullRequest(ctx, pr)
+}
+
+// ListInterestsForMe searches open interest PRs targeting the given match_hash.
+func (p *Pool) ListInterestsForMe(ctx context.Context, myMatchHash string) ([]PullRequest, error) {
+	prs, err := p.client.ListPullRequests(ctx, "open")
+	if err != nil {
+		return nil, err
+	}
+	var results []PullRequest
+	for _, pr := range prs {
+		if pr.Title == myMatchHash {
+			for _, l := range pr.Labels {
+				if l.Name == "interest" {
+					results = append(results, pr)
+					break
+				}
+			}
+		}
+	}
+	return results, nil
 }
 
 // CreateLikeIssue creates a like as a GitHub Issue.

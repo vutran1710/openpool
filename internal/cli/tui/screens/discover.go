@@ -21,6 +21,11 @@ import (
 // DiscoverPollMsg triggers a background sync check.
 type DiscoverPollMsg struct{}
 
+// DiscoverLikeMsg signals the user wants to like someone.
+type DiscoverLikeMsg struct {
+	TargetMatchHash string
+}
+
 // DiscoverMsg carries loaded suggestions to the screen.
 type DiscoverMsg struct {
 	Suggestions []suggestions.Suggestion
@@ -182,13 +187,10 @@ func (s DiscoverScreen) Update(msg tea.Msg) (DiscoverScreen, tea.Cmd) {
 		switch msg.String() {
 		case "l":
 			if s.current() != nil {
-				name := s.current().MatchHash
+				target := s.current().MatchHash
 				s.advance()
 				return s, func() tea.Msg {
-					return components.ToastMsg{
-						Text:  fmt.Sprintf("Liked %s", name[:12]),
-						Level: components.ToastSuccess,
-					}
+					return DiscoverLikeMsg{TargetMatchHash: target}
 				}
 			}
 		case "s", "n", "right", "j":
