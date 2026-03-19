@@ -10,7 +10,7 @@ Terminal-native, decentralized dating platform. GitHub repos as the database, en
 - **CLI**: Cobra (commands), Bubbletea (TUI), Lipgloss (styling)
 - **Crypto**: ed25519 (signing/TOTP) + NaCl box with ed25519→curve25519 (encryption) + ECDH (chat keys)
 - **Config**: TOML (`~/.dating/setting.toml`)
-- **Protocol**: MessagePack over WebSocket
+- **Protocol**: Binary frames over WebSocket (text frames for control)
 - **Web**: Next.js (docs site at `web/`)
 
 ## Architecture
@@ -19,6 +19,8 @@ Terminal-native, decentralized dating platform. GitHub repos as the database, en
 cmd/dating/       → CLI entry point
 cmd/relay/        → Per-pool WebSocket relay server
 cmd/regcrypt/     → Registration hash tool (used by GitHub Actions)
+cmd/indexer/      → Profile indexer (cron, builds index.pack)
+cmd/matchcrypt/   → Match Action crypto tool (decrypt PR, encrypt notification, extract pubkey)
 internal/
   cli/            → CLI commands + TUI app
   cli/svc/        → Service interfaces (dependency injection)
@@ -27,8 +29,7 @@ internal/
   crypto/         → Encryption, signing, TOTP, key derivation
   github/         → GitHub API client, pool/registry operations, profile types
   gitrepo/        → Git clone management, raw content fetcher
-  relay/          → Relay server (TOTP auth, hub, sessions, store)
-  protocol/       → MessagePack wire protocol types + codec
+  relay/          → Relay server (stateless TOTP auth, hub, sessions, GitHub cache)
   debug/          → Debug logger (DEBUG=1)
 templates/
   actions/        → GitHub Action templates for pool repos
@@ -39,24 +40,40 @@ templates/
 ### Hash Chain
 
 ```
-id_hash    = sha256(pool_url:provider:user_id)     → 64 hex chars (public identity)
-bin_hash   = sha256(salt:id_hash)[:16]             → 16 hex chars (relay routing key)
-match_hash = sha256(salt:bin_hash)[:16]             → 16 hex chars (TOTP shared secret)
+real_id    = github:username                        → real identity (private, never leaves client)
+id_hash    = sha256(pool_url:provider:user_id)     → 64 hex chars (registration identity)
+bin_hash   = sha256(salt:id_hash)[:16]             → 16 hex chars (relay routing key, public in discovery)
+match_hash = sha256(salt:bin_hash)[:16]             → 16 hex chars (TOTP secret, public handle for chat)
 ```
 
-Go type: `crypto.IDHash` (for id_hash). Salt is a pool secret.
+Go type: `crypto.IDHash` (for id_hash). Salt is a pool secret (only in GitHub Actions secrets + relay env).
+
+### Security Rationale
+
+Each hash layer is **one-way and unlinkable** without the salt:
+
+- **bin_hash is public** — anyone can see it in `.bin` filenames during discovery
+- **match_hash is public** — it appears on interest PRs (PR title = target's match_hash)
+- **The key insight**: knowing bin_hash tells you nothing about match_hash (and vice versa) without the salt
+- An attacker who sees both bin_hash and match_hash **cannot link them** to the same person without the salt
+- The salt only exists in two places: pool repo's GitHub Actions secrets + relay server's env var
+- **real_id → id_hash**: anyone can compute (deterministic from public info), but only needed at registration
+- **id_hash → bin_hash**: only the salt holder can compute (one-way)
+- **bin_hash → match_hash**: only the salt holder can compute (one-way)
+
+This separation means: discovery (bin_hash), matching (match_hash), and identity (id_hash) are three unlinkable namespaces.
 
 ### Relay Auth (TOTP)
 
-No JWT, no tokens, no login endpoint. Client computes signature at connect time:
+No JWT, no tokens, no login endpoint, no database. Client computes signature at connect time:
 
 ```
-ws://relay/ws?bin=<bin_hash>&sig=<totp_signature>
+ws://relay/ws?id=<id_hash>&match=<match_hash>&sig=<totp_signature>
 ```
 
-Relay verifies `ed25519.Verify(pubkey, sha256(bin_hash + match_hash + time_window), sig)` inline at WebSocket upgrade. ±1 window (5 min) for clock drift.
+Relay validates the chain (`id_hash → bin_hash → match_hash` via salt), fetches pubkey from GitHub raw content, then verifies `ed25519.Verify(pubkey, sha256(time_window), sig)`. ±1 window (5 min) for clock drift.
 
-Implemented in `internal/crypto/totp.go`: `TOTPSign`, `TOTPSignAt`, `TOTPVerify`.
+Implemented in `internal/crypto/totp.go`: `TOTPSign(priv)`, `TOTPSignAt(priv, tw)`, `TOTPVerify(sigHex, pub)`.
 
 ### Registration Flow
 
@@ -68,6 +85,34 @@ Implemented in `internal/crypto/totp.go`: `TOTPSign`, `TOTPSignAt`, `TOTPVerify`
 ### E2E Encrypted Chat
 
 Messages encrypted with NaCl secretbox. Key derived via ECDH (ed25519→curve25519) + HKDF. Relay routes ciphertext only.
+
+### Match Notification as Key Exchange
+
+When a mutual match is detected, the GitHub Action encrypts a notification to each user containing the peer's **pubkey** (not just bin_hash). This means:
+- Match notification IS the key exchange — no separate key_request/key_response protocol needed
+- Each user receives their peer's ed25519 pubkey encrypted to their own pubkey
+- The client can derive the ECDH shared secret immediately from the notification
+- The relay never needs to store or serve pubkeys
+
+### Discovery & Matching Flow
+
+1. **Discovery**: Users browse `.bin` files (keyed by bin_hash), decrypt profiles with operator key
+2. **Interest**: User creates a PR with `title=<target_match_hash>`, label=`interest`, encrypted body
+3. **Mutual match**: GitHub Action detects both directions, posts encrypted notifications with peer pubkeys
+4. **Chat**: `dating chat <match_hash>` — user identifies peers by match_hash (not bin_hash)
+
+### Schema-Driven Matching
+
+Pool schema (`pool.json`) defines fields with 4 match modes:
+
+| Mode | Behavior | Example |
+|------|----------|---------|
+| `complementary` | Field A's value matches field B's target | gender: "male" seeks "female" |
+| `approximate` | Values within tolerance range | age: 25 ± 5 |
+| `exact` | Values must be identical | city: "Berlin" = "Berlin" |
+| `similarity` | Cosine similarity on interest vectors | interests overlap score |
+
+Operator-defined weights are private (not in schema). Ranking uses tier-shuffled ordering: top 5% → 5-20% → 20-50% → 50-100%, shuffled within each tier.
 
 ## Conventions
 
@@ -186,23 +231,60 @@ func (s FooScreen) HelpBindings() []components.KeyBind
 
 ## Relay Server
 
-Per-pool WebSocket server. Env vars: `POOL_URL`, `POOL_SALT`, `PORT`.
+Per-pool stateless WebSocket server. Env vars: `POOL_URL`, `POOL_SALT`, `PORT`.
+
+Deployed on Railway (~$0.40/month). No database — fully stateless.
 
 Key components:
-- `Server` — HTTP handler, TOTP verify at WS upgrade
-- `Store` — in-memory user index (keyed by `bin_hash`) + match pairs
-- `Hub` — active session registry
-- `Session` — message routing, key exchange, ack handling
+- `Server` — HTTP handler, stateless TOTP auth at WS upgrade, hash derivation from salt
+- `GitHubCache` — Fetches pubkeys + match files from `raw.githubusercontent.com`, caches in memory
+- `Hub` — active session registry (keyed by `match_hash`) + offline message queue (cap 20)
+- `Session` — binary frame routing, text frame control messages
 
-No JWT, no tokens, no auth endpoints. Auth happens at WS upgrade via TOTP signature in query params.
+### Wire Format
+
+- **Binary frames** (chat messages): `[target_match_hash_8B][ciphertext]` — relay prepends sender's match_hash when forwarding
+- **Text frames** (control): `queued`, `not matched`, `match check failed`, `queue full`, `unknown user`
+- Encryption: `crypto.SealRaw`/`crypto.OpenRaw` (NaCl secretbox, raw bytes — no base64)
+
+### Endpoints
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /ws` | Stateless TOTP auth + WebSocket upgrade |
+| `GET /health` | `{status, online, queued}` JSON |
+
+### Match Authorization
+
+`pair_hash = sha256(min(a,b) + ":" + max(a,b))[:12]` where a,b are match_hashes. Relay fetches `matches/{pair_hash}.json` from GitHub raw content. Cached for 5 minutes (positive + 404 negative). 5xx/network errors NOT cached.
 
 ## Binaries
 
 | Binary | Purpose | Distribution |
 |--------|---------|-------------|
 | `dating` | CLI app | End users |
-| `relay` | Per-pool relay server | Pool operators |
+| `relay` | Per-pool relay server | Pool operators (Railway) |
 | `regcrypt` | Hash computation for Actions | Published to `vutran1710/regcrypt` (public) |
+| `indexer` | Profile indexer (cron) | GitHub Actions |
+| `matchcrypt` | Match crypto for Actions | GitHub Actions |
+
+## GitHub Actions (Pool Repo)
+
+Three Actions in `templates/actions/` — deployed to each pool repo:
+
+| Action | Trigger | Purpose |
+|--------|---------|---------|
+| `pool-register.yml` | Issue opened | Runs `regcrypt`, commits `.bin`, posts encrypted hashes |
+| `pool-indexer.yml` | Cron (every 5 min) | Runs `indexer --rebuild`, commits `index.pack` |
+| `pool-interest.yml` | PR opened with `interest` label | Runs `matchcrypt`, detects mutual matches, posts encrypted notifications |
+
+### Indexing & Discovery
+
+- `.bin` files: `[32B pubkey][NaCl box encrypted profile]` — committed by registration Action
+- `.rec` files: Not committed separately — indexer reads `.bin`, extracts filters + vectors + display info
+- `index.pack`: MessagePack bundle of all `IndexRecord`s — committed by cron indexer
+- CLI downloads `index.pack` for local discovery/ranking
+- Cron indexer is separate from registration to break `.bin`/`.rec` commit linkability
 
 ## Debug Mode
 
