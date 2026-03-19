@@ -55,11 +55,19 @@ target_match_hash = hex-decoded match_hash (16 hex chars = 8 bytes raw)
 ciphertext = raw bytes: version(1) + nonce(24) + secretbox sealed data
 ```
 
-### Errors (Text Frames)
+### Control Frames (Text Frames)
 
-Relay sends plain UTF-8 text frames for errors (e.g., `"not matched"`, `"target offline"`).
+Relay sends plain UTF-8 text frames for errors and status notifications:
 
-Client distinguishes: binary frame = chat message, text frame = error/control.
+| Text Frame | Meaning |
+|------------|---------|
+| `not matched` | Pair not found in match files — message rejected |
+| `match check failed` | Transient GitHub error — retry later |
+| `queue full` | Target's offline queue is at capacity — message rejected |
+| `queued` | Target is offline, message queued for delivery |
+| `unknown user` | Auth: bin_hash has no .bin file on GitHub |
+
+Client distinguishes: binary frame = chat message, text frame = control/status.
 
 ### What's Eliminated
 
@@ -80,7 +88,7 @@ Relay receives binary frame from sender (session.matchHash = sender's match_hash
      - HTTP 5xx / network error → NOT cached, send text frame "match check failed" (transient)
   4. Lookup target session in hub (keyed by match_hash)
      - Online → forward as [sender_match_hash (8 bytes)][ciphertext]
-     - Offline → append to in-memory queue
+     - Offline → append to in-memory queue, send text frame "queued" to sender
 ```
 
 ## Hub & Session
