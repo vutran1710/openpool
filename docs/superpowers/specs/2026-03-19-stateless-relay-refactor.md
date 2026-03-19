@@ -201,6 +201,8 @@ type Config struct {
 
 Removed: `BinHash` (client no longer needs it for relay communication).
 
+Note: `IDHash` must be stored per-pool in `PoolConfig` (not `UserConfig`) because `id_hash = sha256(pool_url:provider:user_id)` — it differs per pool. The existing `UserConfig.IDHash` should be migrated to `PoolConfig.IDHash`.
+
 ### Connect
 
 ```go
