@@ -3,6 +3,8 @@ package cli
 import (
 	"bufio"
 	"context"
+	"crypto/ed25519"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"time"
@@ -61,9 +63,14 @@ func newChatCmd() *cobra.Command {
 				Priv:      priv,
 			})
 
-			// TODO: load peer pubkey from match notifications (scan closed interest PRs)
-			// For now, the CLI chat will error if peer key is not set.
-			// The TUI flow (Task 13) handles this properly since it passes PubKey from MatchItem.
+			// Load peer pubkey: from env (testing) or match notifications
+			if peerPubHex := os.Getenv("PEER_PUB"); peerPubHex != "" {
+				peerPubBytes, err := hex.DecodeString(peerPubHex)
+				if err == nil && len(peerPubBytes) == ed25519.PublicKeySize {
+					client.SetPeerKey(targetMatchHash, ed25519.PublicKey(peerPubBytes))
+				}
+			}
+			// TODO: scan closed interest PRs for match notifications if PEER_PUB not set
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
