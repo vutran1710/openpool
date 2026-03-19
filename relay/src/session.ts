@@ -1,12 +1,14 @@
 // Durable Object — holds one user's WebSocket connection
-// Routes messages to target user's DO via env binding
+// Parses MessagePack frames (same wire format as Go client)
+
+import { encode, decode } from "@msgpack/msgpack";
 
 interface Env {
   RELAY_KV: KVNamespace;
   USER_SESSION: DurableObjectNamespace;
 }
 
-interface MessageFrame {
+interface Frame {
   type: string;
   source_hash?: string;
   target_hash?: string;
@@ -14,7 +16,6 @@ interface MessageFrame {
   ts?: number;
   encrypted?: boolean;
   msg_id?: string;
-  // key exchange
   pubkey?: string;
 }
 
@@ -43,7 +44,7 @@ export class UserSession {
 
     if (url.pathname === "/forward") {
       // Another DO is sending a message to this user
-      const data = await request.arrayBuffer();
+      const data = new Uint8Array(await request.arrayBuffer());
       for (const ws of this.state.getWebSockets()) {
         try {
           ws.send(data);
@@ -54,24 +55,17 @@ export class UserSession {
       return new Response("ok");
     }
 
-    if (url.pathname === "/key-response") {
-      // Forward key response to connected client
-      const data = await request.text();
-      for (const ws of this.state.getWebSockets()) {
-        try {
-          ws.send(data);
-        } catch {}
-      }
-      return new Response("ok");
-    }
-
     return new Response("not found", { status: 404 });
   }
 
   async webSocketMessage(ws: WebSocket, message: ArrayBuffer | string) {
     try {
-      const data = typeof message === "string" ? message : new TextDecoder().decode(message);
-      const frame: MessageFrame = JSON.parse(data);
+      // Parse MessagePack frame
+      const raw = typeof message === "string"
+        ? new TextEncoder().encode(message)
+        : new Uint8Array(message);
+
+      const frame = decode(raw) as Frame;
 
       switch (frame.type) {
         case "msg":
@@ -81,20 +75,28 @@ export class UserSession {
           await this.handleKeyRequest(frame, ws);
           break;
         case "ack":
-          // TODO: mark as acked
           break;
         default:
           this.sendError(ws, "internal_error", `unknown frame type: ${frame.type}`);
       }
     } catch (e) {
-      // Parse error — ignore malformed frames
+      // Parse error — try JSON fallback
+      try {
+        const text = typeof message === "string" ? message : new TextDecoder().decode(message);
+        const frame = JSON.parse(text) as Frame;
+        switch (frame.type) {
+          case "msg": await this.handleMessage(frame); break;
+          case "key_request": await this.handleKeyRequest(frame, ws); break;
+        }
+      } catch {
+        // Truly malformed — ignore
+      }
     }
   }
 
-  async handleMessage(msg: MessageFrame) {
+  async handleMessage(msg: Frame) {
     if (!msg.source_hash || !msg.target_hash) return;
 
-    // Verify source matches this session
     if (msg.source_hash !== this.binHash) {
       for (const ws of this.state.getWebSockets()) {
         this.sendError(ws, "auth_failed", "source_hash does not match session");
@@ -102,7 +104,6 @@ export class UserSession {
       return;
     }
 
-    // Check match
     const matched = await this.isMatched(msg.source_hash, msg.target_hash);
     if (!matched) {
       for (const ws of this.state.getWebSockets()) {
@@ -111,14 +112,13 @@ export class UserSession {
       return;
     }
 
-    // Generate msg_id
     const msgId = crypto.randomUUID().replace(/-/g, "").substring(0, 32);
 
     // Forward to target DO
     const targetId = this.env.USER_SESSION.idFromName(msg.target_hash);
     const targetStub = this.env.USER_SESSION.get(targetId);
 
-    const outMsg: MessageFrame = {
+    const outFrame: Frame = {
       type: "msg",
       msg_id: msgId,
       source_hash: msg.source_hash,
@@ -128,26 +128,27 @@ export class UserSession {
       encrypted: msg.encrypted,
     };
 
+    // Encode as MessagePack for the target client
+    const encoded = encode(outFrame);
+
     await targetStub.fetch(new Request("http://internal/forward", {
       method: "POST",
-      body: JSON.stringify(outMsg),
+      body: encoded,
     }));
   }
 
-  async handleKeyRequest(req: MessageFrame, ws: WebSocket) {
+  async handleKeyRequest(req: Frame, ws: WebSocket) {
     if (!req.target_hash) {
       this.sendError(ws, "internal_error", "missing target_hash");
       return;
     }
 
-    // Check match
     const matched = await this.isMatched(this.binHash, req.target_hash);
     if (!matched) {
       this.sendError(ws, "not_matched", "not matched with target");
       return;
     }
 
-    // Look up target's pubkey from KV
     const userData = await this.env.RELAY_KV.get(`user:${req.target_hash}`, "json") as {
       pubkey: string;
     } | null;
@@ -157,12 +158,13 @@ export class UserSession {
       return;
     }
 
-    const response = JSON.stringify({
+    // Respond with MessagePack
+    const response: Frame = {
       type: "key_response",
       target_hash: req.target_hash,
       pubkey: userData.pubkey,
-    });
-    ws.send(response);
+    };
+    ws.send(encode(response));
   }
 
   async isMatched(hash1: string, hash2: string): Promise<boolean> {
@@ -172,7 +174,10 @@ export class UserSession {
   }
 
   sendError(ws: WebSocket, code: string, message: string) {
-    ws.send(JSON.stringify({ type: "error", code, message }));
+    const frame: Frame = { type: "error" };
+    (frame as any).code = code;
+    (frame as any).message = message;
+    ws.send(encode(frame));
   }
 
   async webSocketClose() {}
