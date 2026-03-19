@@ -23,18 +23,10 @@ func main() {
 		log.Fatal("POOL_SALT is required")
 	}
 
-	dbPath := os.Getenv("DB_PATH")
-	if dbPath == "" {
-		dbPath = "/data/relay.db"
-	}
-
 	srv := relay.NewServer(relay.ServerConfig{
 		PoolURL: poolURL,
 		Salt:    salt,
-		DBPath:  dbPath,
 	})
-
-	log.Printf("relay: users=%d matches=%d", srv.Store().UserCount(), srv.Store().MatchCount())
 
 	if err := srv.ListenAndServe(relay.Addr(port)); err != nil {
 		log.Fatal(err)
