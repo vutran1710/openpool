@@ -1,14 +1,13 @@
 package relay
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
 	"sync"
 	"testing"
-
-	"github.com/vutran1710/dating-dev/internal/crypto"
-	"github.com/vutran1710/dating-dev/internal/protocol"
+	"time"
 )
 
 func genTestKeys() (ed25519.PublicKey, ed25519.PrivateKey) {
@@ -21,7 +20,7 @@ func TestNewClient_FieldMapping(t *testing.T) {
 	cfg := Config{
 		RelayURL:  "ws://localhost:8081",
 		PoolURL:   "owner/pool",
-		BinHash:   "abcd1234abcd1234",
+		IDHash:    "abcd1234abcd1234",
 		MatchHash: "efgh5678efgh5678",
 		Pub:       pub,
 		Priv:      priv,
@@ -35,8 +34,8 @@ func TestNewClient_FieldMapping(t *testing.T) {
 	if c.poolURL != "owner/pool" {
 		t.Errorf("poolURL = %q", c.poolURL)
 	}
-	if c.binHash != "abcd1234abcd1234" {
-		t.Errorf("binHash = %q", c.binHash)
+	if c.idHash != "abcd1234abcd1234" {
+		t.Errorf("idHash = %q", c.idHash)
 	}
 	if c.matchHash != "efgh5678efgh5678" {
 		t.Errorf("matchHash = %q", c.matchHash)
@@ -47,24 +46,30 @@ func TestNewClient_FieldMapping(t *testing.T) {
 	if c.done == nil {
 		t.Error("done channel should be initialized")
 	}
-}
-
-func TestBinHash_ReturnsConfigValue(t *testing.T) {
-	pub, priv := genTestKeys()
-	c := NewClient(Config{
-		BinHash: "test_bin_hash123",
-		Pub:     pub, Priv: priv,
-	})
-	if c.BinHash() != "test_bin_hash123" {
-		t.Errorf("BinHash() = %q", c.BinHash())
+	if c.keys == nil {
+		t.Error("keys map should be initialized")
+	}
+	if c.peerKeys == nil {
+		t.Error("peerKeys map should be initialized")
 	}
 }
 
-func TestBinHash_EmptyWhenNotSet(t *testing.T) {
+func TestMatchHash_ReturnsConfigValue(t *testing.T) {
+	pub, priv := genTestKeys()
+	c := NewClient(Config{
+		MatchHash: "test_match_hash123",
+		Pub:       pub, Priv: priv,
+	})
+	if c.MatchHash() != "test_match_hash123" {
+		t.Errorf("MatchHash() = %q", c.MatchHash())
+	}
+}
+
+func TestMatchHash_EmptyWhenNotSet(t *testing.T) {
 	pub, priv := genTestKeys()
 	c := NewClient(Config{Pub: pub, Priv: priv})
-	if c.BinHash() != "" {
-		t.Errorf("BinHash should be empty, got %q", c.BinHash())
+	if c.MatchHash() != "" {
+		t.Errorf("MatchHash should be empty, got %q", c.MatchHash())
 	}
 }
 
@@ -117,25 +122,33 @@ func TestClose_ThreadSafe(t *testing.T) {
 	}
 }
 
-func TestSend_NotConnected(t *testing.T) {
+func TestSendMessage_NotConnected(t *testing.T) {
 	pub, priv := genTestKeys()
+	// Need a valid 8-byte hex target hash
+	target := hex.EncodeToString(make([]byte, 8))
 	c := NewClient(Config{
-		BinHash:   "test",
 		MatchHash: "test",
 		Pub:       pub, Priv: priv,
 	})
-	err := c.SendMessagePlain("target", "hello")
+	// Set a peer key so key derivation doesn't fail first
+	peerPub, _ := genTestKeys()
+	c.SetPeerKey(target, peerPub)
+	err := c.SendMessage(target, "hello")
 	if err == nil {
 		t.Fatal("expected error when not connected")
 	}
 }
 
-func TestAck_NotConnected(t *testing.T) {
+func TestSendMessage_NoPeerKey(t *testing.T) {
 	pub, priv := genTestKeys()
-	c := NewClient(Config{Pub: pub, Priv: priv})
-	err := c.AckMessage("msg-1")
+	target := hex.EncodeToString(make([]byte, 8))
+	c := NewClient(Config{
+		MatchHash: "test",
+		Pub:       pub, Priv: priv,
+	})
+	err := c.SendMessage(target, "hello")
 	if err == nil {
-		t.Fatal("expected error when not connected")
+		t.Fatal("expected error when no peer key registered")
 	}
 }
 
@@ -146,66 +159,48 @@ func TestOnMessage_SetCallback(t *testing.T) {
 		t.Error("onMsg should be nil before setting")
 	}
 	called := false
-	c.OnMessage(func(m protocol.Message) { called = true })
+	c.OnMessage(func(senderMatchHash string, plaintext []byte) { called = true })
 	if c.onMsg == nil {
 		t.Error("onMsg should be set")
 	}
-	c.onMsg(protocol.Message{})
+	c.onMsg("sender", []byte("hello"))
 	if !called {
 		t.Error("callback should have been called")
 	}
 }
 
-func TestOnError_SetCallback(t *testing.T) {
+func TestOnControl_SetCallback(t *testing.T) {
 	pub, priv := genTestKeys()
 	c := NewClient(Config{Pub: pub, Priv: priv})
-	if c.onError != nil {
-		t.Error("onError should be nil before setting")
+	if c.onCtrl != nil {
+		t.Error("onCtrl should be nil before setting")
 	}
 	called := false
-	c.OnError(func(e protocol.Error) { called = true })
-	if c.onError == nil {
-		t.Error("onError should be set")
+	c.OnControl(func(msg string) { called = true })
+	if c.onCtrl == nil {
+		t.Error("onCtrl should be set")
 	}
-	c.onError(protocol.Error{})
+	c.onCtrl("queued")
 	if !called {
 		t.Error("callback should have been called")
 	}
 }
 
-func TestGenerateNonce_Length(t *testing.T) {
-	n := generateNonce()
-	if len(n) != 64 {
-		t.Errorf("nonce length = %d, want 64", len(n))
-	}
-}
-
-func TestGenerateNonce_ValidHex(t *testing.T) {
-	n := generateNonce()
-	if _, err := hex.DecodeString(n); err != nil {
-		t.Errorf("nonce should be valid hex: %v", err)
-	}
-}
-
-func TestGenerateNonce_Unique(t *testing.T) {
-	seen := make(map[string]bool)
-	for i := 0; i < 100; i++ {
-		n := generateNonce()
-		if seen[n] {
-			t.Fatalf("duplicate nonce on iteration %d", i)
-		}
-		seen[n] = true
-	}
-}
-
-func TestCryptoSign_VerifiesWithEd25519(t *testing.T) {
+func TestSetPeerKey_StoresKey(t *testing.T) {
 	pub, priv := genTestKeys()
-	nonce := generateNonce()
-	nonceBytes, _ := hex.DecodeString(nonce)
-	sig := crypto.Sign(priv, nonceBytes)
-	sigBytes, _ := hex.DecodeString(sig)
-	if !ed25519.Verify(pub, nonceBytes, sigBytes) {
-		t.Error("crypto.Sign output should verify")
+	c := NewClient(Config{Pub: pub, Priv: priv})
+	peerPub, _ := genTestKeys()
+	c.SetPeerKey("peer_hash", peerPub)
+
+	c.mu.Lock()
+	stored, ok := c.peerKeys["peer_hash"]
+	c.mu.Unlock()
+
+	if !ok {
+		t.Fatal("peer key not stored")
+	}
+	if string(stored) != string(peerPub) {
+		t.Error("stored peer key does not match")
 	}
 }
 
@@ -225,5 +220,24 @@ func TestWsURL_Conversion(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("wsURL(%q) = %q, want %q", tt.input, got, tt.want)
 		}
+	}
+}
+
+func TestConnect_Unreachable(t *testing.T) {
+	pub, priv := genTestKeys()
+	c := NewClient(Config{
+		RelayURL:  "http://127.0.0.1:1",
+		IDHash:    "test_id_hash",
+		MatchHash: "test_match_hash",
+		Pub:       pub, Priv: priv,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err := c.Connect(ctx)
+	if err == nil {
+		c.Close()
+		t.Fatal("expected error for unreachable server")
 	}
 }

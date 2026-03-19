@@ -3,6 +3,8 @@ package cli
 import (
 	"bufio"
 	"context"
+	"crypto/ed25519"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"time"
@@ -11,12 +13,11 @@ import (
 	"github.com/vutran1710/dating-dev/internal/cli/config"
 	relayclient "github.com/vutran1710/dating-dev/internal/cli/relay"
 	"github.com/vutran1710/dating-dev/internal/crypto"
-	"github.com/vutran1710/dating-dev/internal/protocol"
 )
 
 func newChatCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "chat <bin_hash>",
+		Use:   "chat <match_hash>",
 		Short: "Chat with a match via relay",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -34,7 +35,7 @@ func newChatCmd() *cobra.Command {
 				printError("No relay URL configured for this pool.")
 				return nil
 			}
-			if pool.BinHash == "" || pool.MatchHash == "" {
+			if pool.MatchHash == "" {
 				printError("Not registered. Complete registration first.")
 				return nil
 			}
@@ -44,17 +45,32 @@ func newChatCmd() *cobra.Command {
 				return fmt.Errorf("loading keys: %w", err)
 			}
 
-			targetBinHash := args[0]
+			targetMatchHash := args[0]
+
+			idHash := pool.IDHash
+			if idHash == "" {
+				// Fallback: compute from config fields
+				idHash = string(crypto.UserHash(pool.Repo, cfg.User.Provider, cfg.User.ProviderUserID))
+			}
 
 			// Connect to relay
 			client := relayclient.NewClient(relayclient.Config{
 				RelayURL:  pool.RelayURL,
 				PoolURL:   pool.Repo,
-				BinHash:   pool.BinHash,
+				IDHash:    idHash,
 				MatchHash: pool.MatchHash,
 				Pub:       pub,
 				Priv:      priv,
 			})
+
+			// Load peer pubkey: from env (testing) or match notifications
+			if peerPubHex := os.Getenv("PEER_PUB"); peerPubHex != "" {
+				peerPubBytes, err := hex.DecodeString(peerPubHex)
+				if err == nil && len(peerPubBytes) == ed25519.PublicKeySize {
+					client.SetPeerKey(targetMatchHash, ed25519.PublicKey(peerPubBytes))
+				}
+			}
+			// TODO: scan closed interest PRs for match notifications if PEER_PUB not set
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
@@ -67,20 +83,23 @@ func newChatCmd() *cobra.Command {
 
 			printSuccess("Connected!")
 			fmt.Println()
-			printDim(fmt.Sprintf("  Chatting with %s", targetBinHash[:12]+"..."))
+			printDim(fmt.Sprintf("  Chatting with %s", targetMatchHash[:12]+"..."))
 			printDim("  Type a message and press Enter. /exit to leave.")
 			fmt.Println()
 
 			// Handle incoming messages
-			client.OnMessage(func(msg protocol.Message) {
+			client.OnMessage(func(senderMatchHash string, plaintext []byte) {
 				timestamp := time.Now().Format("15:04")
-				sender := msg.SourceHash[:12] + "..."
-				fmt.Printf("\r  %s %s: %s\n", dim.Render("["+timestamp+"]"), brand.Render(sender), msg.Body)
+				sender := senderMatchHash
+				if len(sender) > 12 {
+					sender = sender[:12] + "..."
+				}
+				fmt.Printf("\r  %s %s: %s\n", dim.Render("["+timestamp+"]"), brand.Render(sender), string(plaintext))
 				fmt.Printf("%s ", dim.Render("you>"))
 			})
 
-			client.OnError(func(e protocol.Error) {
-				fmt.Printf("\r  %s %s\n", dim.Render("[error]"), e.Message)
+			client.OnControl(func(msg string) {
+				fmt.Printf("\r  %s %s\n", dim.Render("[relay]"), msg)
 				fmt.Printf("%s ", dim.Render("you>"))
 			})
 
@@ -101,7 +120,7 @@ func newChatCmd() *cobra.Command {
 					continue
 				}
 
-				if err := client.SendMessage(targetBinHash, input); err != nil {
+				if err := client.SendMessage(targetMatchHash, input); err != nil {
 					fmt.Printf("  %s\n", dim.Render("(send failed: "+err.Error()+")"))
 					continue
 				}

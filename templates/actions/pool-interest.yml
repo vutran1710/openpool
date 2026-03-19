@@ -82,12 +82,12 @@ jobs:
 
           # Encrypt match notification for the current PR author
           # → tells them the reciprocal person's bin_hash + greeting
-          AUTHOR_NOTIFICATION=$(./matchcrypt encrypt --user-pubkey "$AUTHOR_PUBKEY" --bin-hash "$RECIP_BIN_HASH" --greeting "$RECIP_GREETING")
+          AUTHOR_NOTIFICATION=$(./matchcrypt encrypt --user-pubkey "$AUTHOR_PUBKEY" --match-hash "$RECIP_MATCH_HASH" --peer-pubkey "$RECIP_PUBKEY" --greeting "$RECIP_GREETING")
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$AUTHOR_NOTIFICATION"
 
           # Encrypt match notification for the reciprocal PR author
           # → tells them the current person's bin_hash + greeting
-          RECIP_NOTIFICATION=$(./matchcrypt encrypt --user-pubkey "$RECIP_PUBKEY" --bin-hash "$AUTHOR_BIN_HASH" --greeting "$AUTHOR_GREETING")
+          RECIP_NOTIFICATION=$(./matchcrypt encrypt --user-pubkey "$RECIP_PUBKEY" --match-hash "$AUTHOR_MATCH_HASH" --peer-pubkey "$AUTHOR_PUBKEY" --greeting "$AUTHOR_GREETING")
           gh pr comment "$RECIP_NUMBER" --repo "$REPO" --body "$RECIP_NOTIFICATION"
 
           # Close both PRs

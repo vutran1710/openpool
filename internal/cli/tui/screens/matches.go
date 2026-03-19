@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -18,8 +19,9 @@ import (
 )
 
 type MatchItem struct {
-	BinHash  string
-	Greeting string
+	MatchHash string
+	Greeting  string
+	PubKey    ed25519.PublicKey
 }
 
 type MatchesFetchedMsg struct {
@@ -29,7 +31,8 @@ type MatchesFetchedMsg struct {
 
 // MatchChatMsg signals user wants to chat with a match.
 type MatchChatMsg struct {
-	BinHash string
+	MatchHash string
+	PubKey    ed25519.PublicKey
 }
 
 type MatchesScreen struct {
@@ -114,16 +117,25 @@ func decryptMatchNotification(body string, priv ed25519.PrivateKey) (*MatchItem,
 		return nil, err
 	}
 	var data struct {
-		MatchedBinHash string `json:"matched_bin_hash"`
-		Greeting       string `json:"greeting"`
+		MatchedMatchHash string `json:"matched_match_hash"`
+		Greeting         string `json:"greeting"`
+		PubKey           string `json:"pubkey"`
 	}
 	if err := json.Unmarshal(plaintext, &data); err != nil {
 		return nil, err
 	}
-	if data.MatchedBinHash == "" {
-		return nil, fmt.Errorf("missing bin_hash")
+	if data.MatchedMatchHash == "" {
+		return nil, fmt.Errorf("missing match_hash")
 	}
-	return &MatchItem{BinHash: data.MatchedBinHash, Greeting: data.Greeting}, nil
+	pubBytes, err := hex.DecodeString(data.PubKey)
+	if err != nil || len(pubBytes) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("invalid pubkey")
+	}
+	return &MatchItem{
+		MatchHash: data.MatchedMatchHash,
+		Greeting:  data.Greeting,
+		PubKey:    ed25519.PublicKey(pubBytes),
+	}, nil
 }
 
 func (s MatchesScreen) Update(msg tea.Msg) (MatchesScreen, tea.Cmd) {
@@ -150,8 +162,9 @@ func (s MatchesScreen) Update(msg tea.Msg) (MatchesScreen, tea.Cmd) {
 			}
 		case "enter":
 			if s.cursor < len(s.matches) {
+				m := s.matches[s.cursor]
 				return s, func() tea.Msg {
-					return MatchChatMsg{BinHash: s.matches[s.cursor].BinHash}
+					return MatchChatMsg{MatchHash: m.MatchHash, PubKey: m.PubKey}
 				}
 			}
 		}
@@ -180,15 +193,20 @@ func (s MatchesScreen) View() string {
 			cursor = theme.BrandStyle.Render("▸ ")
 			nameStyle = theme.BoldStyle
 		}
+		label := m.MatchHash[:16]
 		greeting := m.Greeting
-		if len(greeting) > 40 {
-			greeting = greeting[:37] + "..."
+		if greeting == "" {
+			body += fmt.Sprintf("%s%s\n", cursor, nameStyle.Render(label))
+		} else {
+			if len(greeting) > 40 {
+				greeting = greeting[:37] + "..."
+			}
+			body += fmt.Sprintf("%s%s  %s\n",
+				cursor,
+				nameStyle.Render(label),
+				theme.DimStyle.Render("\""+greeting+"\""),
+			)
 		}
-		body += fmt.Sprintf("%s%s  %s\n",
-			cursor,
-			nameStyle.Render(m.BinHash[:16]),
-			theme.DimStyle.Render("\""+greeting+"\""),
-		)
 	}
 
 	body += "\n" + theme.DimStyle.Render("  enter to chat  ·  ↑↓ navigate")

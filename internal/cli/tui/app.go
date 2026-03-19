@@ -289,9 +289,9 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case screens.MatchChatMsg:
 		a.screen = screenChat
-		a.chat = screens.NewChatScreen(msg.BinHash, a.width, a.height)
+		a.chat = screens.NewChatScreen(msg.MatchHash, a.width, a.height)
 		a.updateHelp()
-		return a, screens.ConnectChatCmd(msg.BinHash)
+		return a, screens.ConnectChatCmd(msg.MatchHash, msg.PubKey)
 
 	case screens.PoolJoinMsg:
 		if msg.Status == "active" {
