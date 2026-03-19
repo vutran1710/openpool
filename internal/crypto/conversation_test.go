@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"testing"
+
+	"golang.org/x/crypto/nacl/secretbox"
 )
 
 func genKeys(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
@@ -268,5 +270,71 @@ func TestSealMessage_EmptyPlaintext(t *testing.T) {
 	}
 	if got != "" {
 		t.Fatalf("expected empty string, got %q", got)
+	}
+}
+
+func TestSealRaw_OpenRaw_Roundtrip(t *testing.T) {
+	key := make([]byte, 32)
+	rand.Read(key)
+	plaintext := []byte("hello world")
+	sealed, err := SealRaw(key, plaintext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sealed[0] != 0x01 {
+		t.Fatalf("version byte")
+	}
+	if len(sealed) < 1+24+secretbox.Overhead {
+		t.Fatal("too short")
+	}
+	opened, err := OpenRaw(key, sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(opened) != "hello world" {
+		t.Fatalf("got %q", opened)
+	}
+}
+
+func TestOpenRaw_WrongKey(t *testing.T) {
+	key1 := make([]byte, 32)
+	key2 := make([]byte, 32)
+	rand.Read(key1)
+	rand.Read(key2)
+	sealed, _ := SealRaw(key1, []byte("secret"))
+	_, err := OpenRaw(key2, sealed)
+	if err == nil {
+		t.Fatal("wrong key should fail")
+	}
+}
+
+func TestSealRaw_InvalidKeyLength(t *testing.T) {
+	_, err := SealRaw([]byte("short"), []byte("data"))
+	if err == nil {
+		t.Fatal("short key should fail")
+	}
+}
+
+func TestOpenRaw_TooShort(t *testing.T) {
+	key := make([]byte, 32)
+	_, err := OpenRaw(key, []byte{0x01, 0x02})
+	if err == nil {
+		t.Fatal("too short should fail")
+	}
+}
+
+func TestSealRaw_EmptyPlaintext(t *testing.T) {
+	key := make([]byte, 32)
+	rand.Read(key)
+	sealed, err := SealRaw(key, []byte{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	opened, err := OpenRaw(key, sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(opened) != 0 {
+		t.Fatal("should be empty")
 	}
 }
