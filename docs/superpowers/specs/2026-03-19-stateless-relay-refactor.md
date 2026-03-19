@@ -281,12 +281,16 @@ type MatchItem struct {
 // New
 type MatchItem struct {
     MatchHash string
-    Greeting  string
+    Greeting  string              // optional — may be empty
     PubKey    ed25519.PublicKey
 }
 ```
 
 `decryptMatchNotification` extracts `{matched_match_hash, greeting, pubkey}` from the encrypted comment body.
+
+**Greeting is optional.** TUI and CLI must handle empty greetings gracefully:
+- Matches list: show `MatchHash[:16]` only (no quote) when greeting is empty
+- Chat command: no greeting display if empty
 
 ## Files Deleted
 
