@@ -2,15 +2,15 @@
 //
 // Decrypt interest PR body:
 //   matchcrypt decrypt --operator-key <hex> --body <base64>
-//   → stdout: JSON {author_bin_hash, author_match_hash, greeting}
+//   -> stdout: JSON {author_bin_hash, author_match_hash, greeting}
 //
 // Encrypt match notification for a user:
-//   matchcrypt encrypt --user-pubkey <hex> --bin-hash <hash> --greeting "message"
-//   → stdout: base64 encrypted blob
+//   matchcrypt encrypt --user-pubkey <hex> --match-hash <hash> --peer-pubkey <hex> --greeting "message"
+//   -> stdout: base64 encrypted blob containing {matched_match_hash, greeting, pubkey}
 //
 // Read pubkey from .bin file:
 //   matchcrypt pubkey --operator-key <hex> --bin-file <path>
-//   → stdout: hex pubkey
+//   -> stdout: hex pubkey
 package main
 
 import (
@@ -67,7 +67,8 @@ func cmdDecrypt() {
 
 func cmdEncrypt() {
 	userPubHex := envOrArg("--user-pubkey", "")
-	binHash := envOrArg("--bin-hash", "")
+	matchHash := envOrArg("--match-hash", "")
+	peerPubHex := envOrArg("--peer-pubkey", "")
 	greeting := envOrArg("--greeting", "")
 
 	userPub, err := hex.DecodeString(userPubHex)
@@ -76,8 +77,9 @@ func cmdEncrypt() {
 	}
 
 	payload, _ := json.Marshal(map[string]string{
-		"matched_bin_hash": binHash,
-		"greeting":         greeting,
+		"matched_match_hash": matchHash,
+		"greeting":           greeting,
+		"pubkey":             peerPubHex,
 	})
 
 	encrypted, err := crypto.Encrypt(ed25519.PublicKey(userPub), payload)
