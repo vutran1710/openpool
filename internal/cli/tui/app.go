@@ -287,6 +287,12 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case screens.DiscoverLikeMsg:
 		return a, sendLike(a.pool, a.registry, msg.TargetMatchHash)
 
+	case screens.MatchChatMsg:
+		a.screen = screenChat
+		a.chat = screens.NewChatScreen(msg.BinHash, a.width, a.height)
+		a.updateHelp()
+		return a, screens.ConnectChatCmd(msg.BinHash)
+
 	case screens.PoolJoinMsg:
 		if msg.Status == "active" {
 			// Activate this pool (set as active)
@@ -459,6 +465,8 @@ func (a app) handleMenuSelect(key string) (tea.Model, tea.Cmd) {
 		return a, screens.LoadDiscoverCmd(a.pool)
 	case "matches":
 		a.screen = screenMatches
+		a.matches = screens.MatchesScreen{Loading: true}
+		return a, screens.LoadMatchesCmd(a.pool)
 	case "pools":
 		a.screen = screenPools
 		a.updateHelp()
@@ -518,7 +526,9 @@ func (a app) handleSubmit(msg components.SubmitMsg) (tea.Model, tea.Cmd) {
 			return a, screens.LoadDiscoverCmd(a.pool)
 		case "/matches":
 			a.screen = screenMatches
+			a.matches = screens.MatchesScreen{Loading: true}
 			a.updateHelp()
+			return a, screens.LoadMatchesCmd(a.pool)
 		case "/pools":
 			a.screen = screenPools
 			a.updateHelp()
@@ -823,33 +833,26 @@ func fetchInbox(poolName, registry string) tea.Cmd {
 		}
 
 		pool := cfg.ActivePool()
-		if pool == nil {
-			return screens.InboxFetchedResult{Err: fmt.Errorf("no active pool")}
+		if pool == nil || pool.MatchHash == "" {
+			return screens.InboxFetchedResult{Err: fmt.Errorf("not registered")}
 		}
 
-		_, priv, err := crypto.LoadKeyPair(config.KeysDir())
+		ghToken, err := resolveGitHubTokenNonInteractive()
 		if err != nil {
-			return screens.InboxFetchedResult{Err: fmt.Errorf("loading keys: %w", err)}
+			return screens.InboxFetchedResult{Err: fmt.Errorf("GitHub auth required")}
 		}
 
-		token, err := cfg.DecryptToken(priv)
-		if err != nil {
-			return screens.InboxFetchedResult{Err: fmt.Errorf("decrypting token: %w", err)}
-		}
-
-		client := gh.NewPool(pool.Repo, token)
-		prs, err := client.ListIncomingLikes(context.Background(), cfg.User.IDHash)
+		client := gh.NewPool(pool.Repo, ghToken)
+		prs, err := client.ListInterestsForMe(context.Background(), pool.MatchHash)
 		if err != nil {
 			return screens.InboxFetchedResult{Err: err}
 		}
 
 		var items []screens.InboxLikeItem
 		for _, pr := range prs {
-			likerHash, encMsg := screens.ParseLikeFromPR(pr)
 			items = append(items, screens.InboxLikeItem{
 				PR:        pr,
-				LikerHash: likerHash,
-				Message:   encMsg,
+				LikerHash: pr.Title, // title is the target match_hash
 			})
 		}
 
