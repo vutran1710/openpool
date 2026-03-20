@@ -354,7 +354,7 @@ func (p *Pool) listPRsByLabel(ctx context.Context, label string) ([]PullRequest,
 
 // PollRegistrationResult polls an issue for the encrypted hash comment.
 // Returns bin_hash and match_hash once found, or error on timeout/failure.
-func (p *Pool) PollRegistrationResult(ctx context.Context, issueNumber int, userPriv ed25519.PrivateKey) (binHash, matchHash string, err error) {
+func (p *Pool) PollRegistrationResult(ctx context.Context, issueNumber int, operatorPub ed25519.PublicKey, userPriv ed25519.PrivateKey) (binHash, matchHash string, err error) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -368,11 +368,12 @@ func (p *Pool) PollRegistrationResult(ctx context.Context, issueNumber int, user
 		// Check comments
 		comments, err := p.client.ListIssueComments(ctx, issueNumber)
 		if err == nil {
-			for _, c := range comments {
+			for i := len(comments) - 1; i >= 0; i-- {
+				c := comments[i]
 				if c.User.Login != "github-actions[bot]" {
 					continue
 				}
-				bin, match, decErr := tryDecryptComment(c.Body, userPriv)
+				bin, match, decErr := tryDecryptComment(c.Body, operatorPub, userPriv)
 				if decErr == nil {
 					return bin, match, nil
 				}
@@ -385,11 +386,12 @@ func (p *Pool) PollRegistrationResult(ctx context.Context, issueNumber int, user
 			// One more attempt — the comment should be there
 			comments, err = p.client.ListIssueComments(ctx, issueNumber)
 			if err == nil {
-				for _, c := range comments {
+				for i := len(comments) - 1; i >= 0; i-- {
+					c := comments[i]
 					if c.User.Login != "github-actions[bot]" {
 						continue
 					}
-					bin, match, decErr := tryDecryptComment(c.Body, userPriv)
+					bin, match, decErr := tryDecryptComment(c.Body, operatorPub, userPriv)
 					if decErr == nil {
 						return bin, match, nil
 					}
@@ -406,16 +408,33 @@ func (p *Pool) PollRegistrationResult(ctx context.Context, issueNumber int, user
 	}
 }
 
-func tryDecryptComment(body string, userPriv ed25519.PrivateKey) (binHash, matchHash string, err error) {
+func tryDecryptComment(body string, operatorPub ed25519.PublicKey, userPriv ed25519.PrivateKey) (binHash, matchHash string, err error) {
 	body = strings.TrimSpace(body)
-	blobBytes, err := base64.StdEncoding.DecodeString(body)
+
+	parts := strings.SplitN(body, ".", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("unsigned comment")
+	}
+
+	ciphertext, err := base64.StdEncoding.DecodeString(parts[0])
+	if err != nil {
+		return "", "", fmt.Errorf("invalid base64: %w", err)
+	}
+
+	sigBytes, err := hex.DecodeString(parts[1])
+	if err != nil || len(sigBytes) != ed25519.SignatureSize {
+		return "", "", fmt.Errorf("invalid signature")
+	}
+
+	if !ed25519.Verify(operatorPub, ciphertext, sigBytes) {
+		return "", "", fmt.Errorf("signature verification failed")
+	}
+
+	plaintext, err := crypto.Decrypt(userPriv, ciphertext)
 	if err != nil {
 		return "", "", err
 	}
-	plaintext, err := crypto.Decrypt(userPriv, blobBytes)
-	if err != nil {
-		return "", "", err
-	}
+
 	var hashes map[string]string
 	if err := msgpack.Unmarshal(plaintext, &hashes); err != nil {
 		return "", "", fmt.Errorf("msgpack decode: %w", err)
@@ -423,7 +442,7 @@ func tryDecryptComment(body string, userPriv ed25519.PrivateKey) (binHash, match
 	bin, ok1 := hashes["bin_hash"]
 	match, ok2 := hashes["match_hash"]
 	if !ok1 || !ok2 {
-		return "", "", fmt.Errorf("missing bin_hash or match_hash in decrypted payload")
+		return "", "", fmt.Errorf("missing bin_hash or match_hash")
 	}
 	return bin, match, nil
 }
