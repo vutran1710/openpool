@@ -116,6 +116,21 @@ Decoded once per call site:
 operatorPub, err := hex.DecodeString(pool.OperatorPubKey)
 ```
 
+## Comment Iteration Order
+
+CLI iterates comments in **reverse order** (newest first, skipping the issue body at index 0). The Action posts its signed comment last (after closing the issue), so the real comment is at the end. This makes the CLI resilient to comment flooding — even with 100 fake comments injected before close, the CLI checks the last comment first and finds the signed one in O(1).
+
+```go
+for i := len(comments) - 1; i >= 0; i-- {
+    result, err := verifyAndDecrypt(comments[i].Body, operatorPub, priv)
+    if err == nil {
+        return result
+    }
+}
+```
+
+The Action should **close the issue first, then post the signed comment** — this way the real comment is always the last one.
+
 ## Migration
 
 Per project convention: **no backward compatibility during pre-launch**. Old unsigned comments are silently skipped. Any pending registrations from before this change must be re-submitted (close old issue, run `pool join` again). Old `.bin` files are unaffected (not signed).
