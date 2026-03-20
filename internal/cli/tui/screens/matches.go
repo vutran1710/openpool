@@ -68,6 +68,12 @@ func LoadMatchesCmd(poolName string) tea.Cmd {
 			return MatchesFetchedMsg{Err: err}
 		}
 
+		operatorPubBytes, err := hex.DecodeString(pool.OperatorPubKey)
+		if err != nil {
+			return MatchesFetchedMsg{Err: fmt.Errorf("invalid operator pubkey")}
+		}
+		operatorPub := ed25519.PublicKey(operatorPubBytes)
+
 		client := gh.NewPool(pool.Repo, ghToken)
 		prs, err := client.Client().ListPullRequests(context.Background(), "closed")
 		if err != nil {
@@ -95,7 +101,7 @@ func LoadMatchesCmd(poolName string) tea.Cmd {
 				if c.User.Login != "github-actions[bot]" {
 					continue
 				}
-				m, err := decryptMatchNotification(c.Body, priv)
+				m, err := decryptMatchNotification(c.Body, operatorPub, priv)
 				if err != nil {
 					continue
 				}
@@ -107,11 +113,28 @@ func LoadMatchesCmd(poolName string) tea.Cmd {
 	}
 }
 
-func decryptMatchNotification(body string, priv ed25519.PrivateKey) (*MatchItem, error) {
-	blobBytes, err := base64.StdEncoding.DecodeString(body)
+func decryptMatchNotification(body string, operatorPub ed25519.PublicKey, priv ed25519.PrivateKey) (*MatchItem, error) {
+	body = strings.TrimSpace(body)
+
+	parts := strings.SplitN(body, ".", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("unsigned comment")
+	}
+
+	blobBytes, err := base64.StdEncoding.DecodeString(parts[0])
 	if err != nil {
 		return nil, err
 	}
+
+	sigBytes, err := hex.DecodeString(parts[1])
+	if err != nil || len(sigBytes) != ed25519.SignatureSize {
+		return nil, fmt.Errorf("invalid signature")
+	}
+
+	if !ed25519.Verify(operatorPub, blobBytes, sigBytes) {
+		return nil, fmt.Errorf("signature verification failed")
+	}
+
 	plaintext, err := crypto.Decrypt(priv, blobBytes)
 	if err != nil {
 		return nil, err
