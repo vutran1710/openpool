@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 
@@ -26,6 +27,11 @@ import (
 )
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "sign" {
+		cmdSign()
+		return
+	}
+
 	poolURL := flag.String("pool-url", "", "pool repo (owner/repo)")
 	provider := flag.String("provider", "github", "auth provider")
 	userID := flag.String("user-id", "", "provider user ID")
@@ -67,6 +73,35 @@ func main() {
 	fmt.Println(binH)
 	fmt.Println(matchH)
 	fmt.Println(base64.StdEncoding.EncodeToString(encrypted))
+}
+
+func cmdSign() {
+	operatorKeyHex := envOrArgSign("--operator-key", "OPERATOR_PRIVATE_KEY")
+	operatorKey, err := hex.DecodeString(operatorKeyHex)
+	if err != nil || len(operatorKey) != ed25519.PrivateKeySize {
+		log.Fatal("invalid operator key (expected 128 hex chars / 64 bytes)")
+	}
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		log.Fatalf("reading stdin: %v", err)
+	}
+	sig := ed25519.Sign(ed25519.PrivateKey(operatorKey), data)
+	fmt.Print(hex.EncodeToString(sig))
+}
+
+// envOrArgSign is like envOrArg but searches from os.Args[2:] (skip "sign" subcommand)
+func envOrArgSign(flag, envVar string) string {
+	for i := 2; i < len(os.Args); i++ {
+		if os.Args[i] == flag && i+1 < len(os.Args) {
+			return os.Args[i+1]
+		}
+	}
+	if envVar != "" {
+		if v := os.Getenv(envVar); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func sha256Short(input string) string {

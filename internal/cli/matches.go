@@ -3,8 +3,10 @@ package cli
 import (
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
@@ -52,6 +54,12 @@ func newMatchesCmd() *cobra.Command {
 				return nil
 			}
 
+			operatorPubBytes, err := hex.DecodeString(pool.OperatorPubKey)
+			if err != nil {
+				return fmt.Errorf("invalid operator pubkey: %w", err)
+			}
+			operatorPub := ed25519.PublicKey(operatorPubBytes)
+
 			client := poolClientWithToken(pool, ghToken)
 
 			// Find closed PRs with label=interest that have match comments
@@ -83,7 +91,7 @@ func newMatchesCmd() *cobra.Command {
 					if c.User.Login != "github-actions[bot]" {
 						continue
 					}
-					m, err := decryptMatchComment(c.Body, priv)
+					m, err := decryptMatchComment(c.Body, operatorPub, priv)
 					if err != nil {
 						continue
 					}
@@ -114,11 +122,28 @@ func newMatchesCmd() *cobra.Command {
 	}
 }
 
-func decryptMatchComment(body string, priv ed25519.PrivateKey) (*Match, error) {
-	blobBytes, err := base64.StdEncoding.DecodeString(body)
+func decryptMatchComment(body string, operatorPub ed25519.PublicKey, priv ed25519.PrivateKey) (*Match, error) {
+	body = strings.TrimSpace(body)
+
+	parts := strings.SplitN(body, ".", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("unsigned comment")
+	}
+
+	blobBytes, err := base64.StdEncoding.DecodeString(parts[0])
 	if err != nil {
 		return nil, err
 	}
+
+	sigBytes, err := hex.DecodeString(parts[1])
+	if err != nil || len(sigBytes) != ed25519.SignatureSize {
+		return nil, fmt.Errorf("invalid signature")
+	}
+
+	if !ed25519.Verify(operatorPub, blobBytes, sigBytes) {
+		return nil, fmt.Errorf("signature verification failed")
+	}
+
 	plaintext, err := crypto.Decrypt(priv, blobBytes)
 	if err != nil {
 		return nil, err

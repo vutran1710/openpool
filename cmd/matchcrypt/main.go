@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 
@@ -38,6 +39,8 @@ func main() {
 		cmdEncrypt()
 	case "pubkey":
 		cmdPubkey()
+	case "sign":
+		cmdSign()
 	default:
 		log.Fatalf("unknown command: %s", os.Args[1])
 	}
@@ -111,6 +114,20 @@ func cmdPubkey() {
 	pubkey := binData[:32]
 
 	fmt.Print(hex.EncodeToString(pubkey))
+}
+
+func cmdSign() {
+	operatorKeyHex := envOrArg("--operator-key", "OPERATOR_PRIVATE_KEY")
+	operatorKey, err := hex.DecodeString(operatorKeyHex)
+	if err != nil || len(operatorKey) != ed25519.PrivateKeySize {
+		log.Fatal("invalid operator key (expected 128 hex chars / 64 bytes)")
+	}
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		log.Fatalf("reading stdin: %v", err)
+	}
+	sig := ed25519.Sign(ed25519.PrivateKey(operatorKey), data)
+	fmt.Print(hex.EncodeToString(sig))
 }
 
 // envOrArg looks for --flag in os.Args, falls back to env var.
