@@ -332,6 +332,30 @@ Private attributes are never in `index.db`, never on the relay, never visible to
 
 ---
 
+### 11. Schema Migration Rules
+
+Schema changes are validated against existing profiles. Breaking changes are rejected (or require explicit migration).
+
+**Non-breaking (allowed — seamless):**
+- Add optional field (`required: false`) — existing profiles valid without it
+- Relax `required → optional` — existing profiles still valid
+- Add new values to an enum — existing values still valid
+- Change matcher rules (weights, tolerances, scoring) — only triggers re-index
+- Change pool metadata (relay URL, ranking strategy) — client picks up on sync
+- Change visibility `public → private` — field dropped from index, safe
+
+**Breaking (rejected):**
+- Remove a field — existing profiles reference it
+- Add a required field — existing profiles don't have it
+- Change field type (e.g., `enum → range`) — existing values incompatible
+- Remove enum values that profiles use — existing values become invalid
+- Rename a field — existing profiles use old name
+- Change visibility `private → public` — privacy violation (users registered expecting privacy) + requires re-index of all encrypted profiles
+
+Validation can be a GitHub Action that diffs `schema.yaml` against the previous committed version and rejects PRs with breaking changes. Existing `.bin` files are the source of truth — if they'd become invalid under the new schema, the change is breaking.
+
+---
+
 ## Examples
 
 ### Dating Pool
