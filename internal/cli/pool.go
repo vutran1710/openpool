@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -389,7 +390,7 @@ Prerequisites:
 			pollCtx, pollCancel := context.WithTimeout(ctx, 5*time.Minute)
 			defer pollCancel()
 
-			binHash, matchHash, err := poolGH.PollRegistrationResult(pollCtx, issueNumber, priv)
+			binHash, matchHash, err := poolGH.PollRegistrationResult(pollCtx, issueNumber, ed25519.PublicKey(operatorPubBytes), priv)
 			if err != nil {
 				printWarning("Could not retrieve hashes: " + err.Error())
 				printDim("  Run pool join again to retry polling.")
@@ -495,7 +496,12 @@ func newPoolListCmd() *cobra.Command {
 						if tokenErr == nil {
 							poolGH := gh.NewPool(p.Repo, ghToken)
 							pollCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-							binHash, matchHash, pollErr := poolGH.PollRegistrationResult(pollCtx, p.PendingIssue, priv)
+							opPub, opErr := hex.DecodeString(p.OperatorPubKey)
+							if opErr != nil {
+								cancel()
+								continue
+							}
+							binHash, matchHash, pollErr := poolGH.PollRegistrationResult(pollCtx, p.PendingIssue, ed25519.PublicKey(opPub), priv)
 							cancel()
 							if pollErr == nil {
 								cfg.Pools[i].IDHash = string(crypto.UserHash(cfg.Pools[i].Repo, cfg.User.Provider, cfg.User.ProviderUserID))
