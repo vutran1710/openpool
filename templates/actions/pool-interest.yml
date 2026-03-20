@@ -80,18 +80,17 @@ jobs:
             sleep 2
           done
 
-          # Encrypt match notification for the current PR author
-          # → tells them the reciprocal person's bin_hash + greeting
+          # Encrypt + sign match notifications
           AUTHOR_NOTIFICATION=$(./matchcrypt encrypt --user-pubkey "$AUTHOR_PUBKEY" --match-hash "$RECIP_MATCH_HASH" --peer-pubkey "$RECIP_PUBKEY" --greeting "$RECIP_GREETING")
-          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$AUTHOR_NOTIFICATION"
+          AUTHOR_SIG=$(echo -n "$AUTHOR_NOTIFICATION" | base64 -d | ./matchcrypt sign --operator-key "$OPERATOR_PRIVATE_KEY")
 
-          # Encrypt match notification for the reciprocal PR author
-          # → tells them the current person's bin_hash + greeting
           RECIP_NOTIFICATION=$(./matchcrypt encrypt --user-pubkey "$RECIP_PUBKEY" --match-hash "$AUTHOR_MATCH_HASH" --peer-pubkey "$AUTHOR_PUBKEY" --greeting "$AUTHOR_GREETING")
-          gh pr comment "$RECIP_NUMBER" --repo "$REPO" --body "$RECIP_NOTIFICATION"
+          RECIP_SIG=$(echo -n "$RECIP_NOTIFICATION" | base64 -d | ./matchcrypt sign --operator-key "$OPERATOR_PRIVATE_KEY")
 
-          # Close both PRs
+          # Close PRs first, then post signed comments (close-before-comment ordering)
           gh pr close "$PR_NUMBER" --repo "$REPO"
           gh pr close "$RECIP_NUMBER" --repo "$REPO"
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "${AUTHOR_NOTIFICATION}.${AUTHOR_SIG}"
+          gh pr comment "$RECIP_NUMBER" --repo "$REPO" --body "${RECIP_NOTIFICATION}.${RECIP_SIG}"
 
           echo "Match created and both parties notified!"
