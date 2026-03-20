@@ -4,22 +4,34 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"testing"
 
 	"github.com/vutran1710/dating-dev/internal/crypto"
 )
 
+// signedComment creates a comment in the new format: base64(ciphertext).hex(signature)
+func signedComment(t *testing.T, operatorPriv ed25519.PrivateKey, userPub ed25519.PublicKey, payload []byte) string {
+	t.Helper()
+	encrypted, err := crypto.Encrypt(userPub, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig := ed25519.Sign(operatorPriv, encrypted)
+	return base64.StdEncoding.EncodeToString(encrypted) + "." + hex.EncodeToString(sig)
+}
+
 func TestDecryptMatchComment_Valid(t *testing.T) {
-	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	operatorPub, operatorPriv, _ := ed25519.GenerateKey(rand.Reader)
+	userPub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	payload, _ := json.Marshal(map[string]string{
 		"matched_bin_hash": "target_bin_hash1",
 		"greeting":         "Hello!",
 	})
-	encrypted, _ := crypto.Encrypt(pub, payload)
-	body := base64.StdEncoding.EncodeToString(encrypted)
+	body := signedComment(t, operatorPriv, userPub, payload)
 
-	m, err := decryptMatchComment(body, priv)
+	m, err := decryptMatchComment(body, operatorPub, priv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,46 +43,49 @@ func TestDecryptMatchComment_Valid(t *testing.T) {
 	}
 }
 
-func TestDecryptMatchComment_WrongKey(t *testing.T) {
-	pub, _, _ := ed25519.GenerateKey(rand.Reader)
-	_, wrongPriv, _ := ed25519.GenerateKey(rand.Reader)
-	payload, _ := json.Marshal(map[string]string{"matched_bin_hash": "x"})
-	encrypted, _ := crypto.Encrypt(pub, payload)
-	body := base64.StdEncoding.EncodeToString(encrypted)
+func TestDecryptMatchComment_ForgedSignature(t *testing.T) {
+	operatorPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	userPub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	_, attackerPriv, _ := ed25519.GenerateKey(rand.Reader)
 
-	_, err := decryptMatchComment(body, wrongPriv)
+	payload, _ := json.Marshal(map[string]string{"matched_bin_hash": "evil"})
+	body := signedComment(t, attackerPriv, userPub, payload) // signed by attacker, not operator
+
+	_, err := decryptMatchComment(body, operatorPub, priv)
 	if err == nil {
-		t.Fatal("expected error with wrong key")
+		t.Fatal("forged signature should be rejected")
 	}
 }
 
-func TestDecryptMatchComment_InvalidBase64(t *testing.T) {
+func TestDecryptMatchComment_UnsignedComment(t *testing.T) {
+	operatorPub, _, _ := ed25519.GenerateKey(rand.Reader)
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
-	_, err := decryptMatchComment("not-base64!!!", priv)
+
+	_, err := decryptMatchComment("c29tZWJhc2U2NA==", operatorPub, priv)
 	if err == nil {
-		t.Fatal("expected error for invalid base64")
+		t.Fatal("unsigned comment should be rejected")
 	}
 }
 
 func TestDecryptMatchComment_MissingBinHash(t *testing.T) {
-	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	operatorPub, operatorPriv, _ := ed25519.GenerateKey(rand.Reader)
+	userPub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	payload, _ := json.Marshal(map[string]string{"greeting": "hi"})
-	encrypted, _ := crypto.Encrypt(pub, payload)
-	body := base64.StdEncoding.EncodeToString(encrypted)
+	body := signedComment(t, operatorPriv, userPub, payload)
 
-	_, err := decryptMatchComment(body, priv)
+	_, err := decryptMatchComment(body, operatorPub, priv)
 	if err == nil {
 		t.Fatal("expected error for missing bin_hash")
 	}
 }
 
 func TestDecryptMatchComment_EmptyGreeting(t *testing.T) {
-	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	operatorPub, operatorPriv, _ := ed25519.GenerateKey(rand.Reader)
+	userPub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	payload, _ := json.Marshal(map[string]string{"matched_bin_hash": "abc", "greeting": ""})
-	encrypted, _ := crypto.Encrypt(pub, payload)
-	body := base64.StdEncoding.EncodeToString(encrypted)
+	body := signedComment(t, operatorPriv, userPub, payload)
 
-	m, err := decryptMatchComment(body, priv)
+	m, err := decryptMatchComment(body, operatorPub, priv)
 	if err != nil {
 		t.Fatal(err)
 	}
