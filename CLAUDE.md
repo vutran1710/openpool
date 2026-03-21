@@ -20,19 +20,22 @@ cmd/dating/       → CLI entry point
 cmd/relay/        → Per-pool WebSocket relay server
 cmd/regcrypt/     → Registration hash tool (used by GitHub Actions)
 cmd/indexer/      → Profile indexer (cron, builds index.pack)
-cmd/matchcrypt/   → Match Action crypto tool (decrypt PR, encrypt notification, extract pubkey)
+cmd/matchcrypt/   → Match Action crypto tool (decrypt, encrypt, sign, match)
 internal/
   cli/            → CLI commands + TUI app
+  cli/chat/       → ChatClient + ConversationDB (SQLite message persistence)
   cli/svc/        → Service interfaces (dependency injection)
   cli/tui/        → Bubbletea screens, components, theme
   cli/config/     → Config file management
   crypto/         → Encryption, signing, TOTP, key derivation
-  github/         → GitHub API client, pool/registry operations, profile types
+  github/         → GitHubClient interface (CLIClient + HTTPClient), pool operations
   gitrepo/        → Git clone management, raw content fetcher
+  limits/         → Payload size constants
+  message/        → Structured message format (Format/Parse for openpool blocks)
   relay/          → Relay server (stateless TOTP auth, hub, sessions, GitHub cache)
   debug/          → Debug logger (DEBUG=1)
 templates/
-  actions/        → GitHub Action templates for pool repos
+  actions/        → GitHub Action templates for pool repos (thin wrappers)
 ```
 
 ## Key Concepts
@@ -97,9 +100,41 @@ When a mutual match is detected, the GitHub Action encrypts a notification to ea
 ### Discovery & Matching Flow
 
 1. **Discovery**: Users browse `.bin` files (keyed by bin_hash), decrypt profiles with operator key
-2. **Interest**: User creates a PR with `title=<target_match_hash>`, label=`interest`, encrypted body
-3. **Mutual match**: GitHub Action detects both directions, posts encrypted notifications with peer pubkeys
+2. **Interest**: User creates an Issue with `title=<target_match_hash>`, `label=interest`, encrypted body
+3. **Mutual match**: GitHub Action detects both directions, posts encrypted notifications with peer pubkeys, closes + locks both issues
 4. **Chat**: `dating chat <match_hash>` — user identifies peers by match_hash (not bin_hash)
+
+### Message Format
+
+All structured content (issues, comments) uses the `message` package:
+
+```
+<!-- openpool:{block_type} -->
+```​
+{content}
+```​
+```
+
+Block types: `registration-request`, `registration`, `interest`, `match`, `error`.
+Parsed by `message.Parse(raw)`, created by `message.Format(blockType, content)`.
+
+### ChatClient & Message Persistence
+
+`internal/cli/chat/` provides:
+- `ConversationDB` — SQLite at `~/.dating/conversations.db` (messages, conversations, peer_keys tables)
+- `ChatClient` — composes relay client + DB. Handles send, receive, history, mark read, peer key storage.
+
+Screens are pure views — they don't touch the relay or DB directly. ChatClient handles all logic.
+The TUI connects to the relay on startup (background). Incoming messages persist and update the conversations panel in real-time.
+The CLI `dating chat` command also uses ChatClient for persistence.
+
+### GitHub Client
+
+`internal/github/` has a `GitHubClient` interface with two implementations:
+- `CLIClient` — shells out to `gh` CLI (used by Action tools + CLI when `gh` is available)
+- `HTTPClient` — direct HTTP with PAT (fallback)
+
+`NewCLIOrHTTP(repo, token)` prefers CLI, falls back to HTTP.
 
 ### Schema-Driven Matching
 
@@ -119,6 +154,8 @@ Operator-defined weights are private (not in schema). Ranking uses tier-shuffled
 ### Code Style
 
 - No unnecessary abstractions — three similar lines is better than a premature helper
+- Single responsibility — functions do one thing. Don't jam fetch + parse + verify + decrypt into one function. Compose small functions.
+- Separate view from logic (React philosophy) — TUI screens are pure views, logic lives in dedicated classes (ChatClient, ConversationDB). Screens never import relay, DB, or crypto directly.
 - No backward compatibility during pre-launch — delete old code, don't maintain fallbacks
 - CLI commands must be fully scriptable — every interactive prompt needs a flag/env var alternative
 - Interfaces live in `internal/cli/svc/svc.go` — single source of truth
@@ -244,7 +281,8 @@ Key components:
 ### Wire Format
 
 - **Binary frames** (chat messages): `[target_match_hash_8B][ciphertext]` — relay prepends sender's match_hash when forwarding
-- **Text frames** (control): `queued`, `not matched`, `match check failed`, `queue full`, `unknown user`
+- **Text frames** (control): `queued`, `not matched`, `match check failed`, `queue full`, `frame too large`, `unknown user`
+- **Size limits**: 8 KB max binary frame, 4 KB max chat plaintext
 - Encryption: `crypto.SealRaw`/`crypto.OpenRaw` (NaCl secretbox, raw bytes — no base64)
 
 ### Endpoints
@@ -274,9 +312,11 @@ Three Actions in `templates/actions/` — deployed to each pool repo:
 
 | Action | Trigger | Purpose |
 |--------|---------|---------|
-| `pool-register.yml` | Issue opened | Runs `regcrypt`, commits `.bin`, posts encrypted hashes |
+| `pool-register.yml` | Issue opened with `registration` label | `./regcrypt register` — one-line, all logic in Go |
 | `pool-indexer.yml` | Cron (every 5 min) | Runs `indexer --rebuild`, commits `index.pack` |
-| `pool-interest.yml` | PR opened with `interest` label | Runs `matchcrypt`, detects mutual matches, posts encrypted notifications |
+| `pool-interest.yml` | Issue opened with `interest` label | `./matchcrypt match` — one-line, all logic in Go |
+
+Action templates are thin wrappers — download binary + run. All parsing, crypto, git, and GitHub operations happen inside the Go tools. Issues are locked after processing to prevent re-open attacks.
 
 ### Indexing & Discovery
 
