@@ -25,10 +25,20 @@ type Branch struct {
 	Ref string `json:"ref"`
 }
 
+type User struct {
+	Login string `json:"login"`
+	ID    int    `json:"id"`
+}
+
 type Issue struct {
-	Number      int    `json:"number"`
-	State       string `json:"state"`
-	StateReason string `json:"state_reason"`
+	Number      int       `json:"number"`
+	Title       string    `json:"title"`
+	Body        string    `json:"body"`
+	State       string    `json:"state"`
+	StateReason string    `json:"state_reason"`
+	Labels      []Label   `json:"labels"`
+	User        User      `json:"user"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type PoolManifest struct {
