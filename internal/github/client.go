@@ -12,14 +12,14 @@ import (
 
 const defaultHTTPTimeout = 30 * time.Second
 
-type Client struct {
+type HTTPClient struct {
 	token      string
 	repo       string
 	httpClient *http.Client
 }
 
-func NewClient(repo, token string) *Client {
-	return &Client{
+func NewHTTP(repo, token string) *HTTPClient {
+	return &HTTPClient{
 		token:      token,
 		repo:       NormalizeRepo(repo),
 		httpClient: &http.Client{Timeout: defaultHTTPTimeout},
@@ -50,11 +50,11 @@ func NormalizeRepo(input string) string {
 	return s
 }
 
-func (c *Client) apiURL(path string) string {
+func (c *HTTPClient) apiURL(path string) string {
 	return fmt.Sprintf("https://api.github.com/repos/%s%s", c.repo, path)
 }
 
-func (c *Client) do(ctx context.Context, method, url string, body io.Reader) (*http.Response, error) {
+func (c *HTTPClient) do(ctx context.Context, method, url string, body io.Reader) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
@@ -69,7 +69,7 @@ func (c *Client) do(ctx context.Context, method, url string, body io.Reader) (*h
 	return c.httpClient.Do(req)
 }
 
-func (c *Client) GetFile(ctx context.Context, path string) ([]byte, error) {
+func (c *HTTPClient) GetFile(ctx context.Context, path string) ([]byte, error) {
 	resp, err := c.do(ctx, "GET", c.apiURL("/contents/"+path), nil)
 	if err != nil {
 		return nil, err
@@ -98,7 +98,7 @@ func (c *Client) GetFile(ctx context.Context, path string) ([]byte, error) {
 	return decodeBase64(file.Content)
 }
 
-func (c *Client) ListDir(ctx context.Context, path string) ([]string, error) {
+func (c *HTTPClient) ListDir(ctx context.Context, path string) ([]string, error) {
 	resp, err := c.do(ctx, "GET", c.apiURL("/contents/"+path), nil)
 	if err != nil {
 		return nil, err
@@ -124,7 +124,7 @@ func (c *Client) ListDir(ctx context.Context, path string) ([]string, error) {
 	return names, nil
 }
 
-func (c *Client) TriggerWorkflow(ctx context.Context, workflowFile string, inputs map[string]string) error {
+func (c *HTTPClient) TriggerWorkflow(ctx context.Context, workflowFile string, inputs map[string]string) error {
 	payload := map[string]any{
 		"ref":    "main",
 		"inputs": inputs,
@@ -150,7 +150,7 @@ func (c *Client) TriggerWorkflow(ctx context.Context, workflowFile string, input
 	return nil
 }
 
-func (c *Client) CreateIssue(ctx context.Context, title, body string, labels []string) (int, error) {
+func (c *HTTPClient) CreateIssue(ctx context.Context, title, body string, labels []string) (int, error) {
 	payload := map[string]any{
 		"title": title,
 		"body":  body,
@@ -183,7 +183,7 @@ func (c *Client) CreateIssue(ctx context.Context, title, body string, labels []s
 	return result.Number, nil
 }
 
-func (c *Client) ListPullRequests(ctx context.Context, state string) ([]PullRequest, error) {
+func (c *HTTPClient) ListPullRequests(ctx context.Context, state string) ([]PullRequest, error) {
 	url := c.apiURL("/pulls?state=" + state + "&per_page=100")
 	resp, err := c.do(ctx, "GET", url, nil)
 	if err != nil {
@@ -198,7 +198,7 @@ func (c *Client) ListPullRequests(ctx context.Context, state string) ([]PullRequ
 	return prs, nil
 }
 
-func (c *Client) GetIssue(ctx context.Context, number int) (*Issue, error) {
+func (c *HTTPClient) GetIssue(ctx context.Context, number int) (*Issue, error) {
 	url := c.apiURL(fmt.Sprintf("/issues/%d", number))
 	resp, err := c.do(ctx, "GET", url, nil)
 	if err != nil {
@@ -217,16 +217,8 @@ func (c *Client) GetIssue(ctx context.Context, number int) (*Issue, error) {
 	return &issue, nil
 }
 
-// IssueComment represents a GitHub issue comment.
-type IssueComment struct {
-	Body string `json:"body"`
-	User struct {
-		Login string `json:"login"`
-	} `json:"user"`
-}
-
 // ListIssueComments returns all comments on an issue.
-func (c *Client) ListIssueComments(ctx context.Context, number int) ([]IssueComment, error) {
+func (c *HTTPClient) ListIssueComments(ctx context.Context, number int) ([]IssueComment, error) {
 	url := c.apiURL(fmt.Sprintf("/issues/%d/comments", number))
 	resp, err := c.do(ctx, "GET", url, nil)
 	if err != nil {
@@ -245,7 +237,7 @@ func (c *Client) ListIssueComments(ctx context.Context, number int) ([]IssueComm
 	return comments, nil
 }
 
-func (c *Client) StarRepo(ctx context.Context) error {
+func (c *HTTPClient) StarRepo(ctx context.Context) error {
 	url := fmt.Sprintf("https://api.github.com/user/starred/%s", c.repo)
 	resp, err := c.do(ctx, "PUT", url, nil)
 	if err != nil {
@@ -254,3 +246,57 @@ func (c *Client) StarRepo(ctx context.Context) error {
 	defer resp.Body.Close()
 	return nil
 }
+
+// CloseIssue closes an issue with the given reason ("completed" or "not_planned").
+func (c *HTTPClient) CloseIssue(ctx context.Context, number int, reason string) error {
+	payload := map[string]string{
+		"state":        "closed",
+		"state_reason": reason,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshaling payload: %w", err)
+	}
+
+	url := c.apiURL(fmt.Sprintf("/issues/%d", number))
+	resp, err := c.do(ctx, "PATCH", url, strings.NewReader(string(data)))
+	if err != nil {
+		return fmt.Errorf("closing issue: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("close issue failed (%d): %s", resp.StatusCode, body)
+	}
+	return nil
+}
+
+// CommentIssue adds a comment to an issue.
+func (c *HTTPClient) CommentIssue(ctx context.Context, number int, body string) error {
+	payload, err := json.Marshal(map[string]string{"body": body})
+	if err != nil {
+		return fmt.Errorf("marshaling payload: %w", err)
+	}
+
+	url := c.apiURL(fmt.Sprintf("/issues/%d/comments", number))
+	resp, err := c.do(ctx, "POST", url, strings.NewReader(string(payload)))
+	if err != nil {
+		return fmt.Errorf("commenting on issue: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 201 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("comment failed (%d): %s", resp.StatusCode, respBody)
+	}
+	return nil
+}
+
+// CommentPR adds a comment to a pull request (uses the issues API).
+func (c *HTTPClient) CommentPR(ctx context.Context, prNumber int, body string) error {
+	return c.CommentIssue(ctx, prNumber, body)
+}
+
+// Compile-time check: HTTPClient implements GitHubClient.
+var _ GitHubClient = (*HTTPClient)(nil)

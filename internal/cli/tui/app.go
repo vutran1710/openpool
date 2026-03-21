@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -837,12 +836,12 @@ func fetchInbox(poolName, registry string) tea.Cmd {
 			return screens.InboxFetchedResult{Err: fmt.Errorf("not registered")}
 		}
 
-		ghToken, err := resolveGitHubTokenNonInteractive()
+		ghToken, err := gh.GetCLIToken()
 		if err != nil {
 			return screens.InboxFetchedResult{Err: fmt.Errorf("GitHub auth required")}
 		}
 
-		client := gh.NewPool(pool.Repo, ghToken)
+		client := gh.NewPoolWithClient(gh.NewCLIOrHTTP(pool.Repo, ghToken))
 		prs, err := client.ListInterestsForMe(context.Background(), pool.MatchHash)
 		if err != nil {
 			return screens.InboxFetchedResult{Err: err}
@@ -878,7 +877,7 @@ func acceptLike(poolName string, prNumber int) tea.Cmd {
 		if err != nil {
 			return screens.InboxActionResult{Accepted: true, Err: err}
 		}
-		client := gh.NewPool(pool.Repo, token)
+		client := gh.NewPoolWithClient(gh.NewCLIOrHTTP(pool.Repo, token))
 		err = client.AcceptLike(context.Background(), prNumber)
 		return screens.InboxActionResult{Accepted: true, Err: err}
 	}
@@ -902,7 +901,7 @@ func rejectLike(poolName string, prNumber int) tea.Cmd {
 		if err != nil {
 			return screens.InboxActionResult{Accepted: false, Err: err}
 		}
-		client := gh.NewPool(pool.Repo, token)
+		client := gh.NewPoolWithClient(gh.NewCLIOrHTTP(pool.Repo, token))
 		err = client.RejectLike(context.Background(), prNumber)
 		return screens.InboxActionResult{Accepted: false, Err: err}
 	}
@@ -979,18 +978,6 @@ func registries(active string) []string {
 	return []string{active}
 }
 
-func resolveGitHubTokenNonInteractive() (string, error) {
-	out, err := exec.Command("gh", "auth", "token").Output()
-	if err != nil {
-		return "", fmt.Errorf("gh auth token failed: %w", err)
-	}
-	token := strings.TrimSpace(string(out))
-	if token == "" {
-		return "", fmt.Errorf("empty token from gh CLI")
-	}
-	return token, nil
-}
-
 func sendLike(poolName, registry, targetMatchHash string) tea.Cmd {
 	return func() tea.Msg {
 		cfg, err := config.Load()
@@ -1008,13 +995,13 @@ func sendLike(poolName, registry, targetMatchHash string) tea.Cmd {
 			return components.ToastMsg{Text: "Not registered in pool", Level: components.ToastError}
 		}
 
-		ghToken, err := resolveGitHubTokenNonInteractive()
+		ghToken, err := gh.GetCLIToken()
 		if err != nil {
 			return components.ToastMsg{Text: "GitHub auth required", Level: components.ToastError}
 		}
 
 		operatorPubBytes, _ := hex.DecodeString(pool.OperatorPubKey)
-		client := gh.NewPool(pool.Repo, ghToken)
+		client := gh.NewPoolWithClient(gh.NewCLIOrHTTP(pool.Repo, ghToken))
 		_, err = client.CreateInterestPR(
 			context.Background(),
 			pool.BinHash,

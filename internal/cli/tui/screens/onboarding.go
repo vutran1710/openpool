@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -477,11 +476,10 @@ func (s OnboardingScreen) welcomeView() string {
 // --- async commands ---
 
 func (s OnboardingScreen) checkGH() tea.Msg {
-	out, err := exec.Command("gh", "auth", "token").Output()
+	token, err := gh.GetCLIToken()
 	if err != nil {
 		return ghCheckResult{err: err}
 	}
-	token := strings.TrimSpace(string(out))
 	return ghCheckResult{token: token}
 }
 

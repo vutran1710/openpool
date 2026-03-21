@@ -18,12 +18,17 @@ import (
 )
 
 type Pool struct {
-	client *Client       // for writes (issues, PRs)
+	client GitHubClient  // for writes (issues, PRs)
 	repo   *gitrepo.Repo // for reads (local clone)
 }
 
 func NewPool(repoURL, token string) *Pool {
-	return &Pool{client: NewClient(repoURL, token)}
+	return &Pool{client: NewHTTP(repoURL, token)}
+}
+
+// NewPoolWithClient creates a Pool using the provided GitHubClient.
+func NewPoolWithClient(client GitHubClient) *Pool {
+	return &Pool{client: client}
 }
 
 // NewLocalPool creates a pool from a local git clone (read-only).
@@ -40,7 +45,7 @@ func ClonePool(repoURL string) (*Pool, error) {
 	return &Pool{repo: repo}, nil
 }
 
-func (p *Pool) Client() *Client {
+func (p *Pool) Client() GitHubClient {
 	return p.client
 }
 

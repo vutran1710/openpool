@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os/exec"
-	"strings"
 	"time"
+
+	gh "github.com/vutran1710/dating-dev/internal/github"
 )
 
 type GitHubIdentity struct {
@@ -23,12 +23,8 @@ var ghHTTPClient = &http.Client{Timeout: 30 * time.Second}
 // resolveGitHubToken tries `gh auth token` first, then asks the user for a PAT.
 func resolveGitHubToken(promptFn func(label string) string) (string, error) {
 	// Try gh CLI first
-	out, err := exec.Command("gh", "auth", "token").Output()
-	if err == nil {
-		token := strings.TrimSpace(string(out))
-		if token != "" {
-			return token, nil
-		}
+	if token, err := gh.GetCLIToken(); err == nil {
+		return token, nil
 	}
 
 	// Fall back to manual input
@@ -42,15 +38,7 @@ func resolveGitHubToken(promptFn func(label string) string) (string, error) {
 // resolveGitHubTokenNonInteractive gets a GitHub token from `gh auth token` only.
 // Returns error if gh CLI is not authenticated — no interactive fallback.
 func resolveGitHubTokenNonInteractive() (string, error) {
-	out, err := exec.Command("gh", "auth", "token").Output()
-	if err != nil {
-		return "", fmt.Errorf("gh auth token failed: %w (run: gh auth login)", err)
-	}
-	token := strings.TrimSpace(string(out))
-	if token == "" {
-		return "", fmt.Errorf("empty token from gh CLI")
-	}
-	return token, nil
+	return gh.GetCLIToken()
 }
 
 // fetchGitHubIdentity fetches the authenticated user's identity from GitHub.

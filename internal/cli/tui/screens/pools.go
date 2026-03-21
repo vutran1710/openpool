@@ -116,7 +116,7 @@ func (s PoolsScreen) fetchPools() tea.Msg {
 			}
 		} else {
 			// Unjoined: use API (no token needed for public repos)
-			pool := gh.NewPool(e.Repo, "")
+			pool := gh.NewPoolWithClient(gh.NewCLIOrHTTP(e.Repo, ""))
 			stats = pool.Stats()
 		}
 

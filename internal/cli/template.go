@@ -10,7 +10,7 @@ import (
 	gh "github.com/vutran1710/dating-dev/internal/github"
 )
 
-func fillPRTemplate(ctx context.Context, client *gh.Client, templateName string) (string, error) {
+func fillPRTemplate(ctx context.Context, client *gh.HTTPClient, templateName string) (string, error) {
 	tmpl, err := client.GetPRTemplate(ctx, templateName)
 	if err != nil || tmpl == nil {
 		return "", nil
