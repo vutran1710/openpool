@@ -2,23 +2,21 @@ package cli
 
 import (
 	"crypto/ed25519"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
 	"github.com/vutran1710/dating-dev/internal/crypto"
-	"github.com/vutran1710/dating-dev/internal/message"
+	gh "github.com/vutran1710/dating-dev/internal/github"
 )
 
-// Match represents a discovered match from a closed interest PR.
+// Match represents a discovered match from a closed interest issue.
 type Match struct {
-	BinHash  string // counterpart's bin_hash for relay connection
-	Greeting string // counterpart's greeting message
-	PRNumber int    // the interest PR number
+	BinHash     string // counterpart's bin_hash for relay connection
+	Greeting    string // counterpart's greeting message
+	IssueNumber int    // the interest issue number
 }
 
 func newMatchesCmd() *cobra.Command {
@@ -63,42 +61,34 @@ func newMatchesCmd() *cobra.Command {
 
 			client := poolClientWithToken(pool, ghToken)
 
-			// Find closed PRs with label=interest that have match comments
-			prs, err := client.Client().ListPullRequests(ctx, "closed")
+			// Find closed issues with label=interest that have match comments
+			issues, err := client.Client().ListIssues(ctx, "closed", "interest")
 			if err != nil {
-				return fmt.Errorf("fetching PRs: %w", err)
+				return fmt.Errorf("fetching issues: %w", err)
 			}
 
 			var matches []Match
-			for _, pr := range prs {
-				hasLabel := false
-				for _, l := range pr.Labels {
-					if l.Name == "interest" {
-						hasLabel = true
-						break
-					}
-				}
-				if !hasLabel {
-					continue
-				}
-
-				// Check for encrypted comment from Action
-				comments, err := client.Client().ListIssueComments(ctx, pr.Number)
+			for _, iss := range issues {
+				signedBlob, err := gh.FindOperatorReplyInIssue(ctx, client.Client(), iss.Number, "match", operatorPub)
 				if err != nil {
 					continue
 				}
-
-				for _, c := range comments {
-					if c.User.Login != "github-actions[bot]" {
-						continue
-					}
-					m, err := decryptMatchComment(c.Body, operatorPub, priv)
-					if err != nil {
-						continue
-					}
-					m.PRNumber = pr.Number
-					matches = append(matches, *m)
+				plaintext, err := crypto.DecryptSignedBlob(signedBlob, priv)
+				if err != nil {
+					continue
 				}
+				var data struct {
+					MatchedBinHash string `json:"matched_bin_hash"`
+					Greeting       string `json:"greeting"`
+				}
+				if err := json.Unmarshal(plaintext, &data); err != nil || data.MatchedBinHash == "" {
+					continue
+				}
+				matches = append(matches, Match{
+					BinHash:    data.MatchedBinHash,
+					Greeting:   data.Greeting,
+					IssueNumber: iss.Number,
+				})
 			}
 
 			if len(matches) == 0 {
@@ -123,47 +113,3 @@ func newMatchesCmd() *cobra.Command {
 	}
 }
 
-func decryptMatchComment(body string, operatorPub ed25519.PublicKey, priv ed25519.PrivateKey) (*Match, error) {
-	blockType, content, err := message.Parse(body)
-	if err != nil || blockType != "match" {
-		return nil, fmt.Errorf("not a match comment")
-	}
-
-	parts := strings.SplitN(content, ".", 2)
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("unsigned comment")
-	}
-
-	blobBytes, err := base64.StdEncoding.DecodeString(parts[0])
-	if err != nil {
-		return nil, err
-	}
-
-	sigBytes, err := hex.DecodeString(parts[1])
-	if err != nil || len(sigBytes) != ed25519.SignatureSize {
-		return nil, fmt.Errorf("invalid signature")
-	}
-
-	if !ed25519.Verify(operatorPub, blobBytes, sigBytes) {
-		return nil, fmt.Errorf("signature verification failed")
-	}
-
-	plaintext, err := crypto.Decrypt(priv, blobBytes)
-	if err != nil {
-		return nil, err
-	}
-	var data struct {
-		MatchedBinHash string `json:"matched_bin_hash"`
-		Greeting       string `json:"greeting"`
-	}
-	if err := json.Unmarshal(plaintext, &data); err != nil {
-		return nil, err
-	}
-	if data.MatchedBinHash == "" {
-		return nil, fmt.Errorf("missing matched_bin_hash")
-	}
-	return &Match{
-		BinHash:  data.MatchedBinHash,
-		Greeting: data.Greeting,
-	}, nil
-}

@@ -136,6 +136,23 @@ func (c *CLIClient) CloseIssue(_ context.Context, number int, reason string) err
 	return err
 }
 
+func (c *CLIClient) ListIssues(_ context.Context, state string, labels ...string) ([]Issue, error) {
+	args := []string{"issue", "list", "--repo", c.repo, "--state", state,
+		"--json", "number,title,body,state,stateReason,labels,createdAt", "--limit", "100"}
+	for _, l := range labels {
+		args = append(args, "--label", l)
+	}
+	out, err := c.gh(args...)
+	if err != nil {
+		return nil, err
+	}
+	var issues []Issue
+	if err := json.Unmarshal(out, &issues); err != nil {
+		return nil, err
+	}
+	return issues, nil
+}
+
 func (c *CLIClient) ListIssueComments(_ context.Context, number int) ([]IssueComment, error) {
 	out, err := c.api("GET", fmt.Sprintf("/issues/%d/comments", number))
 	if err != nil {

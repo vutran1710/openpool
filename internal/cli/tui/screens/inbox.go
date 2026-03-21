@@ -29,21 +29,21 @@ type InboxActionResult struct {
 	Err      error
 }
 
-// InboxLikeItem is a parsed like from a PR.
+// InboxLikeItem is a parsed interest from an issue.
 type InboxLikeItem struct {
-	PR        gh.PullRequest
+	Issue     gh.Issue
 	LikerHash string
 	Message   string
 }
 
 // InboxAcceptMsg is emitted when the user accepts a like.
 type InboxAcceptMsg struct {
-	PRNumber int
+	IssueNumber int
 }
 
 // InboxRejectMsg is emitted when the user rejects a like.
 type InboxRejectMsg struct {
-	PRNumber int
+	IssueNumber int
 }
 
 type InboxScreen struct {
@@ -110,15 +110,15 @@ func (s InboxScreen) Update(msg tea.Msg) (InboxScreen, tea.Cmd) {
 		switch msg.String() {
 		case "y":
 			s.acting = true
-			pr := s.likes[s.cursor].PR
+			iss := s.likes[s.cursor].Issue
 			return s, func() tea.Msg {
-				return InboxAcceptMsg{PRNumber: pr.Number}
+				return InboxAcceptMsg{IssueNumber: iss.Number}
 			}
 		case "n":
 			s.acting = true
-			pr := s.likes[s.cursor].PR
+			iss := s.likes[s.cursor].Issue
 			return s, func() tea.Msg {
-				return InboxRejectMsg{PRNumber: pr.Number}
+				return InboxRejectMsg{IssueNumber: iss.Number}
 			}
 		}
 
@@ -177,7 +177,7 @@ func (s InboxScreen) View() string {
 	likerLine := theme.AccentStyle.Render(crypto.ShortHash(item.LikerHash))
 
 	// Time ago
-	ago := timeAgo(item.PR.CreatedAt)
+	ago := timeAgo(item.Issue.CreatedAt)
 	timeLine := theme.DimStyle.Render(ago)
 
 	// Message preview
@@ -233,19 +233,6 @@ func timeAgo(t time.Time) string {
 	default:
 		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	}
-}
-
-// ParseLikeFromPR extracts the liker hash and encrypted message from a like PR body.
-// PR body format: "{liker_hash}\n{liked_hash}\n{encrypted_msg}\n{signature}"
-func ParseLikeFromPR(pr gh.PullRequest) (likerHash, encMsg string) {
-	lines := strings.SplitN(pr.Body, "\n", 4)
-	if len(lines) >= 1 {
-		likerHash = strings.TrimSpace(lines[0])
-	}
-	if len(lines) >= 3 {
-		encMsg = strings.TrimSpace(lines[2])
-	}
-	return
 }
 
 func (s InboxScreen) HelpBindings() []components.KeyBind {

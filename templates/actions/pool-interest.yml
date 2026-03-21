@@ -1,16 +1,16 @@
 name: Process Interest
 
 on:
-  pull_request:
+  issues:
     types: [opened]
 
 jobs:
   match:
-    if: contains(github.event.pull_request.labels.*.name, 'interest')
+    if: contains(github.event.issue.labels.*.name, 'interest')
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
+      issues: write
     steps:
       - uses: actions/checkout@v4
 
@@ -21,13 +21,11 @@ jobs:
 
       - name: Match
         env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          REPO: ${{ github.repository }}
           OPERATOR_PRIVATE_KEY: ${{ secrets.OPERATOR_PRIVATE_KEY }}
           POOL_SALT: ${{ secrets.POOL_SALT }}
-          REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
-        run: |
-          RECIP_PRS=$(gh pr list --repo "$REPO" --state open --label interest --json number,title,body)
-          RECIP_PRS="$RECIP_PRS" ./matchcrypt match
+        run: ./matchcrypt match
