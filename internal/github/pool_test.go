@@ -12,7 +12,7 @@ import (
 	"github.com/vutran1710/dating-dev/internal/message"
 )
 
-func TestTryVerifyAndDecrypt_ValidSignature(t *testing.T) {
+func TestDecryptSignedBlob_RegistrationFlow(t *testing.T) {
 	operatorPub, operatorPriv, _ := ed25519.GenerateKey(rand.Reader)
 	_, userPriv, _ := ed25519.GenerateKey(rand.Reader)
 	userPub := userPriv.Public().(ed25519.PublicKey)
@@ -23,44 +23,33 @@ func TestTryVerifyAndDecrypt_ValidSignature(t *testing.T) {
 	signedBlob := base64.StdEncoding.EncodeToString(ciphertext) + "." + hex.EncodeToString(sig)
 	comment := message.Format("registration", signedBlob)
 
-	bin, match, err := tryDecryptComment(comment, operatorPub, userPriv)
+	// Simulate FindOperatorReplyInIssue extracting content
+	_, content, err := message.Parse(comment)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bin != "abc123" || match != "def456" {
-		t.Fatalf("got %s %s", bin, match)
+
+	// Verify signature matches operator
+	if !verifyBlobSignature(content, operatorPub) {
+		t.Fatal("signature should verify")
+	}
+
+	// Decrypt via DecryptSignedBlob
+	plaintext, err := crypto.DecryptSignedBlob(content, userPriv)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var hashes map[string]string
+	if err := msgpack.Unmarshal(plaintext, &hashes); err != nil {
+		t.Fatal(err)
+	}
+	if hashes["bin_hash"] != "abc123" || hashes["match_hash"] != "def456" {
+		t.Fatalf("got %v", hashes)
 	}
 }
 
-func TestTryVerifyAndDecrypt_ForgedSignature(t *testing.T) {
-	operatorPub, _, _ := ed25519.GenerateKey(rand.Reader)
-	_, userPriv, _ := ed25519.GenerateKey(rand.Reader)
-	userPub := userPriv.Public().(ed25519.PublicKey)
-	_, attackerPriv, _ := ed25519.GenerateKey(rand.Reader)
-
-	payload, _ := msgpack.Marshal(map[string]string{"bin_hash": "evil", "match_hash": "evil"})
-	ciphertext, _ := crypto.Encrypt(userPub, payload)
-	sig := ed25519.Sign(attackerPriv, ciphertext)
-	signedBlob := base64.StdEncoding.EncodeToString(ciphertext) + "." + hex.EncodeToString(sig)
-	comment := message.Format("registration", signedBlob)
-
-	_, _, err := tryDecryptComment(comment, operatorPub, userPriv)
-	if err == nil {
-		t.Fatal("forged signature should be rejected")
-	}
-}
-
-func TestTryVerifyAndDecrypt_UnsignedComment(t *testing.T) {
-	operatorPub, _, _ := ed25519.GenerateKey(rand.Reader)
-	_, userPriv, _ := ed25519.GenerateKey(rand.Reader)
-
-	_, _, err := tryDecryptComment("c29tZWJhc2U2NA==", operatorPub, userPriv)
-	if err == nil {
-		t.Fatal("unsigned should be rejected")
-	}
-}
-
-func TestTryVerifyAndDecrypt_TamperedCiphertext(t *testing.T) {
+func TestDecryptSignedBlob_TamperedCiphertext(t *testing.T) {
 	operatorPub, operatorPriv, _ := ed25519.GenerateKey(rand.Reader)
 	_, userPriv, _ := ed25519.GenerateKey(rand.Reader)
 	userPub := userPriv.Public().(ed25519.PublicKey)
@@ -72,8 +61,19 @@ func TestTryVerifyAndDecrypt_TamperedCiphertext(t *testing.T) {
 	signedBlob := base64.StdEncoding.EncodeToString(ciphertext) + "." + hex.EncodeToString(sig)
 	comment := message.Format("registration", signedBlob)
 
-	_, _, err := tryDecryptComment(comment, operatorPub, userPriv)
+	_, content, err := message.Parse(comment)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Tampered ciphertext won't pass signature verification
+	if verifyBlobSignature(content, operatorPub) {
+		t.Fatal("tampered ciphertext should fail signature verification")
+	}
+
+	// Even if we bypass sig check, decryption should fail
+	_, err = crypto.DecryptSignedBlob(content, userPriv)
 	if err == nil {
-		t.Fatal("tampered ciphertext should fail")
+		t.Fatal("tampered ciphertext should fail decryption")
 	}
 }

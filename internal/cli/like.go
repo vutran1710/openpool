@@ -54,7 +54,7 @@ func newLikeCmd() *cobra.Command {
 			}
 
 			client := poolClientWithToken(pool, ghToken)
-			prNumber, err := client.CreateInterestPR(
+			issueNumber, err := client.CreateInterestIssue(
 				ctx,
 				pool.BinHash,
 				pool.MatchHash,
@@ -70,7 +70,7 @@ func newLikeCmd() *cobra.Command {
 				return fmt.Errorf("sending interest: %w", err)
 			}
 
-			printSuccess(fmt.Sprintf("Interest sent! (PR #%d)", prNumber))
+			printSuccess(fmt.Sprintf("Interest sent! (Issue #%d)", issueNumber))
 			printDim("  If they like you back, you'll match automatically.")
 			return nil
 		},
@@ -110,12 +110,12 @@ func newInboxCmd() *cobra.Command {
 			}
 
 			client := poolClientWithToken(pool, ghToken)
-			prs, err := client.ListInterestsForMe(ctx, pool.MatchHash)
+			issues, err := client.ListInterestsForMeIssues(ctx, pool.MatchHash)
 			if err != nil {
 				return fmt.Errorf("fetching inbox: %w", err)
 			}
 
-			if len(prs) == 0 {
+			if len(issues) == 0 {
 				printDim("  No incoming interests yet.")
 				return nil
 			}
@@ -123,7 +123,7 @@ func newInboxCmd() *cobra.Command {
 			fmt.Println()
 			fmt.Printf("  %s  %d incoming interests\n\n",
 				brand.Render("♥"),
-				len(prs),
+				len(issues),
 			)
 			printDim("  Browse Discover to find your match — mutual likes create a match automatically.")
 			fmt.Println()

@@ -3,11 +3,9 @@ package screens
 import (
 	"context"
 	"crypto/ed25519"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
@@ -15,7 +13,6 @@ import (
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
 	"github.com/vutran1710/dating-dev/internal/crypto"
 	gh "github.com/vutran1710/dating-dev/internal/github"
-	"github.com/vutran1710/dating-dev/internal/message"
 )
 
 type MatchItem struct {
@@ -75,93 +72,42 @@ func LoadMatchesCmd(poolName string) tea.Cmd {
 		operatorPub := ed25519.PublicKey(operatorPubBytes)
 
 		client := gh.NewPoolWithClient(gh.NewCLIOrHTTP(pool.Repo, ghToken))
-		prs, err := client.Client().ListPullRequests(context.Background(), "closed")
+		issues, err := client.Client().ListIssues(context.Background(), "closed", "interest")
 		if err != nil {
 			return MatchesFetchedMsg{Err: err}
 		}
 
 		var matches []MatchItem
-		for _, pr := range prs {
-			hasLabel := false
-			for _, l := range pr.Labels {
-				if l.Name == "interest" {
-					hasLabel = true
-					break
-				}
-			}
-			if !hasLabel {
-				continue
-			}
-
-			comments, err := client.Client().ListIssueComments(context.Background(), pr.Number)
+		for _, iss := range issues {
+			signedBlob, err := gh.FindOperatorReplyInIssue(context.Background(), client.Client(), iss.Number, "match", operatorPub)
 			if err != nil {
 				continue
 			}
-			for _, c := range comments {
-				if c.User.Login != "github-actions[bot]" {
-					continue
-				}
-				m, err := decryptMatchNotification(c.Body, operatorPub, priv)
-				if err != nil {
-					continue
-				}
-				matches = append(matches, *m)
+			plaintext, err := crypto.DecryptSignedBlob(signedBlob, priv)
+			if err != nil {
+				continue
 			}
+			var data struct {
+				MatchedMatchHash string `json:"matched_match_hash"`
+				Greeting         string `json:"greeting"`
+				PubKey           string `json:"pubkey"`
+			}
+			if err := json.Unmarshal(plaintext, &data); err != nil || data.MatchedMatchHash == "" {
+				continue
+			}
+			pubBytes, err := hex.DecodeString(data.PubKey)
+			if err != nil || len(pubBytes) != ed25519.PublicKeySize {
+				continue
+			}
+			matches = append(matches, MatchItem{
+				MatchHash: data.MatchedMatchHash,
+				Greeting:  data.Greeting,
+				PubKey:    ed25519.PublicKey(pubBytes),
+			})
 		}
 
 		return MatchesFetchedMsg{Matches: matches}
 	}
-}
-
-func decryptMatchNotification(body string, operatorPub ed25519.PublicKey, priv ed25519.PrivateKey) (*MatchItem, error) {
-	blockType, content, err := message.Parse(body)
-	if err != nil || blockType != "match" {
-		return nil, fmt.Errorf("not a match comment")
-	}
-
-	parts := strings.SplitN(content, ".", 2)
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("unsigned comment")
-	}
-
-	blobBytes, err := base64.StdEncoding.DecodeString(parts[0])
-	if err != nil {
-		return nil, err
-	}
-
-	sigBytes, err := hex.DecodeString(parts[1])
-	if err != nil || len(sigBytes) != ed25519.SignatureSize {
-		return nil, fmt.Errorf("invalid signature")
-	}
-
-	if !ed25519.Verify(operatorPub, blobBytes, sigBytes) {
-		return nil, fmt.Errorf("signature verification failed")
-	}
-
-	plaintext, err := crypto.Decrypt(priv, blobBytes)
-	if err != nil {
-		return nil, err
-	}
-	var data struct {
-		MatchedMatchHash string `json:"matched_match_hash"`
-		Greeting         string `json:"greeting"`
-		PubKey           string `json:"pubkey"`
-	}
-	if err := json.Unmarshal(plaintext, &data); err != nil {
-		return nil, err
-	}
-	if data.MatchedMatchHash == "" {
-		return nil, fmt.Errorf("missing match_hash")
-	}
-	pubBytes, err := hex.DecodeString(data.PubKey)
-	if err != nil || len(pubBytes) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("invalid pubkey")
-	}
-	return &MatchItem{
-		MatchHash: data.MatchedMatchHash,
-		Greeting:  data.Greeting,
-		PubKey:    ed25519.PublicKey(pubBytes),
-	}, nil
 }
 
 func (s MatchesScreen) Update(msg tea.Msg) (MatchesScreen, tea.Cmd) {

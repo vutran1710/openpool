@@ -220,10 +220,10 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, submitProfileUpdate(msg.Profile)
 
 	case screens.InboxAcceptMsg:
-		return a, acceptLike(a.pool, msg.PRNumber)
+		return a, acceptLike(a.pool, msg.IssueNumber)
 
 	case screens.InboxRejectMsg:
-		return a, rejectLike(a.pool, msg.PRNumber)
+		return a, rejectLike(a.pool, msg.IssueNumber)
 
 	case screens.PoolSwitchMsg:
 		a.pool = msg.Name
@@ -842,16 +842,16 @@ func fetchInbox(poolName, registry string) tea.Cmd {
 		}
 
 		client := gh.NewPoolWithClient(gh.NewCLIOrHTTP(pool.Repo, ghToken))
-		prs, err := client.ListInterestsForMe(context.Background(), pool.MatchHash)
+		issues, err := client.ListInterestsForMeIssues(context.Background(), pool.MatchHash)
 		if err != nil {
 			return screens.InboxFetchedResult{Err: err}
 		}
 
 		var items []screens.InboxLikeItem
-		for _, pr := range prs {
+		for _, iss := range issues {
 			items = append(items, screens.InboxLikeItem{
-				PR:        pr,
-				LikerHash: pr.Title, // title is the target match_hash
+				Issue:     iss,
+				LikerHash: iss.Title, // title is the target match_hash
 			})
 		}
 
@@ -859,7 +859,7 @@ func fetchInbox(poolName, registry string) tea.Cmd {
 	}
 }
 
-func acceptLike(poolName string, prNumber int) tea.Cmd {
+func acceptLike(poolName string, issueNumber int) tea.Cmd {
 	return func() tea.Msg {
 		cfg, err := config.Load()
 		if err != nil {
@@ -869,21 +869,17 @@ func acceptLike(poolName string, prNumber int) tea.Cmd {
 		if pool == nil {
 			return screens.InboxActionResult{Accepted: true, Err: fmt.Errorf("no active pool")}
 		}
-		_, priv, err := crypto.LoadKeyPair(config.KeysDir())
+		ghToken, err := gh.GetCLIToken()
 		if err != nil {
 			return screens.InboxActionResult{Accepted: true, Err: err}
 		}
-		token, err := cfg.DecryptToken(priv)
-		if err != nil {
-			return screens.InboxActionResult{Accepted: true, Err: err}
-		}
-		client := gh.NewPoolWithClient(gh.NewCLIOrHTTP(pool.Repo, token))
-		err = client.AcceptLike(context.Background(), prNumber)
+		client := gh.NewCLIOrHTTP(pool.Repo, ghToken)
+		err = client.CloseIssue(context.Background(), issueNumber, "completed")
 		return screens.InboxActionResult{Accepted: true, Err: err}
 	}
 }
 
-func rejectLike(poolName string, prNumber int) tea.Cmd {
+func rejectLike(poolName string, issueNumber int) tea.Cmd {
 	return func() tea.Msg {
 		cfg, err := config.Load()
 		if err != nil {
@@ -893,16 +889,12 @@ func rejectLike(poolName string, prNumber int) tea.Cmd {
 		if pool == nil {
 			return screens.InboxActionResult{Accepted: false, Err: fmt.Errorf("no active pool")}
 		}
-		_, priv, err := crypto.LoadKeyPair(config.KeysDir())
+		ghToken, err := gh.GetCLIToken()
 		if err != nil {
 			return screens.InboxActionResult{Accepted: false, Err: err}
 		}
-		token, err := cfg.DecryptToken(priv)
-		if err != nil {
-			return screens.InboxActionResult{Accepted: false, Err: err}
-		}
-		client := gh.NewPoolWithClient(gh.NewCLIOrHTTP(pool.Repo, token))
-		err = client.RejectLike(context.Background(), prNumber)
+		client := gh.NewCLIOrHTTP(pool.Repo, ghToken)
+		err = client.CloseIssue(context.Background(), issueNumber, "not_planned")
 		return screens.InboxActionResult{Accepted: false, Err: err}
 	}
 }
@@ -1002,7 +994,7 @@ func sendLike(poolName, registry, targetMatchHash string) tea.Cmd {
 
 		operatorPubBytes, _ := hex.DecodeString(pool.OperatorPubKey)
 		client := gh.NewPoolWithClient(gh.NewCLIOrHTTP(pool.Repo, ghToken))
-		_, err = client.CreateInterestPR(
+		_, err = client.CreateInterestIssue(
 			context.Background(),
 			pool.BinHash,
 			pool.MatchHash,
