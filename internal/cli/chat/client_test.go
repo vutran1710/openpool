@@ -3,7 +3,10 @@ package chat
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/vutran1710/dating-dev/internal/limits"
 )
 
 func newTestDB(t *testing.T) *ConversationDB {
@@ -147,6 +150,48 @@ func TestChatClient_PersistGreeting(t *testing.T) {
 	history, _ = c.History("peerXYZ")
 	if len(history) != 1 {
 		t.Errorf("expected still 1 message after second PersistGreeting, got %d", len(history))
+	}
+}
+
+func TestChatClient_Send_TooLarge(t *testing.T) {
+	db := newTestDB(t)
+	c := newDBOnlyClient(db)
+
+	bigText := strings.Repeat("x", limits.MaxChatMessage+1)
+	err := c.Send("peer123", bigText)
+	if err == nil {
+		t.Fatal("expected error for oversized send")
+	}
+	if !strings.Contains(err.Error(), "message too large") {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	// Verify nothing was persisted
+	history, _ := c.History("peer123")
+	if len(history) != 0 {
+		t.Errorf("expected 0 messages, got %d", len(history))
+	}
+}
+
+func TestChatClient_HandleIncoming_TooLarge(t *testing.T) {
+	db := newTestDB(t)
+	c := newDBOnlyClient(db)
+
+	var called bool
+	c.OnMsg = func(peerMatchHash string) {
+		called = true
+	}
+
+	bigPayload := []byte(strings.Repeat("x", limits.MaxChatMessage+1))
+	c.handleIncoming("peer456", bigPayload)
+
+	// Should not have been saved
+	history, _ := c.History("peer456")
+	if len(history) != 0 {
+		t.Errorf("expected 0 messages for oversized incoming, got %d", len(history))
+	}
+	if called {
+		t.Error("OnMsg should not be called for oversized message")
 	}
 }
 

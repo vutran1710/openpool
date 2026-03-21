@@ -9,7 +9,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const matchHashRawLen = 8 // 16 hex chars = 8 bytes
+const (
+	matchHashRawLen = 8    // 16 hex chars = 8 bytes
+	maxFrameSize    = 8192 // 8 KB — encrypted chat + overhead
+)
 
 type Session struct {
 	conn      *websocket.Conn
@@ -42,6 +45,10 @@ func (s *Session) run() {
 			return
 		}
 		if msgType != websocket.BinaryMessage {
+			continue
+		}
+		if len(data) > maxFrameSize {
+			s.sendText("frame too large")
 			continue
 		}
 		if len(data) <= matchHashRawLen {

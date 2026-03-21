@@ -28,6 +28,7 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/vutran1710/dating-dev/internal/crypto"
 	"github.com/vutran1710/dating-dev/internal/github"
+	"github.com/vutran1710/dating-dev/internal/limits"
 	"github.com/vutran1710/dating-dev/internal/message"
 )
 
@@ -94,6 +95,11 @@ func cmdRegister() {
 	poolSalt := os.Getenv("POOL_SALT")
 	operatorKeyHex := os.Getenv("OPERATOR_PRIVATE_KEY")
 	issueNumberStr := os.Getenv("ISSUE_NUMBER")
+
+	if len(issueBody) > limits.MaxMessageContent {
+		fmt.Fprintf(os.Stderr, "error: issue body too large: %d bytes (max %d)\n", len(issueBody), limits.MaxMessageContent)
+		os.Exit(1)
+	}
 
 	issueNumber, err := strconv.Atoi(issueNumberStr)
 	if err != nil {
@@ -179,6 +185,10 @@ func cmdRegister() {
 	binData := make([]byte, 0, len(userPub)+len(encrypted))
 	binData = append(binData, userPub...)
 	binData = append(binData, encrypted...)
+	if len(binData) > limits.MaxBinFile {
+		fmt.Fprintf(os.Stderr, "error: .bin file too large: %d bytes (max %d)\n", len(binData), limits.MaxBinFile)
+		os.Exit(1)
+	}
 	if err := os.MkdirAll("users", 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "error: mkdir users: %v\n", err)
 		os.Exit(1)

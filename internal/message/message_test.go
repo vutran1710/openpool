@@ -1,6 +1,9 @@
 package message
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestFormat_Roundtrip(t *testing.T) {
 	msg := Format("registration", "some-content-here")
@@ -55,6 +58,24 @@ func TestParse_EmptyContent(t *testing.T) {
 	}
 	if content != "" {
 		t.Fatalf("content should be empty, got %q", content)
+	}
+}
+
+func TestValidateContentSize_OK(t *testing.T) {
+	content := strings.Repeat("a", MaxMessageContentSize)
+	if err := ValidateContentSize(content); err != nil {
+		t.Fatalf("expected no error for content at limit, got: %v", err)
+	}
+}
+
+func TestValidateContentSize_TooLarge(t *testing.T) {
+	content := strings.Repeat("a", MaxMessageContentSize+1)
+	err := ValidateContentSize(content)
+	if err == nil {
+		t.Fatal("expected error for oversized content")
+	}
+	if !strings.Contains(err.Error(), "content too large") {
+		t.Errorf("unexpected error message: %v", err)
 	}
 }
 

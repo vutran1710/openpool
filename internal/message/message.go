@@ -4,7 +4,20 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/vutran1710/dating-dev/internal/limits"
 )
+
+// MaxMessageContentSize is the maximum allowed size for issue body / comment content.
+const MaxMessageContentSize = limits.MaxMessageContent
+
+// ValidateContentSize returns an error if content exceeds MaxMessageContentSize.
+func ValidateContentSize(content string) error {
+	if len(content) > MaxMessageContentSize {
+		return fmt.Errorf("content too large: %d bytes (max %d)", len(content), MaxMessageContentSize)
+	}
+	return nil
+}
 
 var markerRe = regexp.MustCompile(`<!-- openpool:([a-z-]+) -->`)
 
