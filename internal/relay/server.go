@@ -97,7 +97,8 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !crypto.TOTPVerify(sigHex, pubkey) {
+	relayHost := r.Host
+	if !crypto.TOTPVerify(sigHex, pubkey, relayHost) {
 		http.Error(w, "invalid signature", http.StatusUnauthorized)
 		return
 	}
