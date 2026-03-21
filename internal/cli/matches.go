@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
 	"github.com/vutran1710/dating-dev/internal/crypto"
+	"github.com/vutran1710/dating-dev/internal/message"
 )
 
 // Match represents a discovered match from a closed interest PR.
@@ -123,9 +124,12 @@ func newMatchesCmd() *cobra.Command {
 }
 
 func decryptMatchComment(body string, operatorPub ed25519.PublicKey, priv ed25519.PrivateKey) (*Match, error) {
-	body = strings.TrimSpace(body)
+	blockType, content, err := message.Parse(body)
+	if err != nil || blockType != "match" {
+		return nil, fmt.Errorf("not a match comment")
+	}
 
-	parts := strings.SplitN(body, ".", 2)
+	parts := strings.SplitN(content, ".", 2)
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("unsigned comment")
 	}

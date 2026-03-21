@@ -9,9 +9,10 @@ import (
 	"testing"
 
 	"github.com/vutran1710/dating-dev/internal/crypto"
+	"github.com/vutran1710/dating-dev/internal/message"
 )
 
-// signedComment creates a comment in the new format: base64(ciphertext).hex(signature)
+// signedComment creates a comment in the new format wrapped in message.Format
 func signedComment(t *testing.T, operatorPriv ed25519.PrivateKey, userPub ed25519.PublicKey, payload []byte) string {
 	t.Helper()
 	encrypted, err := crypto.Encrypt(userPub, payload)
@@ -19,7 +20,8 @@ func signedComment(t *testing.T, operatorPriv ed25519.PrivateKey, userPub ed2551
 		t.Fatal(err)
 	}
 	sig := ed25519.Sign(operatorPriv, encrypted)
-	return base64.StdEncoding.EncodeToString(encrypted) + "." + hex.EncodeToString(sig)
+	signedBlob := base64.StdEncoding.EncodeToString(encrypted) + "." + hex.EncodeToString(sig)
+	return message.Format("match", signedBlob)
 }
 
 func TestDecryptMatchComment_Valid(t *testing.T) {
