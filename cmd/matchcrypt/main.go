@@ -139,17 +139,16 @@ func cmdSign() {
 }
 
 func cmdMatch() {
-	prBody := os.Getenv("PR_BODY")
-	prNumberStr := os.Getenv("PR_NUMBER")
-	recipPRsJSON := os.Getenv("RECIP_PRS")
+	issueBody := os.Getenv("ISSUE_BODY")
+	issueNumberStr := os.Getenv("ISSUE_NUMBER")
 	repo := os.Getenv("REPO")
 	operatorKeyHex := os.Getenv("OPERATOR_PRIVATE_KEY")
 	poolSalt := os.Getenv("POOL_SALT")
 	_ = poolSalt
 
-	prNumber, err := strconv.Atoi(prNumberStr)
+	issueNumber, err := strconv.Atoi(issueNumberStr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: invalid PR_NUMBER: %v\n", err)
+		fmt.Fprintf(os.Stderr, "error: invalid ISSUE_NUMBER: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -159,22 +158,22 @@ func cmdMatch() {
 		os.Exit(1)
 	}
 
-	// Decrypt author's PR body
-	_, prContent, err := message.Parse(prBody)
+	// Decrypt author's issue body
+	_, issueContent, err := message.Parse(issueBody)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: parsing PR body: %v\n", err)
+		fmt.Fprintf(os.Stderr, "error: parsing issue body: %v\n", err)
 		os.Exit(1)
 	}
 
-	prBlob, err := base64.StdEncoding.DecodeString(prContent)
+	issueBlob, err := base64.StdEncoding.DecodeString(issueContent)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: base64 decode PR body: %v\n", err)
+		fmt.Fprintf(os.Stderr, "error: base64 decode issue body: %v\n", err)
 		os.Exit(1)
 	}
 
-	authorPlain, err := crypto.Decrypt(ed25519.PrivateKey(operatorKey), prBlob)
+	authorPlain, err := crypto.Decrypt(ed25519.PrivateKey(operatorKey), issueBlob)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: decrypting PR body: %v\n", err)
+		fmt.Fprintf(os.Stderr, "error: decrypting issue body: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -188,50 +187,51 @@ func cmdMatch() {
 		os.Exit(1)
 	}
 
-	// Parse RECIP_PRS JSON array — search for PR with title == author_match_hash
-	var recipPRs []struct {
-		Number int    `json:"number"`
-		Title  string `json:"title"`
-		Body   string `json:"body"`
-	}
-	if err := json.Unmarshal([]byte(recipPRsJSON), &recipPRs); err != nil {
-		fmt.Fprintf(os.Stderr, "error: parsing RECIP_PRS: %v\n", err)
+	// List open interest issues to find reciprocal
+	gh, err := github.NewCLI(repo)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: creating github client: %v\n", err)
 		os.Exit(1)
 	}
 
-	var recipPR *struct {
-		Number int    `json:"number"`
-		Title  string `json:"title"`
-		Body   string `json:"body"`
+	ctx := context.Background()
+
+	recipIssues, err := gh.ListIssues(ctx, "open", "interest")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: listing interest issues: %v\n", err)
+		os.Exit(1)
 	}
-	for i := range recipPRs {
-		if recipPRs[i].Title == authorData.AuthorMatchHash {
-			recipPR = &recipPRs[i]
+
+	// Find reciprocal issue: title == author_match_hash (someone targeting this author)
+	var recipIssue *github.Issue
+	for i := range recipIssues {
+		if recipIssues[i].Title == authorData.AuthorMatchHash && recipIssues[i].Number != issueNumber {
+			recipIssue = &recipIssues[i]
 			break
 		}
 	}
 
-	if recipPR == nil {
+	if recipIssue == nil {
 		// No match — exit silently
 		os.Exit(0)
 	}
 
-	// Decrypt reciprocal PR body
-	_, recipContent, err := message.Parse(recipPR.Body)
+	// Decrypt reciprocal issue body
+	_, recipContent, err := message.Parse(recipIssue.Body)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: parsing reciprocal PR body: %v\n", err)
+		fmt.Fprintf(os.Stderr, "error: parsing reciprocal issue body: %v\n", err)
 		os.Exit(1)
 	}
 
 	recipBlob, err := base64.StdEncoding.DecodeString(recipContent)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: base64 decode reciprocal PR body: %v\n", err)
+		fmt.Fprintf(os.Stderr, "error: base64 decode reciprocal issue body: %v\n", err)
 		os.Exit(1)
 	}
 
 	recipPlain, err := crypto.Decrypt(ed25519.PrivateKey(operatorKey), recipBlob)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: decrypting reciprocal PR body: %v\n", err)
+		fmt.Fprintf(os.Stderr, "error: decrypting reciprocal issue body: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -295,30 +295,21 @@ func cmdMatch() {
 	authorNotif := encryptAndSign(authorPub, recipData.AuthorMatchHash, hex.EncodeToString(recipPub), recipData.Greeting, operatorKey)
 	recipNotif := encryptAndSign(recipPub, authorData.AuthorMatchHash, hex.EncodeToString(authorPub), authorData.Greeting, operatorKey)
 
-	// Git + GitHub operations
-	gh, err := github.NewCLI(repo)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: creating github client: %v\n", err)
-		os.Exit(1)
-	}
-
-	ctx := context.Background()
-
 	// AddCommitPush — ignore error if file exists from concurrent Action
 	_ = gh.AddCommitPush([]string{"matches/"}, "Match: "+pairHash)
 
-	// Close PRs — ignore already-closed errors
-	_ = gh.ClosePullRequest(ctx, prNumber)
-	_ = gh.ClosePullRequest(ctx, recipPR.Number)
+	// Close issues — ignore already-closed errors
+	_ = gh.CloseIssue(ctx, issueNumber, "completed")
+	_ = gh.CloseIssue(ctx, recipIssue.Number, "completed")
 
-	// Comment on PRs with match notifications
-	if err := gh.CommentPR(ctx, prNumber, message.Format("match", authorNotif)); err != nil {
-		fmt.Fprintf(os.Stderr, "error: commenting on author PR: %v\n", err)
+	// Comment on issues with match notifications
+	if err := gh.CommentIssue(ctx, issueNumber, message.Format("match", authorNotif)); err != nil {
+		fmt.Fprintf(os.Stderr, "error: commenting on author issue: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := gh.CommentPR(ctx, recipPR.Number, message.Format("match", recipNotif)); err != nil {
-		fmt.Fprintf(os.Stderr, "error: commenting on reciprocal PR: %v\n", err)
+	if err := gh.CommentIssue(ctx, recipIssue.Number, message.Format("match", recipNotif)); err != nil {
+		fmt.Fprintf(os.Stderr, "error: commenting on reciprocal issue: %v\n", err)
 		os.Exit(1)
 	}
 }
