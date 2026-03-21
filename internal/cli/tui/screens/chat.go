@@ -1,19 +1,15 @@
 package screens
 
 import (
-	"context"
-	"crypto/ed25519"
 	"fmt"
 	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vutran1710/dating-dev/internal/cli/config"
-	relayclient "github.com/vutran1710/dating-dev/internal/cli/relay"
+	"github.com/vutran1710/dating-dev/internal/cli/chat"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
-	"github.com/vutran1710/dating-dev/internal/crypto"
 )
 
 type ChatMessage struct {
@@ -23,33 +19,19 @@ type ChatMessage struct {
 	IsMe   bool
 }
 
-// ChatConnectedMsg signals relay connection established.
-type ChatConnectedMsg struct {
-	Client *relayclient.Client
-	Err    error
-}
-
-// ChatIncomingMsg carries an incoming message from the relay.
-type ChatIncomingMsg struct {
-	SenderMatchHash string
-	Plaintext       []byte
-}
-
-// ChatControlMsg carries a control message from the relay.
-type ChatControlMsg struct {
-	Message string
+// ChatSendMsg is emitted when the user sends a message from the chat screen.
+type ChatSendMsg struct {
+	PeerMatchHash string
+	Text          string
 }
 
 type ChatScreen struct {
-	TargetID  string
-	Messages  []ChatMessage
-	Viewport  viewport.Model
-	Width     int
-	Height    int
-	Ready     bool
-	client    *relayclient.Client
-	connected bool
-	err       error
+	TargetID string
+	Messages []ChatMessage
+	Viewport viewport.Model
+	Width    int
+	Height   int
+	Ready    bool
 }
 
 func NewChatScreen(targetID string, width, height int) ChatScreen {
@@ -61,118 +43,60 @@ func NewChatScreen(targetID string, width, height int) ChatScreen {
 		Viewport: vp,
 		Width:    width,
 		Height:   height,
+		Ready:    true,
 	}
 }
 
-// ConnectChatCmd connects to the relay for chatting.
-func ConnectChatCmd(targetMatchHash string, peerPub ed25519.PublicKey) tea.Cmd {
-	return func() tea.Msg {
-		cfg, err := config.Load()
-		if err != nil {
-			return ChatConnectedMsg{Err: err}
+func (s *ChatScreen) LoadHistory(msgs []chat.Message) {
+	s.Messages = nil
+	for _, m := range msgs {
+		sender := "you"
+		isMe := m.IsMe
+		if !isMe {
+			sender = s.TargetID
+			if len(sender) > 12 {
+				sender = sender[:12] + "..."
+			}
 		}
-		pool := cfg.ActivePool()
-		if pool == nil || pool.RelayURL == "" {
-			return ChatConnectedMsg{Err: fmt.Errorf("no relay configured")}
-		}
-
-		pub, priv, err := crypto.LoadKeyPair(config.KeysDir())
-		if err != nil {
-			return ChatConnectedMsg{Err: err}
-		}
-
-		idHash := pool.IDHash
-		if idHash == "" {
-			idHash = string(crypto.UserHash(pool.Repo, cfg.User.Provider, cfg.User.ProviderUserID))
-		}
-
-		client := relayclient.NewClient(relayclient.Config{
-			RelayURL:  pool.RelayURL,
-			PoolURL:   pool.Repo,
-			IDHash:    idHash,
-			MatchHash: pool.MatchHash,
-			Pub:       pub,
-			Priv:      priv,
+		s.Messages = append(s.Messages, ChatMessage{
+			Sender: sender,
+			Body:   m.Body,
+			Time:   m.CreatedAt.Format("15:04"),
+			IsMe:   isMe,
 		})
-
-		// Set the peer's pubkey so we can derive shared secret for encryption
-		client.SetPeerKey(targetMatchHash, peerPub)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		if err := client.Connect(ctx); err != nil {
-			return ChatConnectedMsg{Err: err}
-		}
-
-		return ChatConnectedMsg{Client: client}
 	}
+	s.Viewport.SetContent(s.renderMessages())
+	s.Viewport.GotoBottom()
+}
+
+func (s *ChatScreen) AppendMessage(body string, isMe bool) {
+	sender := "you"
+	if !isMe {
+		sender = s.TargetID
+		if len(sender) > 12 {
+			sender = sender[:12] + "..."
+		}
+	}
+	s.Messages = append(s.Messages, ChatMessage{
+		Sender: sender,
+		Body:   body,
+		Time:   time.Now().Format("15:04"),
+		IsMe:   isMe,
+	})
+	s.Viewport.SetContent(s.renderMessages())
+	s.Viewport.GotoBottom()
 }
 
 func (s ChatScreen) Update(msg tea.Msg) (ChatScreen, tea.Cmd) {
 	switch msg := msg.(type) {
-	case ChatConnectedMsg:
-		if msg.Err != nil {
-			s.err = msg.Err
-			return s, nil
-		}
-		s.client = msg.Client
-		s.connected = true
-		s.Ready = true
-
-		// Start listening for incoming messages
-		return s, s.listenForMessages()
-
-	case ChatIncomingMsg:
-		sender := msg.SenderMatchHash
-		if len(sender) > 12 {
-			sender = sender[:12] + "..."
-		}
-		s.Messages = append(s.Messages, ChatMessage{
-			Sender: sender,
-			Body:   string(msg.Plaintext),
-			Time:   time.Now().Format("15:04"),
-			IsMe:   false,
-		})
-		s.Viewport.SetContent(s.renderMessages())
-		s.Viewport.GotoBottom()
-		// Keep listening
-		return s, s.listenForMessages()
-
-	case ChatControlMsg:
-		s.Messages = append(s.Messages, ChatMessage{
-			Sender: "relay",
-			Body:   msg.Message,
-			Time:   time.Now().Format("15:04"),
-		})
-		s.Viewport.SetContent(s.renderMessages())
-		s.Viewport.GotoBottom()
-		return s, s.listenForMessages()
-
 	case components.SubmitMsg:
 		if msg.IsCommand && msg.Value == "/exit" {
-			if s.client != nil {
-				s.client.Close()
-			}
 			return s, nil
 		}
-		if s.connected && msg.Value != "" {
-			err := s.client.SendMessage(s.TargetID, msg.Value)
-			if err != nil {
-				s.Messages = append(s.Messages, ChatMessage{
-					Body: "(send failed: " + err.Error() + ")",
-					Time: time.Now().Format("15:04"),
-				})
-			} else {
-				s.Messages = append(s.Messages, ChatMessage{
-					Sender: "you",
-					Body:   msg.Value,
-					Time:   time.Now().Format("15:04"),
-					IsMe:   true,
-				})
+		if msg.Value != "" {
+			return s, func() tea.Msg {
+				return ChatSendMsg{PeerMatchHash: s.TargetID, Text: msg.Value}
 			}
-			s.Viewport.SetContent(s.renderMessages())
-			s.Viewport.GotoBottom()
 		}
 
 	case tea.WindowSizeMsg:
@@ -187,41 +111,7 @@ func (s ChatScreen) Update(msg tea.Msg) (ChatScreen, tea.Cmd) {
 	return s, cmd
 }
 
-func (s ChatScreen) listenForMessages() tea.Cmd {
-	if s.client == nil {
-		return nil
-	}
-	msgCh := make(chan ChatIncomingMsg, 1)
-	ctrlCh := make(chan ChatControlMsg, 1)
-
-	s.client.OnMessage(func(senderMatchHash string, plaintext []byte) {
-		msgCh <- ChatIncomingMsg{SenderMatchHash: senderMatchHash, Plaintext: plaintext}
-	})
-	s.client.OnControl(func(msg string) {
-		ctrlCh <- ChatControlMsg{Message: msg}
-	})
-
-	return func() tea.Msg {
-		select {
-		case m := <-msgCh:
-			return m
-		case c := <-ctrlCh:
-			return c
-		}
-	}
-}
-
 func (s ChatScreen) View() string {
-	if s.err != nil {
-		body := theme.RedStyle.Render("Connection failed: " + s.err.Error())
-		return components.ScreenLayout("Chat", components.DimHints(s.TargetID), body)
-	}
-
-	if !s.connected {
-		return components.ScreenLayout("Chat", components.DimHints(s.TargetID),
-			theme.DimStyle.Render("Connecting to relay..."))
-	}
-
 	separator := lipgloss.NewStyle().
 		Width(s.Width).
 		Foreground(theme.Border).
