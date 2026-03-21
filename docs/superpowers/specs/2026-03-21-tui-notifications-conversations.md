@@ -53,6 +53,26 @@ Enter on a conversation → opens chat screen.
 
 Tab toggles focus between menu and conversations panel. Active panel has highlighted cursor. Inactive panel is dimmed.
 
+## Architecture: Separate View from Logic
+
+Follow React philosophy: screens are pure views, logic lives in dedicated classes.
+
+```
+Logic layer (state + side effects):
+  ChatClient     — relay + DB, send/receive/persist
+  ConversationDB — SQLite operations
+
+View layer (render + user input):
+  HomeScreen     — reads ChatClient.Conversations(), renders panel
+  ChatScreen     — reads ChatClient.History(), calls ChatClient.Send()
+  MatchesScreen  — calls ChatClient.PersistGreeting() on match load
+
+Message passing (Bubbletea tea.Msg):
+  ChatClient.onMsg → tea.Msg → App.Update → route to active screen
+```
+
+Screens never import relay client, never open SQLite, never do crypto. They receive data via `tea.Msg` and call `ChatClient` methods for actions. Same pattern as React: components receive props, dispatch actions.
+
 ## ChatClient
 
 Composes relay client + conversation DB. Single class, used by all screens. No screen touches relay or DB directly.
