@@ -9,6 +9,7 @@ import (
 
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/vutran1710/dating-dev/internal/crypto"
+	"github.com/vutran1710/dating-dev/internal/message"
 )
 
 func TestTryVerifyAndDecrypt_ValidSignature(t *testing.T) {
@@ -19,7 +20,8 @@ func TestTryVerifyAndDecrypt_ValidSignature(t *testing.T) {
 	payload, _ := msgpack.Marshal(map[string]string{"bin_hash": "abc123", "match_hash": "def456"})
 	ciphertext, _ := crypto.Encrypt(userPub, payload)
 	sig := ed25519.Sign(operatorPriv, ciphertext)
-	comment := base64.StdEncoding.EncodeToString(ciphertext) + "." + hex.EncodeToString(sig)
+	signedBlob := base64.StdEncoding.EncodeToString(ciphertext) + "." + hex.EncodeToString(sig)
+	comment := message.Format("registration", signedBlob)
 
 	bin, match, err := tryDecryptComment(comment, operatorPub, userPriv)
 	if err != nil {
@@ -39,7 +41,8 @@ func TestTryVerifyAndDecrypt_ForgedSignature(t *testing.T) {
 	payload, _ := msgpack.Marshal(map[string]string{"bin_hash": "evil", "match_hash": "evil"})
 	ciphertext, _ := crypto.Encrypt(userPub, payload)
 	sig := ed25519.Sign(attackerPriv, ciphertext)
-	comment := base64.StdEncoding.EncodeToString(ciphertext) + "." + hex.EncodeToString(sig)
+	signedBlob := base64.StdEncoding.EncodeToString(ciphertext) + "." + hex.EncodeToString(sig)
+	comment := message.Format("registration", signedBlob)
 
 	_, _, err := tryDecryptComment(comment, operatorPub, userPriv)
 	if err == nil {
@@ -66,7 +69,8 @@ func TestTryVerifyAndDecrypt_TamperedCiphertext(t *testing.T) {
 	ciphertext, _ := crypto.Encrypt(userPub, payload)
 	sig := ed25519.Sign(operatorPriv, ciphertext)
 	ciphertext[0] ^= 0xFF // tamper
-	comment := base64.StdEncoding.EncodeToString(ciphertext) + "." + hex.EncodeToString(sig)
+	signedBlob := base64.StdEncoding.EncodeToString(ciphertext) + "." + hex.EncodeToString(sig)
+	comment := message.Format("registration", signedBlob)
 
 	_, _, err := tryDecryptComment(comment, operatorPub, userPriv)
 	if err == nil {

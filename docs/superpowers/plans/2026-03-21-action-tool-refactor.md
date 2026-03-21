@@ -318,9 +318,23 @@ func cmdRegister() {
         return
     }
 
-    // Write .output
-    output := message.Format("registration", signedBlob)
-    os.WriteFile(".output", []byte(output), 0644)
+    // Git add/commit/push using GitHub CLI client
+    issueNumber, _ := strconv.Atoi(os.Getenv("ISSUE_NUMBER"))
+    gh, err := github.NewCLI(repo)
+    if err != nil {
+        writeError("github CLI: " + err.Error())
+        return
+    }
+    if err := gh.AddCommitPush([]string{"users/"}, "Register user "+binH); err != nil {
+        writeError("git push: " + err.Error())
+        return
+    }
+
+    // Close issue, then post signed comment
+    comment := message.Format("registration", signedBlob)
+    ctx := context.Background()
+    gh.CloseIssue(ctx, issueNumber, "completed")
+    gh.CommentIssue(ctx, issueNumber, comment)
 
     log.Printf("registered: bin=%s match=%s", binH, matchH)
 }
@@ -331,7 +345,7 @@ func writeError(msg string) {
 }
 ```
 
-Add imports: `"strings"`, `"github.com/vutran1710/dating-dev/internal/message"`
+Add imports: `"context"`, `"strconv"`, `"strings"`, `"github.com/vutran1710/dating-dev/internal/github"`, `"github.com/vutran1710/dating-dev/internal/message"`
 
 - [ ] **Step 2: Verify it compiles**
 
@@ -341,7 +355,7 @@ Run: `go build ./cmd/regcrypt/`
 
 ```bash
 git add cmd/regcrypt/main.go
-git commit -m "feat: regcrypt register — reads env vars, writes .bin + .output"
+git commit -m "feat: regcrypt register — full registration with git+gh via CLIClient"
 ```
 
 ---
@@ -481,9 +495,24 @@ func cmdMatch() {
     recipNotif := encryptAndSign(authorPub, recipInfo.AuthorMatchHash, authorInfo.AuthorMatchHash,
         hex.EncodeToString(authorPub), authorInfo.Greeting, operatorKey)
 
-    // Write output files (one per PR)
-    os.WriteFile(fmt.Sprintf(".output.%s", prNumber), []byte(message.Format("match", authorNotif)), 0644)
-    os.WriteFile(fmt.Sprintf(".output.%d", recipPR.Number), []byte(message.Format("match", recipNotif)), 0644)
+    // Git add/commit/push match file
+    gh, err := github.NewCLI(repo)
+    if err != nil {
+        writeError("github CLI: " + err.Error())
+        return
+    }
+    if err := gh.AddCommitPush([]string{"matches/"}, "Match: "+ph); err != nil {
+        // Match file may already exist from concurrent Action — not fatal
+        log.Printf("git push: %v (may be concurrent)", err)
+    }
+
+    // Close PRs, then post signed comments
+    ctx := context.Background()
+    prNum, _ := strconv.Atoi(prNumber)
+    gh.ClosePR(ctx, prNum)
+    gh.ClosePR(ctx, recipPR.Number)
+    gh.CommentPR(ctx, prNum, message.Format("match", authorNotif))
+    gh.CommentPR(ctx, recipPR.Number, message.Format("match", recipNotif))
 
     log.Printf("match created: pair=%s", ph)
 }
@@ -522,7 +551,7 @@ func writeError(msg string) {
 }
 ```
 
-Add imports: `"crypto/sha256"`, `"time"`, `"github.com/vutran1710/dating-dev/internal/message"`
+Add imports: `"context"`, `"crypto/sha256"`, `"strconv"`, `"time"`, `"github.com/vutran1710/dating-dev/internal/github"`, `"github.com/vutran1710/dating-dev/internal/message"`
 
 Note: `sha256Short` and `writeError` are now in both `regcrypt` and `matchcrypt`. That's fine — they're 3-line functions in separate binaries.
 
@@ -534,7 +563,7 @@ Run: `go build ./cmd/matchcrypt/`
 
 ```bash
 git add cmd/matchcrypt/main.go
-git commit -m "feat: matchcrypt match — reads env vars, writes match file + .output files"
+git commit -m "feat: matchcrypt match — full match flow with git+gh via CLIClient"
 ```
 
 ---
@@ -708,19 +737,84 @@ git commit -m "refactor: use message.Parse in match notification decryption"
 
 - [ ] **Step 1: Replace pool-register.yml**
 
-Replace the entire file with the thin wrapper from the spec. Key changes:
-- Trigger condition: `<!-- openpool:registration-request -->` (was `<!-- registration-request -->`)
-- Run `./regcrypt register` instead of inline bash
-- Check `.output` for errors
-- git add/commit/push + gh issue close/comment
+The tool handles everything now — git+gh included:
+
+```yaml
+name: Process Registration
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  register:
+    if: contains(github.event.issue.body, '<!-- openpool:registration-request -->')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download regcrypt
+        run: |
+          curl -sL https://github.com/vutran1710/regcrypt/releases/latest/download/regcrypt-linux-amd64 -o regcrypt
+          chmod +x regcrypt
+
+      - name: Register
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_AUTHOR_ID: ${{ github.event.issue.user.id }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          REPO: ${{ github.repository }}
+          POOL_SALT: ${{ secrets.POOL_SALT }}
+          OPERATOR_PRIVATE_KEY: ${{ secrets.OPERATOR_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: ./regcrypt register
+```
 
 - [ ] **Step 2: Replace pool-interest.yml**
 
-Replace with thin wrapper:
-- `gh pr list` to get reciprocal PRs as JSON
-- Pass as `RECIP_PRS` env var to `./matchcrypt match`
-- Check for `.output.*` files
-- git add/commit/push + close/comment each PR
+The only bash is `gh pr list` to feed reciprocal PRs as env var:
+
+```yaml
+name: Process Interest
+
+on:
+  pull_request:
+    types: [opened]
+
+jobs:
+  match:
+    if: contains(github.event.pull_request.labels.*.name, 'interest')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download matchcrypt
+        run: |
+          curl -sL https://github.com/vutran1710/regcrypt/releases/latest/download/matchcrypt-linux-amd64 -o matchcrypt
+          chmod +x matchcrypt
+
+      - name: Match
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          OPERATOR_PRIVATE_KEY: ${{ secrets.OPERATOR_PRIVATE_KEY }}
+          POOL_SALT: ${{ secrets.POOL_SALT }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RECIP_PRS=$(gh pr list --repo "$REPO" --state open --label interest --json number,title,body)
+          RECIP_PRS="$RECIP_PRS" ./matchcrypt match
+```
+
+> **Future optimization**: Add target match_hash as a PR label (alongside `interest`) during the `like` command. Then `matchcrypt match` can use the CLIClient to call `gh pr list --label interest --label <author_match_hash>` internally — no need for `RECIP_PRS` env var. This makes the Action truly one line: `./matchcrypt match`. Needs separate brainstorm on label management and how the `like` command constructs PRs.
 
 - [ ] **Step 3: Commit**
 
