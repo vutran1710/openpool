@@ -467,7 +467,15 @@ All message payloads must be size-limited to prevent abuse:
 | Relay binary frames (chat) | 16 KB | Relay `session.go` — drop oversized frames |
 | `.bin` file (encrypted profile) | 256 KB | `regcrypt register` — reject oversized blobs |
 
-Enforcement should happen at the `message` package level (`message.Format` returns error if content exceeds max) and at the relay level (session drops frames > 16 KB). This prevents:
+Enforcement at every layer — defense in depth:
+
+1. **Client send** — `ChatClient.Send` rejects messages exceeding limit before encrypting
+2. **Client receive** — `ChatClient.handleIncoming` drops oversized payloads after decryption
+3. **Relay server** — `session.go` drops binary frames > 16 KB before routing (protects relay memory + offline queue)
+4. **Message package** — `message.Format` rejects content exceeding limit (protects GitHub issues/comments)
+5. **Action tools** — `regcrypt register` / `matchcrypt match` reject oversized input
+
+This prevents:
 
 - Attackers flooding issues with massive payloads
 - Oversized chat messages consuming relay memory (especially offline queue: 20 messages × 16 KB = 320 KB max per user)
