@@ -456,6 +456,25 @@ The user's ed25519 private key is the single point of failure per user. If stole
 
 ---
 
+## 11. Payload Size Limits **[planned]**
+
+All message payloads must be size-limited to prevent abuse:
+
+| Channel | Limit | Enforcement Point |
+|---------|-------|--------------------|
+| Issue body (registration/interest) | 64 KB | `message.Format` — reject content exceeding limit |
+| Issue comments (signed blobs) | 64 KB | `message.Format` — reject content exceeding limit |
+| Relay binary frames (chat) | 16 KB | Relay `session.go` — drop oversized frames |
+| `.bin` file (encrypted profile) | 256 KB | `regcrypt register` — reject oversized blobs |
+
+Enforcement should happen at the `message` package level (`message.Format` returns error if content exceeds max) and at the relay level (session drops frames > 16 KB). This prevents:
+
+- Attackers flooding issues with massive payloads
+- Oversized chat messages consuming relay memory (especially offline queue: 20 messages × 16 KB = 320 KB max per user)
+- Git repo bloat from oversized `.bin` files
+
+---
+
 ## Appendix: Key Files
 
 | File | Relevance |
