@@ -217,6 +217,26 @@ func (c *HTTPClient) GetIssue(ctx context.Context, number int) (*Issue, error) {
 	return &issue, nil
 }
 
+func (c *HTTPClient) ListIssues(ctx context.Context, state string, labels ...string) ([]Issue, error) {
+	query := fmt.Sprintf("/issues?state=%s&per_page=100", state)
+	if len(labels) > 0 {
+		query += "&labels=" + strings.Join(labels, ",")
+	}
+	resp, err := c.do(ctx, "GET", c.apiURL(query), nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("list issues failed (%d)", resp.StatusCode)
+	}
+	var issues []Issue
+	if err := json.NewDecoder(resp.Body).Decode(&issues); err != nil {
+		return nil, err
+	}
+	return issues, nil
+}
+
 // ListIssueComments returns all comments on an issue.
 func (c *HTTPClient) ListIssueComments(ctx context.Context, number int) ([]IssueComment, error) {
 	url := c.apiURL(fmt.Sprintf("/issues/%d/comments", number))
