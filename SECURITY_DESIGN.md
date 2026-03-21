@@ -510,8 +510,7 @@ This prevents:
 | `internal/relay/github_cache.go` | Pubkey fetching and caching |
 | `internal/github/pool.go` | Registration polling, comment verification |
 | `internal/cli/tui/screens/matches.go` | Match notification decryption |
-| `cmd/regcrypt/main.go` | Hash computation + comment signing for Actions |
-| `cmd/matchcrypt/main.go` | Match notification generation + signing |
+| `cmd/action-tool/` | Unified Action binary — register, match, squash, index, sign, decrypt, pubkey |
 | `templates/actions/pool-register.yml` | Registration Action (sign + post) |
 | `templates/actions/pool-interest.yml` | Interest/match Action (sign + post) |
 | `docs/concepts/relay-auth-security.md` | Relay auth security analysis |
