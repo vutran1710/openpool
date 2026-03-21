@@ -460,18 +460,19 @@ The user's ed25519 private key is the single point of failure per user. If stole
 
 All message payloads must be size-limited to prevent abuse:
 
-| Channel | Limit | Enforcement Point |
-|---------|-------|--------------------|
-| Issue body (registration/interest) | 64 KB | `message.Format` — reject content exceeding limit |
-| Issue comments (signed blobs) | 64 KB | `message.Format` — reject content exceeding limit |
-| Relay binary frames (chat) | 16 KB | Relay `session.go` — drop oversized frames |
-| `.bin` file (encrypted profile) | 256 KB | `regcrypt register` — reject oversized blobs |
+| Channel | Limit | Rationale |
+|---------|-------|-----------|
+| Chat message (plaintext) | 4 KB | ~500 words, generous for chat |
+| Relay binary frame | 8 KB | 4 KB ciphertext + NaCl overhead + 8B header |
+| Issue body (registration/interest) | 64 KB | Profile blob + metadata |
+| Issue comments (signed blobs) | 64 KB | Encrypted notification + signature |
+| `.bin` file (encrypted profile) | 256 KB | Encrypted profile data |
 
 Enforcement at every layer — defense in depth:
 
 1. **Client send** — `ChatClient.Send` rejects messages exceeding limit before encrypting
 2. **Client receive** — `ChatClient.handleIncoming` drops oversized payloads after decryption
-3. **Relay server** — `session.go` drops binary frames > 16 KB before routing (protects relay memory + offline queue)
+3. **Relay server** — `session.go` drops binary frames > 8 KB before routing (protects relay memory + offline queue: 20 × 8 KB = 160 KB max per user)
 4. **Message package** — `message.Format` rejects content exceeding limit (protects GitHub issues/comments)
 5. **Action tools** — `regcrypt register` / `matchcrypt match` reject oversized input
 
