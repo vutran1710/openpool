@@ -2,7 +2,7 @@ name: Squash History
 
 on:
   schedule:
-    - cron: '0 0 * * 0'  # weekly, Sunday midnight UTC
+    - cron: '0 * * * *'  # every hour
   workflow_dispatch:      # manual trigger
 
 jobs:
@@ -15,29 +15,29 @@ jobs:
         with:
           fetch-depth: 0  # full history needed for squash
 
-      - name: Squash to single commit
+      - name: Squash if needed
         env:
           GH_TOKEN: ${{ github.token }}
+          MAX_COMMIT_COUNT: ${{ vars.MAX_COMMIT_COUNT || '50' }}
         run: |
           set -euo pipefail
 
-          # Count commits
           COMMIT_COUNT=$(git rev-list --count HEAD)
-          if [ "$COMMIT_COUNT" -le 1 ]; then
-            echo "Already squashed (1 commit). Skipping."
+          echo "Current commits: $COMMIT_COUNT (max: $MAX_COMMIT_COUNT)"
+
+          if [ "$COMMIT_COUNT" -le "$MAX_COMMIT_COUNT" ]; then
+            echo "Under threshold. Skipping."
             exit 0
           fi
 
           echo "Squashing $COMMIT_COUNT commits into 1..."
 
-          # Create orphan branch with current tree
           git checkout --orphan squashed
           git add -A
           git config user.name "openpool-bot"
           git config user.email "bot@openpool.dev"
           git commit -m "Pool state (squashed $(date -u +%Y-%m-%dT%H:%M:%SZ))"
 
-          # Force push to main
           git push --force origin squashed:main
 
           echo "History squashed: $COMMIT_COUNT commits → 1"
