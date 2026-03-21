@@ -221,6 +221,9 @@ func cmdRegister() {
 		fmt.Fprintf(os.Stderr, "error: commenting on issue: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Lock issue to prevent re-opening
+	gh.LockIssue(ctx, issueNumber, "resolved")
 }
 
 func cmdSign() {

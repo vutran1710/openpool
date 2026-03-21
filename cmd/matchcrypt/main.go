@@ -281,6 +281,17 @@ func cmdMatch() {
 	}
 	pairHash := sha256Short(a + ":" + b)
 
+	// Check if match already exists — if so, just close + lock + exit
+	matchFilePath := "matches/" + pairHash + ".json"
+	if _, err := os.Stat(matchFilePath); err == nil {
+		log.Printf("match %s already exists — closing + locking issues", pairHash)
+		_ = gh.CloseIssue(ctx, issueNumber, "completed")
+		_ = gh.CloseIssue(ctx, recipIssue.Number, "completed")
+		gh.LockIssue(ctx, issueNumber, "resolved")
+		gh.LockIssue(ctx, recipIssue.Number, "resolved")
+		return
+	}
+
 	// Write matches/{pair_hash}.json
 	matchData, _ := json.Marshal(map[string]string{
 		"pair_hash":  pairHash,
@@ -318,6 +329,10 @@ func cmdMatch() {
 		fmt.Fprintf(os.Stderr, "error: commenting on reciprocal issue: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Lock both issues to prevent re-opening
+	gh.LockIssue(ctx, issueNumber, "resolved")
+	gh.LockIssue(ctx, recipIssue.Number, "resolved")
 }
 
 func encryptAndSign(recipientPub []byte, peerMatchHash, peerPubHex, greeting string, operatorKey []byte) string {

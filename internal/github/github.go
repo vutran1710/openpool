@@ -19,6 +19,7 @@ type GitHubClient interface {
 	CreateIssue(ctx context.Context, title, body string, labels []string) (int, error)
 	GetIssue(ctx context.Context, number int) (*Issue, error)
 	CloseIssue(ctx context.Context, number int, reason string) error
+	LockIssue(ctx context.Context, number int, reason string) error
 	ListIssues(ctx context.Context, state string, labels ...string) ([]Issue, error)
 	ListIssueComments(ctx context.Context, number int) ([]IssueComment, error)
 	CommentIssue(ctx context.Context, number int, body string) error

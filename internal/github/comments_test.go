@@ -27,6 +27,7 @@ func (m *mockCommentsClient) FileExists(_ context.Context, _ string) bool       
 func (m *mockCommentsClient) CreateIssue(_ context.Context, _, _ string, _ []string) (int, error) { panic("not implemented") }
 func (m *mockCommentsClient) GetIssue(_ context.Context, _ int) (*Issue, error)              { panic("not implemented") }
 func (m *mockCommentsClient) CloseIssue(_ context.Context, _ int, _ string) error            { panic("not implemented") }
+func (m *mockCommentsClient) LockIssue(_ context.Context, _ int, _ string) error             { panic("not implemented") }
 func (m *mockCommentsClient) ListIssues(_ context.Context, _ string, _ ...string) ([]Issue, error) { panic("not implemented") }
 func (m *mockCommentsClient) CommentIssue(_ context.Context, _ int, _ string) error          { panic("not implemented") }
 func (m *mockCommentsClient) ListPullRequests(_ context.Context, _ string) ([]PullRequest, error) { panic("not implemented") }

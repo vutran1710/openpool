@@ -292,6 +292,25 @@ func (c *HTTPClient) CloseIssue(ctx context.Context, number int, reason string) 
 	return nil
 }
 
+// LockIssue locks an issue to prevent re-opening.
+func (c *HTTPClient) LockIssue(ctx context.Context, number int, reason string) error {
+	payload := map[string]string{}
+	if reason != "" {
+		payload["lock_reason"] = reason
+	}
+	data, _ := json.Marshal(payload)
+	url := c.apiURL(fmt.Sprintf("/issues/%d/lock", number))
+	resp, err := c.do(ctx, "PUT", url, strings.NewReader(string(data)))
+	if err != nil {
+		return fmt.Errorf("locking issue: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 204 {
+		return fmt.Errorf("lock issue failed (%d)", resp.StatusCode)
+	}
+	return nil
+}
+
 // CommentIssue adds a comment to an issue.
 func (c *HTTPClient) CommentIssue(ctx context.Context, number int, body string) error {
 	payload, err := json.Marshal(map[string]string{"body": body})

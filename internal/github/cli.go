@@ -136,6 +136,15 @@ func (c *CLIClient) CloseIssue(_ context.Context, number int, reason string) err
 	return err
 }
 
+func (c *CLIClient) LockIssue(_ context.Context, number int, reason string) error {
+	args := []string{"issue", "lock", strconv.Itoa(number), "-R", c.repo}
+	if reason != "" {
+		args = append(args, "--reason", reason)
+	}
+	_, err := c.gh(args...)
+	return err
+}
+
 func (c *CLIClient) ListIssues(_ context.Context, state string, labels ...string) ([]Issue, error) {
 	args := []string{"issue", "list", "--repo", c.repo, "--state", state,
 		"--json", "number,title,body,state,stateReason,labels,createdAt", "--limit", "100"}
