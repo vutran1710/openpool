@@ -84,7 +84,7 @@ After squash:
   commit xyz: Pool state                ← single commit, no timeline
 ```
 
-Implemented as a cron Action that force-pushes a squashed history (e.g., weekly).
+Implemented as `pool-squash.yml` — cron Action (weekly, Sunday midnight UTC) that creates an orphan commit with the current tree and force-pushes to main. Also available via manual `workflow_dispatch`.
 
 ### Where each hash appears publicly
 
@@ -471,7 +471,7 @@ An attacker could re-open a closed interest issue to trigger duplicate match pro
 
 ---
 
-## 12. Payload Size Limits
+## 12. Payload Size Limits **[implemented]**
 
 All message payloads must be size-limited to prevent abuse:
 
