@@ -185,21 +185,23 @@ func (p *Pool) RegisterUser(ctx context.Context, userHash string, encryptedBlob 
 	return p.client.CreatePullRequest(ctx, pr)
 }
 
+// SubmitIssue creates a GitHub issue with a structured message body.
+func (p *Pool) SubmitIssue(ctx context.Context, title, blockType, content string, labels []string) (int, error) {
+	body := message.Format(blockType, content)
+	return p.client.CreateIssue(ctx, title, body, labels)
+}
+
 // RegisterUserViaIssue submits a registration request as a GitHub issue.
 // A GitHub Action will process the issue, commit the .bin file, and close it.
 func (p *Pool) RegisterUserViaIssue(ctx context.Context, userHash string, encryptedBlob []byte, pubKeyHex, signature, identityProof string) (int, error) {
 	blobHex := hex.EncodeToString(encryptedBlob)
-
 	content := strings.Join([]string{userHash, pubKeyHex, blobHex, signature, identityProof}, "\n")
-	body := message.Format("registration-request", content)
-
-	return p.client.CreateIssue(ctx, "Registration Request", body, []string{"registration"})
+	return p.SubmitIssue(ctx, "Registration Request", "registration-request", content, []string{"registration"})
 }
 
-// CreateInterestPR creates a PR expressing interest in another user.
+// CreateInterestIssue creates an issue expressing interest in another user.
 // Title = target's match_hash. Body = encrypted {author_bin_hash, author_match_hash, greeting}.
-func (p *Pool) CreateInterestPR(ctx context.Context, myBinHash, myMatchHash, targetMatchHash, greeting string, operatorPubKey ed25519.PublicKey) (int, error) {
-	// Encrypt payload to operator
+func (p *Pool) CreateInterestIssue(ctx context.Context, myBinHash, myMatchHash, targetMatchHash, greeting string, operatorPubKey ed25519.PublicKey) (int, error) {
 	payload, _ := json.Marshal(map[string]string{
 		"author_bin_hash":   myBinHash,
 		"author_match_hash": myMatchHash,
@@ -209,86 +211,23 @@ func (p *Pool) CreateInterestPR(ctx context.Context, myBinHash, myMatchHash, tar
 	if err != nil {
 		return 0, fmt.Errorf("encrypting interest: %w", err)
 	}
-	body := base64.StdEncoding.EncodeToString(encrypted)
-
-	// Branch name: deterministic from the pair
-	branchHash := pairHash(myMatchHash, targetMatchHash)
-	branch := fmt.Sprintf("like/%s", branchHash)
-
-	pr := PRRequest{
-		Title:  targetMatchHash,
-		Body:   body,
-		Branch: branch,
-		Labels: []string{"interest"},
-		Files: []PRFile{
-			{Path: fmt.Sprintf("interests/%s.txt", branchHash), Content: []byte("interest")},
-		},
-	}
-
-	return p.client.CreatePullRequest(ctx, pr)
+	encBody := base64.StdEncoding.EncodeToString(encrypted)
+	return p.SubmitIssue(ctx, targetMatchHash, "interest", encBody, []string{"interest"})
 }
 
-// ListInterestsForMe searches open interest PRs targeting the given match_hash.
-func (p *Pool) ListInterestsForMe(ctx context.Context, myMatchHash string) ([]PullRequest, error) {
-	prs, err := p.client.ListPullRequests(ctx, "open")
+// ListInterestsForMeIssues searches open interest issues targeting the given match_hash.
+func (p *Pool) ListInterestsForMeIssues(ctx context.Context, myMatchHash string) ([]Issue, error) {
+	issues, err := p.client.ListIssues(ctx, "open", "interest")
 	if err != nil {
 		return nil, err
 	}
-	var results []PullRequest
-	for _, pr := range prs {
-		if pr.Title == myMatchHash {
-			for _, l := range pr.Labels {
-				if l.Name == "interest" {
-					results = append(results, pr)
-					break
-				}
-			}
+	var results []Issue
+	for _, iss := range issues {
+		if iss.Title == myMatchHash {
+			results = append(results, iss)
 		}
 	}
 	return results, nil
-}
-
-// CreateLikeIssue creates a like as a GitHub Issue.
-// A Pool Action will process it and create the actual PR.
-func (p *Pool) CreateLikeIssue(ctx context.Context, likerHash, likedHash, encryptedMsg, signature string) (int, error) {
-	body := fmt.Sprintf("%s\n%s\n%s", likerHash, encryptedMsg, signature)
-	title := fmt.Sprintf("Like: %s", crypto.ShortHash(likerHash))
-	return p.client.CreateIssue(ctx, title, body, []string{"like"})
-}
-
-// CreateLikePR is called by the Pool Action (bot) after validating the like issue.
-// Creates a PR with match file using sorted hash filenames.
-func (p *Pool) CreateLikePR(ctx context.Context, likerHash, likedHash, encryptedMsg, signature string) (int, error) {
-	sortedA, sortedB := likerHash, likedHash
-	if sortedA > sortedB {
-		sortedA, sortedB = sortedB, sortedA
-	}
-	matchFile := fmt.Sprintf("matches/%s_%s.json", sortedA, sortedB)
-	matchContent := []byte(fmt.Sprintf(`{"created_at":%d}`, time.Now().Unix()))
-
-	pr := PRRequest{
-		Title:  fmt.Sprintf("Like: %s -> %s", crypto.ShortHash(likerHash), crypto.ShortHash(likedHash)),
-		Body:   fmt.Sprintf("%s\n%s\n%s\n%s", likerHash, likedHash, encryptedMsg, signature),
-		Branch: fmt.Sprintf("like/%s_%s", sortedA, sortedB),
-		Labels: []string{fmt.Sprintf("like:%s", likedHash)},
-		Files: []PRFile{
-			{Path: matchFile, Content: matchContent},
-		},
-	}
-
-	return p.client.CreatePullRequest(ctx, pr)
-}
-
-func (p *Pool) ListIncomingLikes(ctx context.Context, userHash string) ([]PullRequest, error) {
-	return p.listPRsByLabel(ctx, "like:"+userHash)
-}
-
-func (p *Pool) AcceptLike(ctx context.Context, prNumber int) error {
-	return p.client.MergePullRequest(ctx, prNumber)
-}
-
-func (p *Pool) RejectLike(ctx context.Context, prNumber int) error {
-	return p.client.ClosePullRequest(ctx, prNumber)
 }
 
 func (p *Pool) ListMatches(ctx context.Context) ([]string, error) {
@@ -364,35 +303,28 @@ func (p *Pool) PollRegistrationResult(ctx context.Context, issueNumber int, oper
 			return "", "", fmt.Errorf("registration rejected (issue closed as not planned)")
 		}
 
-		// Check comments
-		comments, err := p.client.ListIssueComments(ctx, issueNumber)
-		if err == nil {
-			for i := len(comments) - 1; i >= 0; i-- {
-				c := comments[i]
-				if c.User.Login != "github-actions[bot]" {
-					continue
-				}
-				bin, match, decErr := tryDecryptComment(c.Body, operatorPub, userPriv)
-				if decErr == nil {
-					return bin, match, nil
+		// Check for operator reply
+		content, findErr := FindOperatorReplyInIssue(ctx, p.client, issueNumber, "registration", operatorPub)
+		if findErr == nil {
+			plaintext, decErr := crypto.DecryptSignedBlob(content, userPriv)
+			if decErr == nil {
+				var hashes map[string]string
+				if mErr := msgpack.Unmarshal(plaintext, &hashes); mErr == nil {
+					return hashes["bin_hash"], hashes["match_hash"], nil
 				}
 			}
 		}
 
 		// If issue is closed as completed but we haven't found the comment yet,
-		// keep trying (comment might be cached)
+		// one more attempt
 		if issue != nil && issue.State == "closed" && issue.StateReason != "not_planned" {
-			// One more attempt — the comment should be there
-			comments, err = p.client.ListIssueComments(ctx, issueNumber)
-			if err == nil {
-				for i := len(comments) - 1; i >= 0; i-- {
-					c := comments[i]
-					if c.User.Login != "github-actions[bot]" {
-						continue
-					}
-					bin, match, decErr := tryDecryptComment(c.Body, operatorPub, userPriv)
-					if decErr == nil {
-						return bin, match, nil
+			content, findErr = FindOperatorReplyInIssue(ctx, p.client, issueNumber, "registration", operatorPub)
+			if findErr == nil {
+				plaintext, decErr := crypto.DecryptSignedBlob(content, userPriv)
+				if decErr == nil {
+					var hashes map[string]string
+					if mErr := msgpack.Unmarshal(plaintext, &hashes); mErr == nil {
+						return hashes["bin_hash"], hashes["match_hash"], nil
 					}
 				}
 			}
@@ -405,48 +337,6 @@ func (p *Pool) PollRegistrationResult(ctx context.Context, issueNumber int, oper
 		case <-ticker.C:
 		}
 	}
-}
-
-func tryDecryptComment(body string, operatorPub ed25519.PublicKey, userPriv ed25519.PrivateKey) (binHash, matchHash string, err error) {
-	blockType, content, err := message.Parse(body)
-	if err != nil || blockType != "registration" {
-		return "", "", fmt.Errorf("not a registration comment")
-	}
-
-	parts := strings.SplitN(content, ".", 2)
-	if len(parts) != 2 {
-		return "", "", fmt.Errorf("unsigned comment")
-	}
-
-	ciphertext, err := base64.StdEncoding.DecodeString(parts[0])
-	if err != nil {
-		return "", "", fmt.Errorf("invalid base64: %w", err)
-	}
-
-	sigBytes, err := hex.DecodeString(parts[1])
-	if err != nil || len(sigBytes) != ed25519.SignatureSize {
-		return "", "", fmt.Errorf("invalid signature")
-	}
-
-	if !ed25519.Verify(operatorPub, ciphertext, sigBytes) {
-		return "", "", fmt.Errorf("signature verification failed")
-	}
-
-	plaintext, err := crypto.Decrypt(userPriv, ciphertext)
-	if err != nil {
-		return "", "", err
-	}
-
-	var hashes map[string]string
-	if err := msgpack.Unmarshal(plaintext, &hashes); err != nil {
-		return "", "", fmt.Errorf("msgpack decode: %w", err)
-	}
-	bin, ok1 := hashes["bin_hash"]
-	match, ok2 := hashes["match_hash"]
-	if !ok1 || !ok2 {
-		return "", "", fmt.Errorf("missing bin_hash or match_hash")
-	}
-	return bin, match, nil
 }
 
 func pairHash(a, b string) string {
