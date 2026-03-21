@@ -31,9 +31,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Extract fields from issue body (between ``` fences after each header)
-          PUB_KEY=$(echo "$ISSUE_BODY" | sed -n '/\*\*Public Key:\*\*/,/```/{/```/!p}' | grep -v '^\*\*' | tr -d '[:space:]')
-          BLOB_HEX=$(echo "$ISSUE_BODY" | sed -n '/\*\*Profile Blob:\*\*/,/```/{/```/!p}' | grep -v '^\*\*' | tr -d '[:space:]')
+          # Extract fields from issue body (content between ``` fences after each header)
+          extract_field() {
+            echo "$ISSUE_BODY" | awk -v header="$1" '
+              $0 ~ header { found=1; next }
+              found && /^```/ { if (inside) exit; inside=1; next }
+              found && inside { print }
+            ' | tr -d '[:space:]'
+          }
+          PUB_KEY=$(extract_field '\\*\\*Public Key:\\*\\*')
+          BLOB_HEX=$(extract_field '\\*\\*Profile Blob:\\*\\*')
 
           if [ -z "$PUB_KEY" ] || [ -z "$BLOB_HEX" ]; then
             echo "::error::Missing required fields in issue body"
@@ -45,7 +52,7 @@ jobs:
           # Determine provider + user_id
           REPO_OWNER=$(echo "$REPO" | cut -d/ -f1)
           ISSUE_AUTHOR=$(gh api "repos/$REPO/issues/$ISSUE_NUMBER" --jq '.user.login')
-          CUSTOM_ID=$(echo "$ISSUE_BODY" | sed -n '/\*\*Custom ID:\*\*/,/```/{/```/!p}' | grep -v '^\*\*' | tr -d '[:space:]')
+          CUSTOM_ID=$(extract_field '\\*\\*Custom ID:\\*\\*')
 
           if [ "$ISSUE_AUTHOR" = "$REPO_OWNER" ] && [ -n "$CUSTOM_ID" ] && echo "$CUSTOM_ID" | grep -q ':'; then
             PROVIDER=$(echo "$CUSTOM_ID" | cut -d: -f1)

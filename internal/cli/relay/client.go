@@ -62,7 +62,9 @@ func (c *Client) SetPeerKey(peerMatchHash string, peerPub ed25519.PublicKey) {
 }
 
 func (c *Client) Connect(ctx context.Context) error {
-	sig := crypto.TOTPSign(c.priv)
+	// Extract host from relay URL for channel binding
+	relayHost := extractHost(c.url)
+	sig := crypto.TOTPSign(c.priv, relayHost)
 	wsURL := c.wsURL() + "/ws?id=" + c.idHash + "&match=" + c.matchHash + "&sig=" + sig
 
 	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
@@ -152,6 +154,19 @@ func (c *Client) getOrDeriveKey(peerMatchHash string) ([]byte, error) {
 	c.keys[peerMatchHash] = key
 	c.mu.Unlock()
 	return key, nil
+}
+
+func extractHost(rawURL string) string {
+	// Remove scheme
+	host := rawURL
+	if i := strings.Index(host, "://"); i >= 0 {
+		host = host[i+3:]
+	}
+	// Remove port and path
+	if i := strings.Index(host, "/"); i >= 0 {
+		host = host[:i]
+	}
+	return host
 }
 
 func (c *Client) wsURL() string {

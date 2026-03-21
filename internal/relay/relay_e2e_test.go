@@ -68,9 +68,21 @@ func (e *testEnv) registerUser(t *testing.T) (idHash, binHash, matchHash string,
 	return
 }
 
+func extractTestHost(wsURL string) string {
+	host := wsURL
+	if i := strings.Index(host, "://"); i >= 0 {
+		host = host[i+3:]
+	}
+	if i := strings.Index(host, "/"); i >= 0 {
+		host = host[:i]
+	}
+	return host
+}
+
 func (e *testEnv) connectWS(t *testing.T, idHash, matchHash string, priv ed25519.PrivateKey) *websocket.Conn {
 	t.Helper()
-	sig := crypto.TOTPSign(priv)
+	relayHost := extractTestHost(e.wsURL())
+	sig := crypto.TOTPSign(priv, relayHost)
 	url := e.wsURL() + "/ws?id=" + idHash + "&match=" + matchHash + "&sig=" + sig
 	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
 	conn, resp, err := dialer.Dial(url, nil)
@@ -161,7 +173,8 @@ func TestAuth_WrongSig(t *testing.T) {
 	idHash, _, matchHash, _, _ := env.registerUser(t)
 	_, wrongPriv, _ := ed25519.GenerateKey(rand.Reader)
 
-	sig := crypto.TOTPSign(wrongPriv)
+	relayHost := extractTestHost(env.wsURL())
+	sig := crypto.TOTPSign(wrongPriv, relayHost)
 	url := env.wsURL() + "/ws?id=" + idHash + "&match=" + matchHash + "&sig=" + sig
 	status := env.dialExpectFail(t, url)
 	if status != 401 {
@@ -175,7 +188,8 @@ func TestAuth_MismatchedChain(t *testing.T) {
 
 	// Use a wrong match_hash that doesn't derive from this id_hash
 	wrongMatch := "abcdef0123456789"
-	sig := crypto.TOTPSign(priv)
+	relayHost := extractTestHost(env.wsURL())
+	sig := crypto.TOTPSign(priv, relayHost)
 	url := env.wsURL() + "/ws?id=" + idHash + "&match=" + wrongMatch + "&sig=" + sig
 	status := env.dialExpectFail(t, url)
 	if status != 401 {
@@ -215,7 +229,8 @@ func TestAuth_ExpiredSig(t *testing.T) {
 
 	// Sign 2 windows ago — outside ±1 tolerance
 	tw := time.Now().Unix()/300 - 2
-	sig := crypto.TOTPSignAt(priv, tw)
+	relayHost := extractTestHost(env.wsURL())
+	sig := crypto.TOTPSignAt(priv, relayHost, tw)
 	url := env.wsURL() + "/ws?id=" + idHash + "&match=" + matchHash + "&sig=" + sig
 	status := env.dialExpectFail(t, url)
 	if status != 401 {
@@ -233,7 +248,8 @@ func TestAuth_UnknownUser(t *testing.T) {
 	matchHash := env.srv.MatchHash(binHash)
 	// Do NOT inject pubkey — this user is unknown
 
-	sig := crypto.TOTPSign(priv)
+	relayHost := extractTestHost(env.wsURL())
+	sig := crypto.TOTPSign(priv, relayHost)
 	url := env.wsURL() + "/ws?id=" + idHash + "&match=" + matchHash + "&sig=" + sig
 	status := env.dialExpectFail(t, url)
 	if status != 401 {
@@ -480,7 +496,8 @@ func TestSession_MultipleConcurrentUsers(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			u := users[idx]
-			sig := crypto.TOTPSign(u.priv)
+			relayHost := extractTestHost(env.wsURL())
+			sig := crypto.TOTPSign(u.priv, relayHost)
 			url := env.wsURL() + "/ws?id=" + u.idHash + "&match=" + u.matchHash + "&sig=" + sig
 			dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
 			conn, _, err := dialer.Dial(url, nil)
