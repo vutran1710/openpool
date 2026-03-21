@@ -314,6 +314,10 @@ func encodeBase64Content(data []byte) string {
 // AddCommitPush stages files, commits, pulls with rebase, and pushes.
 // This is only available on CLIClient (requires local git checkout).
 func (c *CLIClient) AddCommitPush(files []string, message string) error {
+	// Set git identity (required in CI/Actions environments)
+	exec.Command("git", "config", "user.name", "openpool-bot").Run()
+	exec.Command("git", "config", "user.email", "bot@openpool.dev").Run()
+
 	// git add
 	addArgs := append([]string{"add"}, files...)
 	cmd := exec.Command("git", addArgs...)
