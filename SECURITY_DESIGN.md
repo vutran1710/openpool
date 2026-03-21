@@ -456,7 +456,22 @@ The user's ed25519 private key is the single point of failure per user. If stole
 
 ---
 
-## 11. Payload Size Limits **[planned]**
+## 11. Issue Re-open Attack
+
+An attacker could re-open a closed interest issue to trigger duplicate match processing.
+
+**Current protection**: Action triggers on `issues: [opened]` only — `reopened` events do not trigger the Action. This is sufficient.
+
+**Defense in depth** (in `matchcrypt match`):
+- Check if `matches/{pair_hash}.json` already exists before creating a match
+- If match file exists → skip processing (already matched)
+- This protects against both re-open attacks and concurrent Action execution
+
+**Important**: Action templates must NEVER use `types: [opened, reopened]` — only `[opened]`.
+
+---
+
+## 12. Payload Size Limits
 
 All message payloads must be size-limited to prevent abuse:
 
