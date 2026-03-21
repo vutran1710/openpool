@@ -26,9 +26,6 @@ func NewHTTP(repo, token string) *HTTPClient {
 	}
 }
 
-// NewClient is a deprecated alias for NewHTTP.
-func NewClient(repo, token string) *HTTPClient { return NewHTTP(repo, token) }
-
 // NormalizeRepo extracts "owner/repo" from various git URL formats.
 // Accepts: "owner/repo", "https://github.com/owner/repo.git", "git@github.com:owner/repo.git"
 func NormalizeRepo(input string) string {

@@ -39,7 +39,7 @@ type PoolTokens struct {
 // NewRegistry creates a registry with write access (for creating PRs).
 func NewRegistry(repoURL, token string) *Registry {
 	return &Registry{
-		client: NewClient(repoURL, token),
+		client: NewHTTP(repoURL, token),
 	}
 }
 

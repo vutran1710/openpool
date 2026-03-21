@@ -1023,7 +1023,7 @@ func (s JoinScreen) encrypt() tea.Msg {
 
 	// Submit issue
 	ctx := context.Background()
-	client := gh.NewClient(s.poolRepo, token)
+	client := gh.NewCLIOrHTTP(s.poolRepo, token)
 	number, err := client.CreateIssue(ctx, s.template.Title, body, s.template.Labels)
 	return issueCreatedMsg{number: number, err: err}
 }
@@ -1045,7 +1045,7 @@ func (s JoinScreen) pollIssue() tea.Msg {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	client := gh.NewClient(s.poolRepo, token)
+	client := gh.NewCLIOrHTTP(s.poolRepo, token)
 	issue, err := client.GetIssue(ctx, s.issueNumber)
 	if err != nil {
 		return pollResultMsg{err: err}
@@ -1071,7 +1071,7 @@ func (s JoinScreen) postRegistration() tea.Msg {
 	ctx := context.Background()
 
 	// Star the repo
-	client := gh.NewClient(s.poolRepo, token)
+	client := gh.NewCLIOrHTTP(s.poolRepo, token)
 	client.StarRepo(ctx)
 
 	// Get hash from relay
