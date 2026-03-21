@@ -2,9 +2,11 @@ package chat
 
 import (
 	"crypto/ed25519"
+	"fmt"
 	"log"
 
 	relayclient "github.com/vutran1710/dating-dev/internal/cli/relay"
+	"github.com/vutran1710/dating-dev/internal/limits"
 )
 
 type ChatClient struct {
@@ -22,6 +24,10 @@ func NewChatClient(relay *relayclient.Client, db *ConversationDB) *ChatClient {
 }
 
 func (c *ChatClient) handleIncoming(senderMatchHash string, plaintext []byte) {
+	if len(plaintext) > limits.MaxChatMessage {
+		log.Printf("dropping oversized message from %s: %d bytes", senderMatchHash, len(plaintext))
+		return
+	}
 	if err := c.DB.SaveMessage(senderMatchHash, string(plaintext), false); err != nil {
 		log.Printf("save incoming: %v", err)
 	}
@@ -31,6 +37,9 @@ func (c *ChatClient) handleIncoming(senderMatchHash string, plaintext []byte) {
 }
 
 func (c *ChatClient) Send(peerMatchHash, text string) error {
+	if len(text) > limits.MaxChatMessage {
+		return fmt.Errorf("message too large: %d bytes (max %d)", len(text), limits.MaxChatMessage)
+	}
 	if err := c.Relay.SendMessage(peerMatchHash, text); err != nil {
 		return err
 	}

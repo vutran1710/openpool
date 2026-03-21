@@ -642,6 +642,22 @@ func TestRouting_InvalidFrame_TooShort(t *testing.T) {
 	}
 }
 
+func TestRelay_OversizedFrame(t *testing.T) {
+	env := newTestEnv(t)
+	idA, _, matchA, _, privA := env.registerUser(t)
+	connA := env.connectWS(t, idA, matchA, privA)
+	time.Sleep(50 * time.Millisecond)
+
+	// Send a binary frame > 8 KB
+	bigFrame := make([]byte, 8193)
+	connA.WriteMessage(websocket.BinaryMessage, bigFrame)
+
+	msg := readText(t, connA, 2*time.Second)
+	if msg != "frame too large" {
+		t.Errorf("response = %q, want 'frame too large'", msg)
+	}
+}
+
 func TestRouting_TextFrameIgnored(t *testing.T) {
 	env := newTestEnv(t)
 	idA, _, matchA, _, privA := env.registerUser(t)

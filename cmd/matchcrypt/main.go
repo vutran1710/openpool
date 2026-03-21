@@ -29,6 +29,7 @@ import (
 
 	"github.com/vutran1710/dating-dev/internal/crypto"
 	"github.com/vutran1710/dating-dev/internal/github"
+	"github.com/vutran1710/dating-dev/internal/limits"
 	"github.com/vutran1710/dating-dev/internal/message"
 )
 
@@ -145,6 +146,11 @@ func cmdMatch() {
 	operatorKeyHex := os.Getenv("OPERATOR_PRIVATE_KEY")
 	poolSalt := os.Getenv("POOL_SALT")
 	_ = poolSalt
+
+	if len(issueBody) > limits.MaxMessageContent {
+		fmt.Fprintf(os.Stderr, "error: issue body too large: %d bytes (max %d)\n", len(issueBody), limits.MaxMessageContent)
+		os.Exit(1)
+	}
 
 	issueNumber, err := strconv.Atoi(issueNumberStr)
 	if err != nil {
