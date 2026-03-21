@@ -814,6 +814,8 @@ jobs:
           RECIP_PRS="$RECIP_PRS" ./matchcrypt match
 ```
 
+> **Future optimization**: Add target match_hash as a PR label (alongside `interest`) during the `like` command. Then `matchcrypt match` can use the CLIClient to call `gh pr list --label interest --label <author_match_hash>` internally — no need for `RECIP_PRS` env var. This makes the Action truly one line: `./matchcrypt match`. Needs separate brainstorm on label management and how the `like` command constructs PRs.
+
 - [ ] **Step 3: Commit**
 
 ```bash
