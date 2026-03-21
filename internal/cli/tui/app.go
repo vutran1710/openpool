@@ -7,18 +7,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/vutran1710/dating-dev/internal/cli/chat"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
-	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
+	relayclient "github.com/vutran1710/dating-dev/internal/cli/relay"
 	"github.com/vutran1710/dating-dev/internal/cli/svc"
+	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/screens"
-	gh "github.com/vutran1710/dating-dev/internal/github"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
 	"github.com/vutran1710/dating-dev/internal/crypto"
 	dbg "github.com/vutran1710/dating-dev/internal/debug"
+	gh "github.com/vutran1710/dating-dev/internal/github"
 )
 
 type activeScreen int
@@ -64,6 +67,9 @@ type app struct {
 	user     string
 	pool     string
 	registry string
+
+	chatClient *chat.ChatClient
+	program    *tea.Program
 }
 
 func newApp(userName, userHash, pool, registry string, poolStatuses map[string]string, poolIssues map[string]int, needsOnboarding bool) app {
@@ -99,8 +105,55 @@ func newApp(userName, userHash, pool, registry string, poolStatuses map[string]s
 	return a
 }
 
+type chatClientInitMsg struct {
+	client *chat.ChatClient
+}
+
+type chatNewMessageMsg struct {
+	PeerMatchHash string
+}
+
+func (a *app) initChatClient() tea.Cmd {
+	return func() tea.Msg {
+		cfg, err := config.Load()
+		if err != nil {
+			return nil
+		}
+		pool := cfg.ActivePool()
+		if pool == nil || pool.RelayURL == "" || pool.MatchHash == "" {
+			return nil
+		}
+		pub, priv, err := crypto.LoadKeyPair(config.KeysDir())
+		if err != nil {
+			return nil
+		}
+
+		dbPath := filepath.Join(config.Dir(), "conversations.db")
+		convoDB, err := chat.OpenConversationDB(dbPath)
+		if err != nil {
+			return nil
+		}
+
+		idHash := pool.IDHash
+		if idHash == "" {
+			idHash = string(crypto.UserHash(pool.Repo, cfg.User.Provider, cfg.User.ProviderUserID))
+		}
+		relay := relayclient.NewClient(relayclient.Config{
+			RelayURL:  pool.RelayURL,
+			PoolURL:   pool.Repo,
+			IDHash:    idHash,
+			MatchHash: pool.MatchHash,
+			Pub:       pub,
+			Priv:      priv,
+		})
+
+		client := chat.NewChatClient(relay, convoDB)
+		return chatClientInitMsg{client: client}
+	}
+}
+
 func (a app) Init() tea.Cmd {
-	cmds := []tea.Cmd{inputInit(), a.statusBar.Heart.Tick()}
+	cmds := []tea.Cmd{inputInit(), a.statusBar.Heart.Tick(), a.initChatClient()}
 	// Hint when starting with no active pool
 	if a.pool == "" && a.screen == screenPools {
 		cmds = append(cmds, func() tea.Msg {
@@ -164,6 +217,7 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.settings.Height = msg.Height
 		a.inbox.Width = msg.Width
 		a.inbox.Height = msg.Height
+		a.home = a.home.SetSize(msg.Width, msg.Height)
 		return a, nil
 
 	case tea.KeyMsg:
@@ -283,14 +337,71 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 		return a, tea.Batch(cmds...)
 
+	case screens.ChatSendMsg:
+		if a.chatClient != nil {
+			a.chatClient.Send(msg.PeerMatchHash, msg.Text)
+		}
+		a.chat.AppendMessage(msg.Text, true)
+		return a, nil
+
 	case screens.DiscoverLikeMsg:
 		return a, sendLike(a.pool, a.registry, msg.TargetMatchHash)
+
+	case chatClientInitMsg:
+		a.chatClient = msg.client
+		a.chatClient.OnMsg = func(peerMatchHash string) {
+			if a.program != nil {
+				a.program.Send(chatNewMessageMsg{PeerMatchHash: peerMatchHash})
+			}
+		}
+		// Load existing conversations into home screen
+		convos, _ := a.chatClient.Conversations()
+		a.home = a.home.SetConversations(convos)
+		// Connect relay in background
+		return a, func() tea.Msg {
+			ctx := context.Background()
+			a.chatClient.Relay.Connect(ctx)
+			return nil
+		}
+
+	case chatNewMessageMsg:
+		// Refresh conversations panel
+		if a.chatClient != nil {
+			convos, _ := a.chatClient.Conversations()
+			a.home = a.home.SetConversations(convos)
+		}
+		// If on chat screen with this peer, show the message
+		if a.screen == screenChat && a.chat.TargetID == msg.PeerMatchHash {
+			history, _ := a.chatClient.History(msg.PeerMatchHash)
+			if len(history) > 0 {
+				latest := history[len(history)-1]
+				a.chat.AppendMessage(latest.Body, latest.IsMe)
+			}
+		}
+		return a, nil
+
+	case screens.ConversationOpenMsg:
+		a.screen = screenChat
+		a.chat = screens.NewChatScreen(msg.PeerMatchHash, a.width, a.height)
+		if a.chatClient != nil {
+			history, _ := a.chatClient.History(msg.PeerMatchHash)
+			a.chat.LoadHistory(history)
+			a.chatClient.MarkRead(msg.PeerMatchHash)
+		}
+		a.updateHelp()
+		return a, nil
 
 	case screens.MatchChatMsg:
 		a.screen = screenChat
 		a.chat = screens.NewChatScreen(msg.MatchHash, a.width, a.height)
+		if a.chatClient != nil {
+			a.chatClient.SetPeerKey(msg.MatchHash, msg.PubKey)
+			history, _ := a.chatClient.History(msg.MatchHash)
+			a.chat.LoadHistory(history)
+			a.chatClient.MarkRead(msg.MatchHash)
+		}
 		a.updateHelp()
-		return a, screens.ConnectChatCmd(msg.MatchHash, msg.PubKey)
+		return a, nil
 
 	case screens.PoolJoinMsg:
 		if msg.Status == "active" {

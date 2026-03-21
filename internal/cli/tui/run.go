@@ -13,10 +13,12 @@ func inputInit() tea.Cmd {
 }
 
 func Run(userName, userHash, pool, registry string, poolStatuses map[string]string, poolIssues map[string]int, needsOnboarding bool) error {
+	a := newApp(userName, userHash, pool, registry, poolStatuses, poolIssues, needsOnboarding)
 	p := tea.NewProgram(
-		newApp(userName, userHash, pool, registry, poolStatuses, poolIssues, needsOnboarding),
+		&a,
 		tea.WithAltScreen(),
 	)
+	a.program = p
 
 	_, err := p.Run()
 	if err != nil {
