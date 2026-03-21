@@ -326,9 +326,8 @@ func cmdRegister() {
 }
 
 func writeError(msg string) {
-    output := message.Format("error", msg)
-    os.WriteFile(".output", []byte(output), 0644)
-    log.Printf("error: %s", msg)
+    fmt.Fprintf(os.Stderr, "error: %s\n", msg)
+    os.Exit(1)
 }
 ```
 
@@ -518,9 +517,8 @@ func sha256Short(input string) string {
 }
 
 func writeError(msg string) {
-    output := message.Format("error", msg)
-    os.WriteFile(".output", []byte(output), 0644)
-    log.Printf("error: %s", msg)
+    fmt.Fprintf(os.Stderr, "error: %s\n", msg)
+    os.Exit(1)
 }
 ```
 

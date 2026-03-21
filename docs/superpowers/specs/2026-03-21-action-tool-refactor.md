@@ -29,7 +29,9 @@ func Parse(raw string) (blockType, content string, err error)
 | `registration-request` | CLI (`pool join`) | Action (`regcrypt register`) | pubkey + profile blob |
 | `registration` | `regcrypt register` | CLI (polling) | `{base64_encrypted}.{hex_sig}` |
 | `match` | `matchcrypt match` | CLI (matches screen) | `{base64_encrypted}.{hex_sig}` |
-| `error` | `regcrypt register` / `matchcrypt match` | Action (posts on issue/PR) | human-readable error |
+
+
+Errors: tools write to stderr and `os.Exit(1)`. The Action fails visibly — no error comments needed.
 
 ### Usage
 
@@ -79,9 +81,7 @@ Logic:
   7. Write .output using message.Format("registration", signedBlob)
 
 On error:
-  Write .output using message.Format("error", errorMessage)
-
-Exit code: 0 always
+  Write to stderr and os.Exit(1). Action fails visibly.
 
 Outputs:
   File: users/{bin_hash}.bin       binary profile
@@ -126,11 +126,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ./regcrypt register
-          if grep -q '<!-- openpool:error -->' .output; then
-            gh issue comment "$ISSUE_NUMBER" --body "$(cat .output)"
-            gh issue close "$ISSUE_NUMBER" --reason "not planned"
-            exit 0
-          fi
           git config user.name "openpool-bot"
           git config user.email "bot@openpool.dev"
           git add users/
