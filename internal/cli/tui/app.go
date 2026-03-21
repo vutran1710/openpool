@@ -371,7 +371,8 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.program.Send(chatNewMessageMsg{PeerMatchHash: peerMatchHash})
 			}
 		}
-		// Load existing conversations into home screen
+		// Load existing peer keys + conversations into home screen
+		a.chatClient.LoadPeerKeys()
 		convos, _ := a.chatClient.Conversations()
 		a.home = a.home.SetConversations(convos)
 		// Connect relay in background

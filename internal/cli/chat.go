@@ -9,7 +9,10 @@ import (
 	"os"
 	"time"
 
+	"path/filepath"
+
 	"github.com/spf13/cobra"
+	"github.com/vutran1710/dating-dev/internal/cli/chat"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
 	relayclient "github.com/vutran1710/dating-dev/internal/cli/relay"
 	"github.com/vutran1710/dating-dev/internal/crypto"
@@ -63,14 +66,23 @@ func newChatCmd() *cobra.Command {
 				Priv:      priv,
 			})
 
-			// Load peer pubkey: from env (testing) or match notifications
+			// Load peer pubkey from conversations DB
+			dbPath := filepath.Join(config.Dir(), "conversations.db")
+			convoDB, dbErr := chat.OpenConversationDB(dbPath)
+			if dbErr == nil {
+				defer convoDB.Close()
+				peerPub, keyErr := convoDB.GetPeerKey(targetMatchHash)
+				if keyErr == nil && len(peerPub) == ed25519.PublicKeySize {
+					client.SetPeerKey(targetMatchHash, ed25519.PublicKey(peerPub))
+				}
+			}
+			// Fallback: PEER_PUB env var (for testing/scripting)
 			if peerPubHex := os.Getenv("PEER_PUB"); peerPubHex != "" {
 				peerPubBytes, err := hex.DecodeString(peerPubHex)
 				if err == nil && len(peerPubBytes) == ed25519.PublicKeySize {
 					client.SetPeerKey(targetMatchHash, ed25519.PublicKey(peerPubBytes))
 				}
 			}
-			// TODO: scan closed interest PRs for match notifications if PEER_PUB not set
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()

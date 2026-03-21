@@ -59,4 +59,27 @@ func (c *ChatClient) UnreadTotal() (int, error) {
 
 func (c *ChatClient) SetPeerKey(peerMatchHash string, peerPub ed25519.PublicKey) {
 	c.Relay.SetPeerKey(peerMatchHash, peerPub)
+	c.DB.SavePeerKey(peerMatchHash, []byte(peerPub))
+}
+
+func (c *ChatClient) GetPeerKey(peerMatchHash string) (ed25519.PublicKey, error) {
+	pubkey, err := c.DB.GetPeerKey(peerMatchHash)
+	if err != nil {
+		return nil, err
+	}
+	return ed25519.PublicKey(pubkey), nil
+}
+
+// LoadPeerKeys loads all stored peer keys into the relay client.
+func (c *ChatClient) LoadPeerKeys() {
+	convos, err := c.DB.ListConversations()
+	if err != nil {
+		return
+	}
+	for _, conv := range convos {
+		pub, err := c.DB.GetPeerKey(conv.PeerMatchHash)
+		if err == nil && len(pub) == ed25519.PublicKeySize {
+			c.Relay.SetPeerKey(conv.PeerMatchHash, ed25519.PublicKey(pub))
+		}
+	}
 }

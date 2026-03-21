@@ -46,6 +46,10 @@ func OpenConversationDB(path string) (*ConversationDB, error) {
 			created_at      INTEGER NOT NULL
 		);
 		CREATE INDEX IF NOT EXISTS idx_messages_peer ON messages(peer_match_hash, created_at);
+		CREATE TABLE IF NOT EXISTS peer_keys (
+			peer_match_hash TEXT PRIMARY KEY,
+			pubkey          BLOB NOT NULL
+		);
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("creating tables: %w", err)
@@ -139,6 +143,23 @@ func (d *ConversationDB) PersistGreeting(peerMatchHash, greeting string) error {
 		return nil
 	}
 	return d.SaveMessage(peerMatchHash, greeting, false)
+}
+
+func (d *ConversationDB) SavePeerKey(peerMatchHash string, pubkey []byte) error {
+	_, err := d.db.Exec(
+		"INSERT OR REPLACE INTO peer_keys (peer_match_hash, pubkey) VALUES (?, ?)",
+		peerMatchHash, pubkey,
+	)
+	return err
+}
+
+func (d *ConversationDB) GetPeerKey(peerMatchHash string) ([]byte, error) {
+	var pubkey []byte
+	err := d.db.QueryRow("SELECT pubkey FROM peer_keys WHERE peer_match_hash = ?", peerMatchHash).Scan(&pubkey)
+	if err != nil {
+		return nil, err
+	}
+	return pubkey, nil
 }
 
 func boolToInt(b bool) int {

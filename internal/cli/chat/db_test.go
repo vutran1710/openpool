@@ -202,3 +202,44 @@ func TestPersistGreeting_SkipsIfMessagesExist(t *testing.T) {
 		t.Errorf("expected body=%q, got %q", "existing message", msgs[0].Body)
 	}
 }
+
+func TestSavePeerKey_AndGetPeerKey(t *testing.T) {
+	db := testDB(t)
+
+	pubkey := []byte("12345678901234567890123456789012") // 32 bytes
+	if err := db.SavePeerKey("peer1", pubkey); err != nil {
+		t.Fatalf("SavePeerKey: %v", err)
+	}
+
+	got, err := db.GetPeerKey("peer1")
+	if err != nil {
+		t.Fatalf("GetPeerKey: %v", err)
+	}
+	if string(got) != string(pubkey) {
+		t.Fatalf("pubkey mismatch")
+	}
+}
+
+func TestGetPeerKey_NotFound(t *testing.T) {
+	db := testDB(t)
+
+	_, err := db.GetPeerKey("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for missing peer key")
+	}
+}
+
+func TestSavePeerKey_Upsert(t *testing.T) {
+	db := testDB(t)
+
+	key1 := []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	key2 := []byte("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+
+	db.SavePeerKey("peer1", key1)
+	db.SavePeerKey("peer1", key2) // overwrite
+
+	got, _ := db.GetPeerKey("peer1")
+	if string(got) != string(key2) {
+		t.Fatal("upsert should overwrite with latest key")
+	}
+}
