@@ -387,12 +387,22 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			convos, _ := a.chatClient.Conversations()
 			a.home = a.home.SetConversations(convos)
 		}
-		// If on chat screen with this peer, show the message
+		// If on chat screen with this peer, show the message + mark read
 		if a.screen == screenChat && a.chat.TargetID == msg.PeerMatchHash {
 			history, _ := a.chatClient.History(msg.PeerMatchHash)
 			if len(history) > 0 {
 				latest := history[len(history)-1]
 				a.chat.AppendMessage(latest.Body, latest.IsMe)
+			}
+			a.chatClient.MarkRead(msg.PeerMatchHash)
+		} else {
+			// Not on chat with this peer — show toast notification
+			sender := msg.PeerMatchHash
+			if len(sender) > 8 {
+				sender = sender[:8] + "..."
+			}
+			return a, func() tea.Msg {
+				return components.ToastMsg{Text: "New message from " + sender, Level: components.ToastInfo}
 			}
 		}
 		return a, nil
