@@ -5,3 +5,10 @@ bin/
 coverage.out
 coverage.html
 .superpowers/
+
+# Build artifacts
+regcrypt
+matchcrypt
+dating
+relay
+indexer
