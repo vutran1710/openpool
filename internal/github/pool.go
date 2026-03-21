@@ -15,6 +15,7 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/vutran1710/dating-dev/internal/crypto"
 	"github.com/vutran1710/dating-dev/internal/gitrepo"
+	"github.com/vutran1710/dating-dev/internal/message"
 )
 
 type Pool struct {
@@ -189,15 +190,8 @@ func (p *Pool) RegisterUser(ctx context.Context, userHash string, encryptedBlob 
 func (p *Pool) RegisterUserViaIssue(ctx context.Context, userHash string, encryptedBlob []byte, pubKeyHex, signature, identityProof string) (int, error) {
 	blobHex := hex.EncodeToString(encryptedBlob)
 
-	body := fmt.Sprintf(
-		"<!-- registration-request -->\n\n"+
-			"**User Hash:**\n```\n%s\n```\n\n"+
-			"**Public Key:**\n```\n%s\n```\n\n"+
-			"**Profile Blob:**\n```\n%s\n```\n\n"+
-			"**Signature:**\n```\n%s\n```\n\n"+
-			"**Identity Proof:**\n```\n%s\n```",
-		userHash, pubKeyHex, blobHex, signature, identityProof,
-	)
+	content := strings.Join([]string{userHash, pubKeyHex, blobHex, signature, identityProof}, "\n")
+	body := message.Format("registration-request", content)
 
 	return p.client.CreateIssue(ctx, "Registration Request", body, []string{"registration"})
 }
@@ -414,9 +408,12 @@ func (p *Pool) PollRegistrationResult(ctx context.Context, issueNumber int, oper
 }
 
 func tryDecryptComment(body string, operatorPub ed25519.PublicKey, userPriv ed25519.PrivateKey) (binHash, matchHash string, err error) {
-	body = strings.TrimSpace(body)
+	blockType, content, err := message.Parse(body)
+	if err != nil || blockType != "registration" {
+		return "", "", fmt.Errorf("not a registration comment")
+	}
 
-	parts := strings.SplitN(body, ".", 2)
+	parts := strings.SplitN(content, ".", 2)
 	if len(parts) != 2 {
 		return "", "", fmt.Errorf("unsigned comment")
 	}
