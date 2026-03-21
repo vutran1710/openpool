@@ -6,9 +6,9 @@ coverage.out
 coverage.html
 .superpowers/
 
-# Build artifacts
-regcrypt
-matchcrypt
-dating
-relay
-indexer
+# Build artifacts (root-level binaries only)
+/regcrypt
+/matchcrypt
+/dating
+/relay
+/indexer
