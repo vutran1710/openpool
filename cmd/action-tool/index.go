@@ -1,18 +1,7 @@
-// indexer processes encrypted .bin profiles into a single index.pack for discovery.
-// Used by GitHub Actions (cron) to rebuild the pool's discovery index.
-//
-// Rebuild mode (cron):
-//
-//	indexer --pool-json pool.json --rebuild --users-dir users/ --output index.pack --operator-key hex
-//
-// Single-user mode (legacy):
-//
-//	indexer --pool-json pool.json --bin-file users/abc.bin --match-hash abc123 --operator-key hex --output-dir index/
 package main
 
 import (
 	"crypto/ed25519"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -27,19 +16,20 @@ import (
 	gh "github.com/vutran1710/dating-dev/internal/github"
 )
 
-func main() {
-	poolJSON := flag.String("pool-json", "pool.json", "path to pool.json with schema")
-	weightsStr := flag.String("weights", "", "JSON weights (or INDEXER_WEIGHTS env var)")
-	operatorKeyHex := flag.String("operator-key", "", "operator ed25519 private key (hex)")
-	binFile := flag.String("bin-file", "", "single .bin file to index")
-	matchHash := flag.String("match-hash", "", "match_hash for output filename")
-	outputDir := flag.String("output-dir", "index", "directory for .rec files (single-user mode)")
-	output := flag.String("output", "", "output file path for index.pack (rebuild mode)")
-	rebuild := flag.Bool("rebuild", false, "rebuild entire index from all .bin files")
-	usersDir := flag.String("users-dir", "users", "path to users/ directory")
-	salt := flag.String("salt", "", "pool salt (or POOL_SALT env var, needed for hash computation in rebuild)")
-	poolURL := flag.String("pool-url", "", "pool URL (or from pool.json, needed for hash computation in rebuild)")
-	flag.Parse()
+func cmdIndex() {
+	fs := flag.NewFlagSet("index", flag.ExitOnError)
+	poolJSON := fs.String("pool-json", "pool.json", "path to pool.json with schema")
+	weightsStr := fs.String("weights", "", "JSON weights (or INDEXER_WEIGHTS env var)")
+	operatorKeyHex := fs.String("operator-key", "", "operator ed25519 private key (hex)")
+	binFile := fs.String("bin-file", "", "single .bin file to index")
+	matchHash := fs.String("match-hash", "", "match_hash for output filename")
+	outputDir := fs.String("output-dir", "index", "directory for .rec files (single-user mode)")
+	output := fs.String("output", "", "output file path for index.pack (rebuild mode)")
+	rebuild := fs.Bool("rebuild", false, "rebuild entire index from all .bin files")
+	usersDir := fs.String("users-dir", "users", "path to users/ directory")
+	salt := fs.String("salt", "", "pool salt (or POOL_SALT env var, needed for hash computation in rebuild)")
+	poolURL := fs.String("pool-url", "", "pool URL (or from pool.json, needed for hash computation in rebuild)")
+	fs.Parse(os.Args[2:])
 
 	// Resolve weights
 	weights := *weightsStr
@@ -193,9 +183,4 @@ func strField(profile map[string]any, key string) string {
 		return v
 	}
 	return ""
-}
-
-func sha256Short(input string) string {
-	h := sha256.Sum256([]byte(input))
-	return hex.EncodeToString(h[:])[:16]
 }

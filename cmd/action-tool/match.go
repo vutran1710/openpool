@@ -1,27 +1,12 @@
-// matchcrypt handles crypto operations for the mutual match GitHub Action.
-//
-// Decrypt interest PR body:
-//   matchcrypt decrypt --operator-key <hex> --body <base64>
-//   -> stdout: JSON {author_bin_hash, author_match_hash, greeting}
-//
-// Encrypt match notification for a user:
-//   matchcrypt encrypt --user-pubkey <hex> --match-hash <hash> --peer-pubkey <hex> --greeting "message"
-//   -> stdout: base64 encrypted blob containing {matched_match_hash, greeting, pubkey}
-//
-// Read pubkey from .bin file:
-//   matchcrypt pubkey --operator-key <hex> --bin-file <path>
-//   -> stdout: hex pubkey
 package main
 
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"strconv"
@@ -32,112 +17,6 @@ import (
 	"github.com/vutran1710/dating-dev/internal/limits"
 	"github.com/vutran1710/dating-dev/internal/message"
 )
-
-func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "Usage: matchcrypt <decrypt|encrypt|pubkey> [flags]")
-		os.Exit(1)
-	}
-
-	switch os.Args[1] {
-	case "decrypt":
-		cmdDecrypt()
-	case "encrypt":
-		cmdEncrypt()
-	case "pubkey":
-		cmdPubkey()
-	case "sign":
-		cmdSign()
-	case "match":
-		cmdMatch()
-	default:
-		log.Fatalf("unknown command: %s", os.Args[1])
-	}
-}
-
-func cmdDecrypt() {
-	operatorKeyHex := envOrArg("--operator-key", "OPERATOR_PRIVATE_KEY")
-	body := envOrArg("--body", "")
-
-	operatorKey, err := hex.DecodeString(operatorKeyHex)
-	if err != nil || len(operatorKey) != ed25519.PrivateKeySize {
-		log.Fatal("invalid operator key")
-	}
-
-	blobBytes, err := base64.StdEncoding.DecodeString(body)
-	if err != nil {
-		log.Fatalf("base64 decode: %v", err)
-	}
-
-	plaintext, err := crypto.Decrypt(ed25519.PrivateKey(operatorKey), blobBytes)
-	if err != nil {
-		log.Fatalf("decrypt: %v", err)
-	}
-
-	fmt.Print(string(plaintext))
-}
-
-func cmdEncrypt() {
-	userPubHex := envOrArg("--user-pubkey", "")
-	matchHash := envOrArg("--match-hash", "")
-	peerPubHex := envOrArg("--peer-pubkey", "")
-	greeting := envOrArg("--greeting", "")
-
-	userPub, err := hex.DecodeString(userPubHex)
-	if err != nil || len(userPub) != ed25519.PublicKeySize {
-		log.Fatal("invalid user pubkey")
-	}
-
-	payload, _ := json.Marshal(map[string]string{
-		"matched_match_hash": matchHash,
-		"greeting":           greeting,
-		"pubkey":             peerPubHex,
-	})
-
-	encrypted, err := crypto.Encrypt(ed25519.PublicKey(userPub), payload)
-	if err != nil {
-		log.Fatalf("encrypt: %v", err)
-	}
-
-	fmt.Print(base64.StdEncoding.EncodeToString(encrypted))
-}
-
-func cmdPubkey() {
-	operatorKeyHex := envOrArg("--operator-key", "OPERATOR_PRIVATE_KEY")
-	binFile := envOrArg("--bin-file", "")
-
-	operatorKey, err := hex.DecodeString(operatorKeyHex)
-	if err != nil || len(operatorKey) != ed25519.PrivateKeySize {
-		log.Fatal("invalid operator key")
-	}
-
-	binData, err := os.ReadFile(binFile)
-	if err != nil {
-		log.Fatalf("reading bin file: %v", err)
-	}
-
-	// First 32 bytes of .bin file = user's ed25519 pubkey
-	if len(binData) < 32 {
-		log.Fatal("bin file too short")
-	}
-	pubkey := binData[:32]
-
-	fmt.Print(hex.EncodeToString(pubkey))
-}
-
-func cmdSign() {
-	operatorKeyHex := envOrArg("--operator-key", "OPERATOR_PRIVATE_KEY")
-	operatorKey, err := hex.DecodeString(operatorKeyHex)
-	if err != nil || len(operatorKey) != ed25519.PrivateKeySize {
-		log.Fatal("invalid operator key (expected 128 hex chars / 64 bytes)")
-	}
-	data, err := io.ReadAll(os.Stdin)
-	if err != nil {
-		log.Fatalf("reading stdin: %v", err)
-	}
-	sig := ed25519.Sign(ed25519.PrivateKey(operatorKey), data)
-	fmt.Print(hex.EncodeToString(sig))
-}
 
 func cmdMatch() {
 	issueBody := os.Getenv("ISSUE_BODY")
@@ -344,24 +223,4 @@ func encryptAndSign(recipientPub []byte, peerMatchHash, peerPubHex, greeting str
 	encrypted, _ := crypto.Encrypt(ed25519.PublicKey(recipientPub), payload)
 	sig := ed25519.Sign(ed25519.PrivateKey(operatorKey), encrypted)
 	return base64.StdEncoding.EncodeToString(encrypted) + "." + hex.EncodeToString(sig)
-}
-
-func sha256Short(input string) string {
-	h := sha256.Sum256([]byte(input))
-	return hex.EncodeToString(h[:])[:16]
-}
-
-// envOrArg looks for --flag in os.Args, falls back to env var.
-func envOrArg(flag, envVar string) string {
-	for i, arg := range os.Args {
-		if arg == flag && i+1 < len(os.Args) {
-			return os.Args[i+1]
-		}
-	}
-	if envVar != "" {
-		if v := os.Getenv(envVar); v != "" {
-			return v
-		}
-	}
-	return ""
 }

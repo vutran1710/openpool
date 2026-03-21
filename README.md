@@ -4,7 +4,7 @@ Decentralized, terminal-native dating. GitHub repos as the database, encrypted p
 
 ## Philosophy
 
-- **GitHub is the database** — pools are repos, registration is an issue, matches are merged PRs
+- **GitHub is the database** — pools are repos, registration is an issue, matches are issues
 - **No central server owns your data** — your profile is encrypted, only the pool operator can decrypt it
 - **Terminal-first** — TUI for everyday use, CLI flags for automation
 - **Single key pair** — one ed25519 keypair handles signing, encryption (via curve25519), and identity
@@ -39,7 +39,7 @@ Decentralized, terminal-native dating. GitHub repos as the database, encrypted p
 # From source
 git clone https://github.com/vutran1710/dating-dev
 cd dating-dev
-make build    # builds bin/dating + bin/relay + bin/regcrypt
+make build    # builds bin/dating + bin/relay + bin/action-tool
 ```
 
 ## Quick Start
@@ -121,11 +121,9 @@ The salt is a pool secret (GitHub Actions secret). Without it, you can't derive 
 
 1. User creates profile locally: `dating profile create <pool>`
 2. User submits: `dating pool join <pool>` → creates GitHub Issue with encrypted profile blob
-3. GitHub Action runs `regcrypt` → computes `id_hash` → `bin_hash` → `match_hash`
-4. Action encrypts `{bin_hash, match_hash}` to user's pubkey (ephemeral NaCl box)
-5. Action posts encrypted blob as issue comment
-6. Action commits `users/{bin_hash}.bin` to pool repo, closes issue
-7. CLI polls issue comments, decrypts, persists hashes to local config
+3. GitHub Action runs `action-tool register` → computes hashes, encrypts, signs
+4. Action commits `users/{bin_hash}.bin`, closes + locks issue, posts operator-signed comment
+5. CLI polls issue comments, verifies operator signature, decrypts, persists hashes
 
 ### Relay Auth (TOTP)
 
@@ -133,11 +131,13 @@ No login endpoint. No JWT. No tokens. Stateless.
 
 ```
 time_window = floor(unix_timestamp / 300)
-message     = sha256(bin_hash + match_hash + time_window)
+message     = sha256(time_window + relay_host)
 sig         = ed25519.Sign(priv_key, message)
 
-ws://relay/ws?bin=<bin_hash>&sig=<hex(sig)>
+ws://relay/ws?id=<id_hash>&match=<match_hash>&sig=<hex(sig)>
 ```
+
+Relay validates the chain (id_hash → bin_hash → match_hash via salt), fetches pubkey from GitHub, verifies signature. Channel-bound to the relay host.
 
 Relay verifies inline at WebSocket upgrade — checks ±1 time window for clock drift.
 
@@ -154,8 +154,8 @@ The relay routes ciphertext — it cannot read message content.
 | Binary | Purpose |
 |--------|---------|
 | `dating` | CLI app (`cmd/dating/`) |
-| `relay` | Per-pool WebSocket relay server (`cmd/relay/`) |
-| `regcrypt` | Registration hash computation for GitHub Actions (`cmd/regcrypt/`) |
+| `relay` | Per-pool stateless WebSocket relay server (`cmd/relay/`) |
+| `action-tool` | Unified Action binary — register, match, squash, index, sign, decrypt, pubkey (`cmd/action-tool/`) |
 
 ## Pool Structure
 
@@ -166,10 +166,13 @@ pool-repo/
   matches/{pair_hash}/         Matched pairs
   relationships/{pair_hash}/   Committed relationships
   .github/workflows/
-    register.yml               Registration Action (uses regcrypt)
+    register.yml               Registration Action (uses action-tool)
+    interest.yml               Interest/matching Action (uses action-tool)
+    indexer.yml                Index rebuild cron (uses action-tool)
+    squash.yml                 History squashing cron (uses action-tool)
 ```
 
-Template Action: `templates/actions/pool-register.yml`
+Action templates: `templates/actions/pool-*.yml`
 
 ## Security
 
@@ -180,7 +183,8 @@ Template Action: `templates/actions/pool-register.yml`
 | Encryption | NaCl box (Curve25519 + XSalsa20-Poly1305) with ed25519→curve25519 |
 | Hash derivation | `id_hash` → `bin_hash` → `match_hash` (salt-protected) |
 | Profile data | Encrypted to operator pubkey — only relay decrypts |
-| Relay auth | TOTP: `ed25519.Sign(sha256(bin_hash + match_hash + time_window))` |
+| Relay auth | TOTP: `ed25519.Sign(sha256(time_window + relay_host))` + chain validation |
+| Comment integrity | Operator-signed comments (ed25519), verified before decryption |
 | Chat | E2E encrypted (NaCl secretbox, ECDH-derived key) |
 | Registration | Ephemeral NaCl box encrypted hash delivery via issue comment |
 | Anti-spam | GitHub account required (issue rate limits) |
@@ -240,16 +244,19 @@ make lint     # golangci-lint
 cmd/
   dating/           CLI entry point
   relay/            WebSocket relay server
-  regcrypt/         Registration hash tool for GitHub Actions
+  action-tool/      Unified Action binary (register, match, squash, index, sign, decrypt, pubkey)
 internal/
   cli/              CLI commands + TUI app
+  cli/chat/         ChatClient + ConversationDB (SQLite message persistence)
   cli/svc/          Service interfaces (DI layer)
   cli/tui/          Bubbletea screens, components, theme
   cli/config/       Config management (setting.toml)
-  relay/            Relay server (TOTP auth, hub, sessions)
+  relay/            Relay server (stateless TOTP auth, hub, sessions, GitHub cache)
   crypto/           ed25519, NaCl box, TOTP, key derivation
-  github/           GitHub API, pool, registry, profile types
+  github/           GitHubClient interface (CLIClient + HTTPClient), pool operations
   gitrepo/          Git clone management
+  limits/           Payload size constants
+  message/          Structured message format (openpool blocks)
   debug/            Debug logger
 templates/
   actions/          GitHub Action templates for pool repos

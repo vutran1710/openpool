@@ -18,9 +18,7 @@ Terminal-native, decentralized dating platform. GitHub repos as the database, en
 ```
 cmd/dating/       → CLI entry point
 cmd/relay/        → Per-pool WebSocket relay server
-cmd/regcrypt/     → Registration hash tool (used by GitHub Actions)
-cmd/indexer/      → Profile indexer (cron, builds index.pack)
-cmd/matchcrypt/   → Match Action crypto tool (decrypt, encrypt, sign, match)
+cmd/action-tool/  → Unified Action binary (register, match, squash, index, sign, decrypt, pubkey)
 internal/
   cli/            → CLI commands + TUI app
   cli/chat/       → ChatClient + ConversationDB (SQLite message persistence)
@@ -302,9 +300,7 @@ Key components:
 |--------|---------|-------------|
 | `dating` | CLI app | End users |
 | `relay` | Per-pool relay server | Pool operators (Railway) |
-| `regcrypt` | Hash computation for Actions | Published to `vutran1710/regcrypt` (public) |
-| `indexer` | Profile indexer (cron) | GitHub Actions |
-| `matchcrypt` | Match crypto for Actions | GitHub Actions |
+| `action-tool` | All Action operations (register, match, squash, index, sign, decrypt, pubkey) | GitHub Actions, published to `vutran1710/regcrypt` |
 
 ## GitHub Actions (Pool Repo)
 

@@ -14,10 +14,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download regcrypt
+      - name: Download action-tool
         run: |
-          curl -sL https://github.com/vutran1710/regcrypt/releases/latest/download/regcrypt-linux-amd64 -o regcrypt
-          chmod +x regcrypt
+          curl -sL https://github.com/vutran1710/regcrypt/releases/latest/download/action-tool-linux-amd64 -o action-tool
+          chmod +x action-tool
 
       - name: Register
         env:
@@ -29,4 +29,4 @@ jobs:
           POOL_SALT: ${{ secrets.POOL_SALT }}
           OPERATOR_PRIVATE_KEY: ${{ secrets.OPERATOR_PRIVATE_KEY }}
           GH_TOKEN: ${{ github.token }}
-        run: ./regcrypt register
+        run: ./action-tool register

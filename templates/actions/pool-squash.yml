@@ -2,8 +2,8 @@ name: Squash History
 
 on:
   schedule:
-    - cron: '0 * * * *'  # every hour
-  workflow_dispatch:      # manual trigger
+    - cron: '0 * * * *'
+  workflow_dispatch:
 
 jobs:
   squash:
@@ -13,31 +13,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # full history needed for squash
+          fetch-depth: 0
 
-      - name: Squash if needed
-        env:
-          GH_TOKEN: ${{ github.token }}
-          MAX_COMMIT_COUNT: ${{ vars.MAX_COMMIT_COUNT || '50' }}
+      - name: Download action-tool
         run: |
-          set -euo pipefail
+          curl -sL https://github.com/vutran1710/regcrypt/releases/latest/download/action-tool-linux-amd64 -o action-tool
+          chmod +x action-tool
 
-          COMMIT_COUNT=$(git rev-list --count HEAD)
-          echo "Current commits: $COMMIT_COUNT (max: $MAX_COMMIT_COUNT)"
-
-          if [ "$COMMIT_COUNT" -le "$MAX_COMMIT_COUNT" ]; then
-            echo "Under threshold. Skipping."
-            exit 0
-          fi
-
-          echo "Squashing $COMMIT_COUNT commits into 1..."
-
-          git checkout --orphan squashed
-          git add -A
-          git config user.name "openpool-bot"
-          git config user.email "bot@openpool.dev"
-          git commit -m "Pool state (squashed $(date -u +%Y-%m-%dT%H:%M:%SZ))"
-
-          git push --force origin squashed:main
-
-          echo "History squashed: $COMMIT_COUNT commits → 1"
+      - name: Squash
+        env:
+          MAX_COMMIT_COUNT: ${{ vars.MAX_COMMIT_COUNT || '50' }}
+        run: ./action-tool squash
