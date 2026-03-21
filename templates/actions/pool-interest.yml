@@ -14,10 +14,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download matchcrypt
+      - name: Download action-tool
         run: |
-          curl -sL https://github.com/vutran1710/regcrypt/releases/latest/download/matchcrypt-linux-amd64 -o matchcrypt
-          chmod +x matchcrypt
+          curl -sL https://github.com/vutran1710/regcrypt/releases/latest/download/action-tool-linux-amd64 -o action-tool
+          chmod +x action-tool
 
       - name: Match
         env:
@@ -28,4 +28,4 @@ jobs:
           OPERATOR_PRIVATE_KEY: ${{ secrets.OPERATOR_PRIVATE_KEY }}
           POOL_SALT: ${{ secrets.POOL_SALT }}
           GH_TOKEN: ${{ github.token }}
-        run: ./matchcrypt match
+        run: ./action-tool match
