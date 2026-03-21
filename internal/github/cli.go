@@ -340,23 +340,32 @@ func (c *CLIClient) AddCommitPush(files []string, message string) error {
 		return fmt.Errorf("git commit: %s", string(out))
 	}
 
-	// git pull --rebase + push (retry once on conflict)
-	for range 2 {
-		cmd = exec.Command("git", "pull", "--rebase")
+	// git pull --rebase + push (retry up to 3 times)
+	for attempt := 0; attempt < 3; attempt++ {
+		cmd = exec.Command("git", "pull", "--rebase", "origin", "main")
 		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("git pull --rebase: %s", string(out))
+			outStr := string(out)
+			// If rebase fails due to divergent history (force-pushed remote / squashed),
+			// recover by fetching fresh and re-applying our commit on top
+			if strings.Contains(outStr, "fatal") || strings.Contains(outStr, "divergent") || strings.Contains(outStr, "unrelated") {
+				exec.Command("git", "rebase", "--abort").Run()
+				exec.Command("git", "fetch", "--depth=1", "origin", "main").Run()
+				exec.Command("git", "reset", "--soft", "origin/main").Run()
+				exec.Command("git", "commit", "-m", message).Run()
+			} else {
+				return fmt.Errorf("git pull --rebase: %s", outStr)
+			}
 		}
-		cmd = exec.Command("git", "push")
+		cmd = exec.Command("git", "push", "origin", "main")
 		if out, err := cmd.CombinedOutput(); err != nil {
-			// Retry on rejection (concurrent push)
 			if strings.Contains(string(out), "rejected") {
-				continue
+				continue // retry on rejection
 			}
 			return fmt.Errorf("git push: %s", string(out))
 		}
 		return nil
 	}
-	return fmt.Errorf("git push failed after retry")
+	return fmt.Errorf("git push failed after 3 retries")
 }
 
 // Compile-time check: CLIClient implements GitHubClient.
