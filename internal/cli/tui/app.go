@@ -344,6 +344,23 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.chat.AppendMessage(msg.Text, true)
 		return a, nil
 
+	case screens.MatchesFetchedMsg:
+		// Update matches screen
+		a.matches, _ = a.matches.Update(msg)
+		// Persist greetings + set peer keys
+		if a.chatClient != nil {
+			for _, m := range msg.Matches {
+				if m.Greeting != "" {
+					a.chatClient.PersistGreeting(m.MatchHash, m.Greeting)
+				}
+				a.chatClient.SetPeerKey(m.MatchHash, m.PubKey)
+			}
+			// Refresh conversations panel
+			convos, _ := a.chatClient.Conversations()
+			a.home = a.home.SetConversations(convos)
+		}
+		return a, nil
+
 	case screens.DiscoverLikeMsg:
 		return a, sendLike(a.pool, a.registry, msg.TargetMatchHash)
 
