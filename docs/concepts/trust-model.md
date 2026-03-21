@@ -82,6 +82,46 @@ Pool operator:
 - Is Shamir's Secret Sharing relevant here? (Split registry key, require N-of-M to decrypt)
 - How does this affect the relay? (Relay needs POOL_SALT but not OPERATOR_PRIVATE_KEY — already separated)
 
+## Hash Chain — Honest Assessment
+
+The hash chain (`id_hash → bin_hash → match_hash`) provides **relay-level privacy** — the relay operator sees `match_hash` but can't link it to a GitHub user without the salt. But it does **not** protect against a determined observer watching the public pool repo.
+
+**Computational linking** (blocked by salt): without the salt, an observer can't derive `bin_hash → match_hash`. The chain is cryptographically sound.
+
+**Observational linking** (timing side-channel): when a new `.bin` file is committed and a new entry appears in `index.db`, the observer can correlate them by timing. In a small pool (50 users), new registrations are obvious.
+
+**Mitigation: History squashing.** A periodic cron Action squashes the pool repo to a single commit. All `.bin` files + `index.db` appear simultaneously — no timeline to correlate.
+
+```
+Before squash:
+  commit abc: Register user a1b2.bin     ← Mar 15
+  commit def: Register user d4e5.bin     ← Mar 16
+  commit ghi: Rebuild index.db          ← Mar 16
+  → attacker links d4e5 to new index entry
+
+After squash:
+  commit xyz: Pool state                ← single commit
+  → all files appear at once, no correlation
+```
+
+Gets stronger over time as pool grows (more users = more noise per squash). Cheap to implement — just a cron Action that force-pushes a squashed commit.
+
+## Private Key — The Real Trust Boundary
+
+The user's ed25519 private key is the ultimate point of failure. If stolen, everything is compromised for that user:
+
+1. Match pubkey against `.bin` files → find bin_hash
+2. Decrypt registration comment → get match_hash
+3. Decrypt match notifications → get peer pubkeys
+4. Authenticate to relay → full impersonation
+
+No amount of hash chain complexity, link secrets, or additional hashing helps — everything is ultimately encrypted to the user's pubkey and delivered via issue/PR comments.
+
+**This is acceptable** — same threat model as SSH, PGP, Signal. Mitigations:
+- Key file has `0600` permissions
+- Recovery: generate new keypair, re-register
+- Blast radius: one user only, no impact on other users or the pool
+
 ## Current Mitigations (Before Any Redesign)
 
 1. **Private attributes** — peer-to-peer encrypted, operator never sees them

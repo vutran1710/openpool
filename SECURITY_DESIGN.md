@@ -66,6 +66,26 @@ Without the salt:
 - An attacker who observes both `bin_hash` and `match_hash` in the open — on a PR title or in a
   `.bin` filename — cannot link them to the same person.
 
+### Limitations of unlinkability
+
+**Computational linking** (blocked): without the salt, an observer can't derive `bin_hash → match_hash`. The chain is cryptographically sound.
+
+**Timing correlation** (side-channel): when a new `.bin` file is committed and a new entry appears in `index.db` around the same time, an observer can correlate them. In a small pool (50 users), new registrations are obvious. The salt doesn't help here — the attacker bypasses the chain entirely.
+
+**Mitigation: History squashing.** A periodic cron Action squashes the pool repo to a single commit. All `.bin` files + `index.db` appear simultaneously — no timeline to correlate. Gets stronger as pool grows.
+
+```
+Before squash:
+  commit abc: Register user a1b2.bin     ← timestamp leaks
+  commit def: Register user d4e5.bin     ← timestamp leaks
+  commit ghi: Rebuild index.db          ← correlates with d4e5
+
+After squash:
+  commit xyz: Pool state                ← single commit, no timeline
+```
+
+Implemented as a cron Action that force-pushes a squashed history (e.g., weekly).
+
 ### Where each hash appears publicly
 
 | Hash | Public location | Purpose |
@@ -357,13 +377,33 @@ leaves `~/.dating/` (or `$DATING_HOME/`).
 
 ---
 
-## 9. Threat Model
+## 9. Private Key — The Ultimate Trust Boundary
+
+The user's ed25519 private key is the single point of failure per user. If stolen (even without the config file), an attacker can:
+
+1. **Find bin_hash** — match pubkey (derivable from private key) against all `.bin` files in the pool repo
+2. **Decrypt registration comment** — scan issue comments, decrypt with stolen key → get bin_hash + match_hash
+3. **Decrypt match notifications** — scan closed interest PRs, decrypt comments → get peer pubkeys
+4. **Authenticate to relay** — connect with bin_hash + match_hash + valid signature → full impersonation
+5. **Read/send chat messages** — derive ECDH shared secrets with matched peers
+
+**No additional secrets help.** Any "link_secret" or extra hash layer would still be delivered via encrypted comment (encrypted to the user's pubkey). Stealing the private key unlocks everything.
+
+**This is an acceptable threat model** — identical to SSH, PGP, Signal. Mitigations:
+
+- Key file stored with `0600` permissions (`internal/crypto/keys.go`)
+- Recovery: generate new keypair, re-register (`pool join` again). The new `.bin` file has the new pubkey — relay rejects old key signatures.
+- Blast radius: one user only. No impact on other users, the pool, or the operator.
+
+---
+
+## 10. Threat Model
 
 ### Protected
 
 | Threat | Protection |
 |--------|-----------|
-| Passive observer linking bin_hash ↔ match_hash | Hash chain unlinkability (requires salt) |
+| Passive observer linking bin_hash ↔ match_hash | Hash chain (requires salt) + history squashing (blocks timing correlation) |
 | Fake registration comment | Operator signature required |
 | Fake match notification with attacker pubkey | Operator signature required |
 | Chat content eavesdropping at relay | E2E encryption (relay is zero-knowledge) |
@@ -380,6 +420,8 @@ leaves `~/.dating/` (or `$DATING_HOME/`).
 | No forward secrecy for chat | ECDH key is derived from static long-term keys. Compromise of private key exposes past chats. |
 | GitHub Actions as operator trust anchor | If a pool repo's Actions secrets are compromised, all comments can be forged. |
 | No channel binding (yet) | Relay-A signature could be replayed at Relay-B. TLS mitigates but does not eliminate. |
+| Timing correlation (without history squashing) | New `.bin` commit + new `index.db` entry can be correlated by timestamp. Mitigated by periodic history squashing. |
+| Stolen private key = full user compromise | Attacker can find bin_hash, decrypt comments, impersonate on relay. Same model as SSH/PGP. Recovery: re-register. |
 | Peer pubkey loading in chat [TODO] | `internal/cli/chat.go` peer pubkey loading is not yet signed/verified (marked as future work). |
 
 ### Trust boundaries summary
