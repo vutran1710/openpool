@@ -349,7 +349,7 @@ Prerequisites:
 			signature := crypto.Sign(priv, payload)
 
 			// Submit registration issue
-			poolGH := gh.NewPool(entry.Repo, identity.Token)
+			poolGH := gh.NewPoolWithClient(gh.NewCLIOrHTTP(entry.Repo, identity.Token))
 			pubKeyHex := hex.EncodeToString(pub)
 			issueNumber, err := poolGH.RegisterUserViaIssue(ctx, userHash.String(), bin, pubKeyHex, signature, identityProof)
 			if err != nil {
@@ -494,7 +494,7 @@ func newPoolListCmd() *cobra.Command {
 					if p.PendingIssue > 0 && p.BinHash == "" && keyErr == nil {
 						ghToken, tokenErr := resolveGitHubTokenNonInteractive()
 						if tokenErr == nil {
-							poolGH := gh.NewPool(p.Repo, ghToken)
+							poolGH := gh.NewPoolWithClient(gh.NewCLIOrHTTP(p.Repo, ghToken))
 							pollCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 							opPub, opErr := hex.DecodeString(p.OperatorPubKey)
 							if opErr != nil {

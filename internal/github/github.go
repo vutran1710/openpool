@@ -2,6 +2,9 @@ package github
 
 import (
 	"context"
+	"fmt"
+	"os/exec"
+	"strings"
 )
 
 // GitHubClient defines the interface for GitHub API operations.
@@ -48,4 +51,18 @@ func NewCLIOrHTTP(repo, token string) GitHubClient {
 		return cli
 	}
 	return NewHTTP(repo, token)
+}
+
+// GetCLIToken returns the GitHub token from the gh CLI.
+// Returns an error if gh is not installed or not authenticated.
+func GetCLIToken() (string, error) {
+	out, err := exec.Command("gh", "auth", "token").Output()
+	if err != nil {
+		return "", fmt.Errorf("gh auth token failed: %w (run: gh auth login)", err)
+	}
+	token := strings.TrimSpace(string(out))
+	if token == "" {
+		return "", fmt.Errorf("empty token from gh CLI")
+	}
+	return token, nil
 }

@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -58,7 +57,7 @@ func LoadMatchesCmd(poolName string) tea.Cmd {
 			return MatchesFetchedMsg{Err: fmt.Errorf("not registered")}
 		}
 
-		ghToken, err := resolveGHToken()
+		ghToken, err := gh.GetCLIToken()
 		if err != nil {
 			return MatchesFetchedMsg{Err: err}
 		}
@@ -74,7 +73,7 @@ func LoadMatchesCmd(poolName string) tea.Cmd {
 		}
 		operatorPub := ed25519.PublicKey(operatorPubBytes)
 
-		client := gh.NewPool(pool.Repo, ghToken)
+		client := gh.NewPoolWithClient(gh.NewCLIOrHTTP(pool.Repo, ghToken))
 		prs, err := client.Client().ListPullRequests(context.Background(), "closed")
 		if err != nil {
 			return MatchesFetchedMsg{Err: err}
@@ -247,14 +246,3 @@ func (s MatchesScreen) HelpBindings() []components.KeyBind {
 	}
 }
 
-func resolveGHToken() (string, error) {
-	out, err := exec.Command("gh", "auth", "token").Output()
-	if err != nil {
-		return "", fmt.Errorf("gh auth required")
-	}
-	token := strings.TrimSpace(string(out))
-	if token == "" {
-		return "", fmt.Errorf("empty token")
-	}
-	return token, nil
-}
