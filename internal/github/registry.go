@@ -15,7 +15,7 @@ const PoolStatusPending = "pending"
 const PoolStatusActive = "active"
 
 type Registry struct {
-	client *Client       // for writes (PRs)
+	client *HTTPClient       // for writes (PRs)
 	repo   *gitrepo.Repo // for reads (local clone)
 }
 
@@ -57,7 +57,7 @@ func CloneRegistry(repoURL string) (*Registry, error) {
 	return &Registry{repo: repo}, nil
 }
 
-func (r *Registry) Client() *Client {
+func (r *Registry) Client() *HTTPClient {
 	return r.client
 }
 

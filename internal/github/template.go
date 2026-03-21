@@ -20,7 +20,7 @@ type TemplateField struct {
 	Required bool
 }
 
-func (c *Client) GetPRTemplate(ctx context.Context, templateName string) (*PRTemplate, error) {
+func (c *HTTPClient) GetPRTemplate(ctx context.Context, templateName string) (*PRTemplate, error) {
 	paths := []string{
 		fmt.Sprintf(".github/PULL_REQUEST_TEMPLATE/%s.md", templateName),
 		".github/PULL_REQUEST_TEMPLATE.md",

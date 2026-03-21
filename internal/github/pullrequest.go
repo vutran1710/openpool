@@ -22,7 +22,7 @@ type PRRequest struct {
 	Files  []PRFile
 }
 
-func (c *Client) GetDefaultBranch(ctx context.Context) (string, error) {
+func (c *HTTPClient) GetDefaultBranch(ctx context.Context) (string, error) {
 	resp, err := c.do(ctx, "GET", fmt.Sprintf("https://api.github.com/repos/%s", c.repo), nil)
 	if err != nil {
 		return "", err
@@ -38,7 +38,7 @@ func (c *Client) GetDefaultBranch(ctx context.Context) (string, error) {
 	return repo.DefaultBranch, nil
 }
 
-func (c *Client) getRef(ctx context.Context, branch string) (string, error) {
+func (c *HTTPClient) getRef(ctx context.Context, branch string) (string, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/git/ref/heads/%s", c.repo, branch)
 	resp, err := c.do(ctx, "GET", url, nil)
 	if err != nil {
@@ -57,7 +57,7 @@ func (c *Client) getRef(ctx context.Context, branch string) (string, error) {
 	return ref.Object.SHA, nil
 }
 
-func (c *Client) createRef(ctx context.Context, branch, sha string) error {
+func (c *HTTPClient) createRef(ctx context.Context, branch, sha string) error {
 	payload, err := json.Marshal(map[string]string{
 		"ref": "refs/heads/" + branch,
 		"sha": sha,
@@ -82,7 +82,7 @@ func (c *Client) createRef(ctx context.Context, branch, sha string) error {
 	return nil
 }
 
-func (c *Client) createOrUpdateFile(ctx context.Context, path, branch string, content []byte, message string) error {
+func (c *HTTPClient) createOrUpdateFile(ctx context.Context, path, branch string, content []byte, message string) error {
 	encoded := base64.StdEncoding.EncodeToString(content)
 
 	payload := map[string]string{
@@ -110,7 +110,7 @@ func (c *Client) createOrUpdateFile(ctx context.Context, path, branch string, co
 	return nil
 }
 
-func (c *Client) CreatePullRequest(ctx context.Context, pr PRRequest) (int, error) {
+func (c *HTTPClient) CreatePullRequest(ctx context.Context, pr PRRequest) (int, error) {
 	defaultBranch, err := c.GetDefaultBranch(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("getting default branch: %w", err)
@@ -169,7 +169,7 @@ func (c *Client) CreatePullRequest(ctx context.Context, pr PRRequest) (int, erro
 	return result.Number, nil
 }
 
-func (c *Client) addLabels(ctx context.Context, prNumber int, labels []string) error {
+func (c *HTTPClient) addLabels(ctx context.Context, prNumber int, labels []string) error {
 	payload, err := json.Marshal(map[string]any{"labels": labels})
 	if err != nil {
 		return fmt.Errorf("marshaling labels: %w", err)
@@ -183,7 +183,7 @@ func (c *Client) addLabels(ctx context.Context, prNumber int, labels []string) e
 	return nil
 }
 
-func (c *Client) MergePullRequest(ctx context.Context, prNumber int) error {
+func (c *HTTPClient) MergePullRequest(ctx context.Context, prNumber int) error {
 	url := c.apiURL(fmt.Sprintf("/pulls/%d/merge", prNumber))
 	payload, err := json.Marshal(map[string]string{"merge_method": "squash"})
 	if err != nil {
@@ -203,7 +203,7 @@ func (c *Client) MergePullRequest(ctx context.Context, prNumber int) error {
 	return nil
 }
 
-func (c *Client) ClosePullRequest(ctx context.Context, prNumber int) error {
+func (c *HTTPClient) ClosePullRequest(ctx context.Context, prNumber int) error {
 	payload, err := json.Marshal(map[string]string{"state": "closed"})
 	if err != nil {
 		return fmt.Errorf("marshaling close payload: %w", err)
@@ -221,7 +221,7 @@ func (c *Client) ClosePullRequest(ctx context.Context, prNumber int) error {
 	return nil
 }
 
-func (c *Client) FileExists(ctx context.Context, path string) bool {
+func (c *HTTPClient) FileExists(ctx context.Context, path string) bool {
 	resp, err := c.do(ctx, "GET", c.apiURL("/contents/"+path), nil)
 	if err != nil {
 		return false
