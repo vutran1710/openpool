@@ -294,5 +294,40 @@ func encodeBase64Content(data []byte) string {
 	return base64.StdEncoding.EncodeToString(data)
 }
 
+// AddCommitPush stages files, commits, pulls with rebase, and pushes.
+// This is only available on CLIClient (requires local git checkout).
+func (c *CLIClient) AddCommitPush(files []string, message string) error {
+	// git add
+	addArgs := append([]string{"add"}, files...)
+	cmd := exec.Command("git", addArgs...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git add: %s", string(out))
+	}
+
+	// git commit
+	cmd = exec.Command("git", "commit", "-m", message)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git commit: %s", string(out))
+	}
+
+	// git pull --rebase + push (retry once on conflict)
+	for range 2 {
+		cmd = exec.Command("git", "pull", "--rebase")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git pull --rebase: %s", string(out))
+		}
+		cmd = exec.Command("git", "push")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			// Retry on rejection (concurrent push)
+			if strings.Contains(string(out), "rejected") {
+				continue
+			}
+			return fmt.Errorf("git push: %s", string(out))
+		}
+		return nil
+	}
+	return fmt.Errorf("git push failed after retry")
+}
+
 // Compile-time check: CLIClient implements GitHubClient.
 var _ GitHubClient = (*CLIClient)(nil)
