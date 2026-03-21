@@ -10,14 +10,28 @@ Interest PRs create branches, require merge/close semantics, and are heavier tha
 
 ## Design
 
-### Like Command
+### Generic Issue Creation
 
-```
-Current:  CreateInterestPR(title=targetMatchHash, label=interest, body=encrypted, branch=...)
-New:      CreateIssue(title=targetMatchHash, labels=[interest], body=message.Format("interest", encrypted))
+One reusable function for all issue types:
+
+```go
+// internal/github/pool.go
+func (p *Pool) SubmitIssue(ctx context.Context, title, blockType, content string, labels []string) (int, error) {
+    body := message.Format(blockType, content)
+    return p.client.CreateIssue(ctx, title, body, labels)
+}
 ```
 
-No branch creation. Just `CreateIssue`.
+Callers:
+```go
+// Registration
+pool.SubmitIssue(ctx, "Registration Request", "registration-request", regContent, []string{"registration"})
+
+// Interest (like)
+pool.SubmitIssue(ctx, targetMatchHash, "interest", encryptedBlob, []string{"interest"})
+```
+
+Replaces both `SubmitRegistration` and `CreateInterestPR`. Future issue types (reports, feedback, etc.) use the same function.
 
 ### Interest Issue Format
 
