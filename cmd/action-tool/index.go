@@ -3,18 +3,21 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
-	"github.com/vmihailenco/msgpack/v5"
 	"github.com/vutran1710/dating-dev/internal/crypto"
 	gh "github.com/vutran1710/dating-dev/internal/github"
+	"github.com/vutran1710/dating-dev/internal/pooldb"
 )
 
 func cmdIndex() {
@@ -25,8 +28,8 @@ func cmdIndex() {
 	binFile := fs.String("bin-file", "", "single .bin file to index")
 	matchHash := fs.String("match-hash", "", "match_hash for output filename")
 	outputDir := fs.String("output-dir", "index", "directory for .rec files (single-user mode)")
-	output := fs.String("output", "", "output file path for index.pack")
-	upload := fs.Bool("upload", false, "upload index.pack as a GitHub release asset")
+	output := fs.String("output", "", "output file path for index.db")
+	upload := fs.Bool("upload", false, "upload index.db as a GitHub release asset")
 	usersDir := fs.String("users-dir", "users", "path to users/ directory")
 	salt := fs.String("salt", "", "pool salt (or POOL_SALT env var, needed for hash computation in rebuild)")
 	poolURL := fs.String("pool-url", "", "pool URL (or from pool.json, needed for hash computation in rebuild)")
@@ -91,7 +94,7 @@ func cmdIndex() {
 
 		outPath := *output
 		if outPath == "" {
-			outPath = "index.pack"
+			outPath = "index.db"
 		}
 		rebuildAll(manifest.Schema, weightMap, ed25519.PrivateKey(operatorKey), poolSalt, pURL, *usersDir, outPath)
 
@@ -104,7 +107,7 @@ func cmdIndex() {
 			if err != nil {
 				writeError("github CLI: " + err.Error())
 			}
-			if err := ghCli.UploadReleaseAsset(context.Background(), "index-latest", "index.pack", outPath); err != nil {
+			if err := ghCli.UploadReleaseAsset(context.Background(), "index-latest", "index.db", outPath); err != nil {
 				writeError("uploading index: " + err.Error())
 			}
 			log.Printf("uploaded %s as release asset", outPath)
@@ -125,14 +128,25 @@ func indexOne(schema *gh.PoolSchema, weights map[string]float64, operatorKey ed2
 	fmt.Printf("indexed %s → %s (%d dims, %d filters)\n", binPath, outPath, len(rec.Vector), len(rec.Filters.Fields))
 }
 
-// rebuildAll processes all .bin files into a single index.pack (msgpack).
+// rebuildAll processes all .bin files into a single index.db (SQLite).
 func rebuildAll(schema *gh.PoolSchema, weights map[string]float64, operatorKey ed25519.PrivateKey, poolSalt, poolURL, usersDir, outPath string) {
 	entries, err := os.ReadDir(usersDir)
 	if err != nil {
 		log.Fatalf("reading users dir: %v", err)
 	}
 
-	var records []gh.NamedRecord
+	// Remove existing index.db to start fresh
+	os.Remove(outPath)
+
+	indexDB, err := pooldb.Open(outPath)
+	if err != nil {
+		writeError("opening index db: " + err.Error())
+	}
+	defer indexDB.Close()
+
+	indexDB.ClearProfiles()
+
+	count := 0
 	for _, e := range entries {
 		if !strings.HasSuffix(e.Name(), ".bin") {
 			continue
@@ -149,21 +163,34 @@ func rebuildAll(schema *gh.PoolSchema, weights map[string]float64, operatorKey e
 		// Compute match_hash from bin_hash
 		matchHash := sha256Short(poolSalt + ":" + binHash)
 
-		records = append(records, gh.NamedRecord{
-			MatchHash: matchHash,
-			Record:    *rec,
-		})
+		filtersJSON, _ := json.Marshal(rec.Filters)
+		vectorBytes := encodeFloat32s(rec.Vector)
+
+		if err := indexDB.InsertProfile(pooldb.Profile{
+			MatchHash:   matchHash,
+			Filters:     string(filtersJSON),
+			Vector:      vectorBytes,
+			DisplayName: rec.DisplayName,
+			About:       rec.About,
+			Bio:         rec.Bio,
+			UpdatedAt:   time.Now(),
+		}); err != nil {
+			log.Printf("skipping %s: %v", binPath, err)
+			continue
+		}
+		count++
 	}
 
-	// Write index.pack
-	data, err := msgpack.Marshal(records)
-	if err != nil {
-		log.Fatalf("marshaling index: %v", err)
+	fmt.Printf("rebuilt %d records → %s\n", count, outPath)
+}
+
+// encodeFloat32s encodes a slice of float32 values to little-endian bytes.
+func encodeFloat32s(fs []float32) []byte {
+	buf := make([]byte, len(fs)*4)
+	for i, f := range fs {
+		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(f))
 	}
-	if err := os.WriteFile(outPath, data, 0644); err != nil {
-		log.Fatalf("writing %s: %v", outPath, err)
-	}
-	fmt.Printf("rebuilt %d records → %s (%d bytes)\n", len(records), outPath, len(data))
+	return buf
 }
 
 func processbin(schema *gh.PoolSchema, weights map[string]float64, operatorKey ed25519.PrivateKey, binPath string) (*gh.IndexRecord, error) {
