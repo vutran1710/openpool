@@ -35,6 +35,9 @@ type GitHubClient interface {
 	GetDefaultBranch(ctx context.Context) (string, error)
 	TriggerWorkflow(ctx context.Context, workflowFile string, inputs map[string]string) error
 	StarRepo(ctx context.Context) error
+
+	// Release operations
+	UploadReleaseAsset(ctx context.Context, tag, assetName, filePath string) error
 }
 
 // IssueComment represents a GitHub issue comment.

@@ -2,12 +2,12 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
 	"github.com/vutran1710/dating-dev/internal/cli/suggestions"
+	gh "github.com/vutran1710/dating-dev/internal/github"
 	"github.com/vutran1710/dating-dev/internal/gitrepo"
 )
 
@@ -46,9 +46,9 @@ func newPoolSyncCmd() *cobra.Command {
 				return fmt.Errorf("loading suggestions: %w", err)
 			}
 
-			// Prefer index.pack (cron-built), fall back to index/ directory (.rec files)
-			indexPackPath := filepath.Join(repo.LocalDir, "index.pack")
-			if _, err := os.Stat(indexPackPath); err == nil {
+			// Download index.pack from release asset, fall back to repo index/ directory
+			indexPackPath := filepath.Join(config.Dir(), "pools", poolName, "index.pack")
+			if dlErr := gh.DownloadReleaseAsset(pool.Repo, "index-latest", "index.pack", indexPackPath); dlErr == nil {
 				loaded, err := pack.SyncFromIndexPack(indexPackPath)
 				if err != nil {
 					return fmt.Errorf("loading index.pack: %w", err)

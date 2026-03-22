@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
@@ -24,8 +25,8 @@ func cmdIndex() {
 	binFile := fs.String("bin-file", "", "single .bin file to index")
 	matchHash := fs.String("match-hash", "", "match_hash for output filename")
 	outputDir := fs.String("output-dir", "index", "directory for .rec files (single-user mode)")
-	output := fs.String("output", "", "output file path for index.pack (rebuild mode)")
-	rebuild := fs.Bool("rebuild", false, "rebuild entire index from all .bin files")
+	output := fs.String("output", "", "output file path for index.pack")
+	upload := fs.Bool("upload", false, "upload index.pack as a GitHub release asset")
 	usersDir := fs.String("users-dir", "users", "path to users/ directory")
 	salt := fs.String("salt", "", "pool salt (or POOL_SALT env var, needed for hash computation in rebuild)")
 	poolURL := fs.String("pool-url", "", "pool URL (or from pool.json, needed for hash computation in rebuild)")
@@ -70,8 +71,15 @@ func cmdIndex() {
 		log.Fatal("invalid operator key: must be 128 hex chars (64 bytes)")
 	}
 
-	if *rebuild {
-		// Resolve salt + poolURL for hash computation
+	if *binFile != "" {
+		// Single-user mode
+		if *matchHash == "" {
+			log.Fatal("single-user mode requires --match-hash")
+		}
+		os.MkdirAll(*outputDir, 0755)
+		indexOne(manifest.Schema, weightMap, ed25519.PrivateKey(operatorKey), *binFile, *matchHash, *outputDir)
+	} else {
+		// Rebuild mode (default)
 		poolSalt := *salt
 		if poolSalt == "" {
 			poolSalt = os.Getenv("POOL_SALT")
@@ -86,12 +94,21 @@ func cmdIndex() {
 			outPath = "index.pack"
 		}
 		rebuildAll(manifest.Schema, weightMap, ed25519.PrivateKey(operatorKey), poolSalt, pURL, *usersDir, outPath)
-	} else {
-		if *binFile == "" || *matchHash == "" {
-			log.Fatal("single-user mode requires --bin-file and --match-hash")
+
+		if *upload {
+			repo := os.Getenv("REPO")
+			if repo == "" {
+				writeError("REPO env var required for --upload")
+			}
+			ghCli, err := gh.NewCLI(repo)
+			if err != nil {
+				writeError("github CLI: " + err.Error())
+			}
+			if err := ghCli.UploadReleaseAsset(context.Background(), "index-latest", "index.pack", outPath); err != nil {
+				writeError("uploading index: " + err.Error())
+			}
+			log.Printf("uploaded %s as release asset", outPath)
 		}
-		os.MkdirAll(*outputDir, 0755)
-		indexOne(manifest.Schema, weightMap, ed25519.PrivateKey(operatorKey), *binFile, *matchHash, *outputDir)
 	}
 }
 

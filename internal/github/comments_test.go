@@ -38,6 +38,7 @@ func (m *mockCommentsClient) CommentPR(_ context.Context, _ int, _ string) error
 func (m *mockCommentsClient) GetDefaultBranch(_ context.Context) (string, error)             { panic("not implemented") }
 func (m *mockCommentsClient) TriggerWorkflow(_ context.Context, _ string, _ map[string]string) error { panic("not implemented") }
 func (m *mockCommentsClient) StarRepo(_ context.Context) error                               { panic("not implemented") }
+func (m *mockCommentsClient) UploadReleaseAsset(_ context.Context, _, _, _ string) error     { panic("not implemented") }
 
 func makeSignedComment(t *testing.T, blockType string, operatorPriv ed25519.PrivateKey, userPub ed25519.PublicKey) string {
 	t.Helper()

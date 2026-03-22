@@ -94,16 +94,14 @@ func LoadDiscoverCmd(poolName string) tea.Cmd {
 			return DiscoverMsg{Err: err}
 		}
 
-		// Sync new .rec files
-		if repo != nil {
-			// Prefer index.pack, fall back to index/ directory
-			indexPackPath := filepath.Join(repo.LocalDir, "index.pack")
-			if _, err := os.Stat(indexPackPath); err == nil {
-				pack.SyncFromIndexPack(indexPackPath)
-			} else {
-				indexDir := filepath.Join(repo.LocalDir, "index")
-				pack.SyncFromRecDir(indexDir)
-			}
+		// Sync index: download from release asset, fall back to repo index/ directory
+		indexPackPath := filepath.Join(config.Dir(), "pools", poolName, "index.pack")
+		if dlErr := gh.DownloadReleaseAsset(pool.Repo, "index-latest", "index.pack", indexPackPath); dlErr == nil {
+			pack.SyncFromIndexPack(indexPackPath)
+			pack.Save(packPath)
+		} else if repo != nil {
+			indexDir := filepath.Join(repo.LocalDir, "index")
+			pack.SyncFromRecDir(indexDir)
 			pack.Save(packPath)
 		}
 
@@ -236,15 +234,15 @@ func (s DiscoverScreen) backgroundSync() tea.Cmd {
 			return DiscoverPollMsg{} // no changes, schedule next poll
 		}
 
-		// Reload index.pack
+		// Reload index.pack from release asset
 		packPath := filepath.Join(config.Dir(), "pools", poolName, "suggestions.pack")
 		pack, err := suggestions.Load(packPath)
 		if err != nil {
 			return DiscoverPollMsg{}
 		}
 
-		indexPackPath := filepath.Join(repo.LocalDir, "index.pack")
-		if _, err := os.Stat(indexPackPath); err == nil {
+		indexPackPath := filepath.Join(config.Dir(), "pools", poolName, "index.pack")
+		if dlErr := gh.DownloadReleaseAsset(poolRepo, "index-latest", "index.pack", indexPackPath); dlErr == nil {
 			pack.SyncFromIndexPack(indexPackPath)
 			pack.Save(packPath)
 		}

@@ -337,5 +337,9 @@ func (c *HTTPClient) CommentPR(ctx context.Context, prNumber int, body string) e
 	return c.CommentIssue(ctx, prNumber, body)
 }
 
+func (c *HTTPClient) UploadReleaseAsset(_ context.Context, tag, assetName, filePath string) error {
+	return fmt.Errorf("UploadReleaseAsset not supported on HTTPClient — use CLIClient")
+}
+
 // Compile-time check: HTTPClient implements GitHubClient.
 var _ GitHubClient = (*HTTPClient)(nil)

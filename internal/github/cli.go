@@ -368,5 +368,14 @@ func (c *CLIClient) AddCommitPush(files []string, message string) error {
 	return fmt.Errorf("git push failed after 3 retries")
 }
 
+func (c *CLIClient) UploadReleaseAsset(_ context.Context, tag, assetName, filePath string) error {
+	// Create release if it doesn't exist (ignore error if already exists)
+	c.gh("release", "create", tag, "-R", c.repo,
+		"--title", tag, "--notes", "Auto-updated by indexer")
+	// Upload with --clobber to overwrite existing asset
+	_, err := c.gh("release", "upload", tag, filePath, "--clobber", "-R", c.repo)
+	return err
+}
+
 // Compile-time check: CLIClient implements GitHubClient.
 var _ GitHubClient = (*CLIClient)(nil)
