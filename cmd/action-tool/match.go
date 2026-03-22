@@ -27,39 +27,33 @@ func cmdMatch() {
 	_ = poolSalt
 
 	if len(issueBody) > limits.MaxMessageContent {
-		fmt.Fprintf(os.Stderr, "error: issue body too large: %d bytes (max %d)\n", len(issueBody), limits.MaxMessageContent)
-		os.Exit(1)
+		rejectIssue(fmt.Sprintf("issue body too large: %d bytes (max %d)", len(issueBody), limits.MaxMessageContent))
 	}
 
 	issueNumber, err := strconv.Atoi(issueNumberStr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: invalid ISSUE_NUMBER: %v\n", err)
-		os.Exit(1)
+		rejectIssue("invalid ISSUE_NUMBER")
 	}
 
 	operatorKey, err := hex.DecodeString(operatorKeyHex)
 	if err != nil || len(operatorKey) != ed25519.PrivateKeySize {
-		fmt.Fprintf(os.Stderr, "error: invalid OPERATOR_PRIVATE_KEY\n")
-		os.Exit(1)
+		rejectIssue("invalid OPERATOR_PRIVATE_KEY")
 	}
 
 	// Decrypt author's issue body
 	_, issueContent, err := message.Parse(issueBody)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: parsing issue body: %v\n", err)
-		os.Exit(1)
+		rejectIssue("invalid issue body format: " + err.Error())
 	}
 
 	issueBlob, err := base64.StdEncoding.DecodeString(issueContent)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: base64 decode issue body: %v\n", err)
-		os.Exit(1)
+		rejectIssue("invalid base64 in issue body")
 	}
 
 	authorPlain, err := crypto.Decrypt(ed25519.PrivateKey(operatorKey), issueBlob)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: decrypting issue body: %v\n", err)
-		os.Exit(1)
+		rejectIssue("decryption failed — invalid or forged issue body")
 	}
 
 	var authorData struct {
@@ -68,15 +62,18 @@ func cmdMatch() {
 		Greeting        string `json:"greeting"`
 	}
 	if err := json.Unmarshal(authorPlain, &authorData); err != nil {
-		fmt.Fprintf(os.Stderr, "error: unmarshal author data: %v\n", err)
-		os.Exit(1)
+		rejectIssue("invalid interest payload")
+	}
+
+	// Check if author is registered (has .bin file)
+	if _, err := os.Stat("users/" + authorData.AuthorBinHash + ".bin"); os.IsNotExist(err) {
+		rejectIssue("unregistered user: " + authorData.AuthorBinHash)
 	}
 
 	// List open interest issues to find reciprocal
 	gh, err := github.NewCLI(repo)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: creating github client: %v\n", err)
-		os.Exit(1)
+		writeError("creating github client: " + err.Error())
 	}
 
 	ctx := context.Background()

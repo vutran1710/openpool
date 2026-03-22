@@ -27,37 +27,31 @@ func cmdRegister() {
 	issueNumberStr := os.Getenv("ISSUE_NUMBER")
 
 	if len(issueBody) > limits.MaxMessageContent {
-		fmt.Fprintf(os.Stderr, "error: issue body too large: %d bytes (max %d)\n", len(issueBody), limits.MaxMessageContent)
-		os.Exit(1)
+		rejectIssue(fmt.Sprintf("issue body too large: %d bytes (max %d)", len(issueBody), limits.MaxMessageContent))
 	}
 
 	issueNumber, err := strconv.Atoi(issueNumberStr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: invalid ISSUE_NUMBER: %v\n", err)
-		os.Exit(1)
+		rejectIssue("invalid ISSUE_NUMBER")
 	}
 
 	operatorKey, err := hex.DecodeString(operatorKeyHex)
 	if err != nil || len(operatorKey) != ed25519.PrivateKeySize {
-		fmt.Fprintf(os.Stderr, "error: invalid OPERATOR_PRIVATE_KEY\n")
-		os.Exit(1)
+		rejectIssue("invalid OPERATOR_PRIVATE_KEY")
 	}
 
 	// Parse issue body
 	blockType, content, err := message.Parse(issueBody)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: parsing issue body: %v\n", err)
-		os.Exit(1)
+		rejectIssue("invalid issue body format: " + err.Error())
 	}
 	if blockType != "registration-request" {
-		fmt.Fprintf(os.Stderr, "error: unexpected block type: %s\n", blockType)
-		os.Exit(1)
+		rejectIssue("unexpected block type: " + blockType)
 	}
 
 	lines := strings.Split(content, "\n")
 	if len(lines) < 5 {
-		fmt.Fprintf(os.Stderr, "error: registration request must have 5 lines\n")
-		os.Exit(1)
+		rejectIssue("registration request must have 5 lines")
 	}
 
 	userHash := lines[0]
