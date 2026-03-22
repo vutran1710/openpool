@@ -11,6 +11,16 @@ import (
 	"github.com/vutran1710/dating-dev/internal/pooldb"
 )
 
+// Record holds a user's filter values + similarity vector + display info.
+type Record struct {
+	MatchHash   string
+	Filters     gh.FilterValues
+	Vector      []float32
+	DisplayName string
+	About       string
+	Bio         string
+}
+
 // Suggestion is a ranked match_hash with similarity score.
 type Suggestion struct {
 	MatchHash string

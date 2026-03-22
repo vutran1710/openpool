@@ -9,6 +9,7 @@ import (
 	"github.com/vutran1710/dating-dev/internal/cli/suggestions"
 	gh "github.com/vutran1710/dating-dev/internal/github"
 	"github.com/vutran1710/dating-dev/internal/gitrepo"
+	"github.com/vutran1710/dating-dev/internal/pooldb"
 )
 
 func newDiscoverCmd() *cobra.Command {
@@ -41,7 +42,12 @@ func newDiscoverCmd() *cobra.Command {
 				return nil
 			}
 
-			packPath := filepath.Join(config.Dir(), "pools", poolName, "suggestions.pack")
+			poolDBPath := filepath.Join(config.Dir(), "pool.db")
+			pdb, err := pooldb.Open(poolDBPath)
+			if err != nil {
+				return fmt.Errorf("opening pool db: %w", err)
+			}
+			defer pdb.Close()
 
 			// Sync if requested
 			if doSync {
@@ -54,31 +60,37 @@ func newDiscoverCmd() *cobra.Command {
 					return fmt.Errorf("syncing: %w", err)
 				}
 
-				indexDir := filepath.Join(repo.LocalDir, "index")
-				pack, err := suggestions.Load(packPath)
-				if err != nil {
-					return fmt.Errorf("loading: %w", err)
-				}
-				added, _ := pack.SyncFromRecDir(indexDir)
-				if added > 0 {
-					pack.Save(packPath)
-					printDim(fmt.Sprintf("  Synced %d new vectors", added))
+				indexPath := filepath.Join(config.Dir(), "pools", poolName, "index.db")
+				if dlErr := gh.DownloadReleaseAsset(pool.Repo, "index-latest", "index.db", indexPath); dlErr == nil {
+					synced, _ := pdb.SyncFromIndex(indexPath)
+					printDim(fmt.Sprintf("  Synced %d profiles", synced))
 				}
 			}
 
-			// Load pack
-			pack, err := suggestions.Load(packPath)
+			// Load profiles from PoolDB
+			profiles, err := pdb.ListProfiles()
 			if err != nil {
-				return fmt.Errorf("loading suggestions: %w", err)
+				return fmt.Errorf("listing profiles: %w", err)
 			}
 
-			if len(pack.Records) == 0 {
-				printDim("  No vectors. Run: dating pool sync " + poolName)
+			if len(profiles) == 0 {
+				printDim("  No profiles. Run: dating pool sync " + poolName)
 				return nil
 			}
 
+			records := make([]suggestions.Record, len(profiles))
+			for i, p := range profiles {
+				records[i] = suggestions.ProfileToRecord(p)
+			}
+
 			// Find own record
-			me := pack.Find(pool.MatchHash)
+			var me *suggestions.Record
+			for i := range records {
+				if records[i].MatchHash == pool.MatchHash {
+					me = &records[i]
+					break
+				}
+			}
 			if me == nil {
 				printError("Your vector not found. Run: dating pool sync " + poolName)
 				return nil
@@ -94,20 +106,20 @@ func newDiscoverCmd() *cobra.Command {
 				}
 			}
 
-			ranked := suggestions.RankSuggestions(schema, *me, pack.Records, pack.Seen, limit)
+			seen, _ := pdb.GetSeen()
+			ranked := suggestions.RankSuggestions(schema, *me, records, seen, limit)
 
-			// Mark shown as seen + save
+			// Mark shown as seen
 			for _, s := range ranked {
-				pack.MarkSeen(s.MatchHash)
+				pdb.MarkSeen(s.MatchHash, "view")
 			}
-			pack.Save(packPath)
 
 			if len(ranked) == 0 {
 				printDim("  No suggestions found.")
 				return nil
 			}
 
-			total := len(pack.Records) - 1 // exclude self
+			total := len(records) - 1 // exclude self
 			filtered := total - len(ranked)
 
 			fmt.Println()
