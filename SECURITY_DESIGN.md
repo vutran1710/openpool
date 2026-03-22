@@ -464,6 +464,8 @@ Rejected scenarios:
 - **Registration**: invalid body format, oversized payload, bad pubkey, missing fields
 - **Interest**: invalid body, decryption failure, invalid payload, unregistered user (no `.bin` file)
 
+**Exception**: pool operator (repo owner) is exempt from the `.bin` file check — operators create interest issues on behalf of managed users (users without GitHub accounts).
+
 After successful processing, issues are locked as `resolved` (prevents re-open).
 
 ---
