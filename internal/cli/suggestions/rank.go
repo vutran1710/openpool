@@ -1,11 +1,14 @@
 package suggestions
 
 import (
+	"encoding/binary"
+	"encoding/json"
 	"math"
 	"math/rand"
 	"sort"
 
 	gh "github.com/vutran1710/dating-dev/internal/github"
+	"github.com/vutran1710/dating-dev/internal/pooldb"
 )
 
 // Suggestion is a ranked match_hash with similarity score.
@@ -68,6 +71,32 @@ func RankSuggestions(schema *gh.PoolSchema, me Record, records []Record, seen ma
 		result = result[:limit]
 	}
 	return result
+}
+
+// ProfileToRecord converts a pooldb.Profile to a suggestions Record.
+func ProfileToRecord(p pooldb.Profile) Record {
+	var filters gh.FilterValues
+	json.Unmarshal([]byte(p.Filters), &filters)
+	return Record{
+		MatchHash:   p.MatchHash,
+		Filters:     filters,
+		Vector:      decodeFloat32s(p.Vector),
+		DisplayName: p.DisplayName,
+		About:       p.About,
+		Bio:         p.Bio,
+	}
+}
+
+// decodeFloat32s decodes little-endian bytes to a slice of float32 values.
+func decodeFloat32s(b []byte) []float32 {
+	if len(b) == 0 {
+		return nil
+	}
+	fs := make([]float32, len(b)/4)
+	for i := range fs {
+		fs[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[i*4:]))
+	}
+	return fs
 }
 
 func cosine(a, b []float32) float64 {
