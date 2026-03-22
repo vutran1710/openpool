@@ -456,7 +456,19 @@ The user's ed25519 private key is the single point of failure per user. If stole
 
 ---
 
-## 11. Issue Re-open Attack
+## 11. Invalid Issue Rejection
+
+All invalid issues are immediately closed (`not_planned`) + locked (`spam`). The `rejectIssue()` helper in `action-tool` handles this uniformly.
+
+Rejected scenarios:
+- **Registration**: invalid body format, oversized payload, bad pubkey, missing fields
+- **Interest**: invalid body, decryption failure, invalid payload, unregistered user (no `.bin` file)
+
+After successful processing, issues are locked as `resolved` (prevents re-open).
+
+---
+
+## 12. Issue Re-open Attack
 
 An attacker could re-open a closed interest issue to trigger duplicate match processing.
 
@@ -471,7 +483,7 @@ An attacker could re-open a closed interest issue to trigger duplicate match pro
 
 ---
 
-## 12. Payload Size Limits **[implemented]**
+## 13. Payload Size Limits **[implemented]**
 
 All message payloads must be size-limited to prevent abuse:
 
