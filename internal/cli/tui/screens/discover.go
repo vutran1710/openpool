@@ -16,6 +16,7 @@ import (
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
 	gh "github.com/vutran1710/dating-dev/internal/github"
 	"github.com/vutran1710/dating-dev/internal/gitrepo"
+	"github.com/vutran1710/dating-dev/internal/pooldb"
 )
 
 // DiscoverPollMsg triggers a background sync check.
@@ -29,26 +30,26 @@ type DiscoverLikeMsg struct {
 // DiscoverMsg carries loaded suggestions to the screen.
 type DiscoverMsg struct {
 	Suggestions []suggestions.Suggestion
+	Records     []suggestions.Record
 	Total       int
 	Filtered    int
-	Pack        *suggestions.Pack
-	PackPath    string
 	Schema      *gh.PoolSchema
 	PoolName    string
 	PoolRepo    string
+	PoolDBPath  string
 	Err         error
 }
 
 type DiscoverScreen struct {
 	suggestions []suggestions.Suggestion
+	records     []suggestions.Record
 	index       int
 	total       int
 	filtered    int
-	pack        *suggestions.Pack
-	packPath    string
 	schema      *gh.PoolSchema
 	poolName    string
 	poolRepo    string
+	poolDBPath  string
 	Loading     bool
 	Empty       bool
 	Width       int
@@ -87,32 +88,48 @@ func LoadDiscoverCmd(poolName string) tea.Cmd {
 			repo.Sync()
 		}
 
-		// Load pack
-		packPath := filepath.Join(config.Dir(), "pools", poolName, "suggestions.pack")
-		pack, err := suggestions.Load(packPath)
+		// Open pool.db
+		poolDBPath := filepath.Join(config.Dir(), "pool.db")
+		pdb, err := pooldb.Open(poolDBPath)
 		if err != nil {
-			return DiscoverMsg{Err: err}
+			return DiscoverMsg{Err: fmt.Errorf("opening pool db: %w", err)}
+		}
+		defer pdb.Close()
+
+		// Sync index: download index.db from release asset
+		indexPath := filepath.Join(config.Dir(), "pools", poolName, "index.db")
+		if dlErr := gh.DownloadReleaseAsset(pool.Repo, "index-latest", "index.db", indexPath); dlErr == nil {
+			pdb.SyncFromIndex(indexPath)
 		}
 
-		// Sync index: download from release asset, fall back to repo index/ directory
-		indexPackPath := filepath.Join(config.Dir(), "pools", poolName, "index.pack")
-		if dlErr := gh.DownloadReleaseAsset(pool.Repo, "index-latest", "index.pack", indexPackPath); dlErr == nil {
-			pack.SyncFromIndexPack(indexPackPath)
-			pack.Save(packPath)
-		} else if repo != nil {
-			indexDir := filepath.Join(repo.LocalDir, "index")
-			pack.SyncFromRecDir(indexDir)
-			pack.Save(packPath)
+		// Load profiles and convert to records
+		profiles, err := pdb.ListProfiles()
+		if err != nil {
+			return DiscoverMsg{Err: fmt.Errorf("listing profiles: %w", err)}
 		}
-
-		if len(pack.Records) == 0 {
+		if len(profiles) == 0 {
 			return DiscoverMsg{Err: fmt.Errorf("no users in pool yet")}
 		}
 
-		me := pack.Find(pool.MatchHash)
+		records := make([]suggestions.Record, len(profiles))
+		for i, p := range profiles {
+			records[i] = suggestions.ProfileToRecord(p)
+		}
+
+		// Find "me"
+		var me *suggestions.Record
+		for i := range records {
+			if records[i].MatchHash == pool.MatchHash {
+				me = &records[i]
+				break
+			}
+		}
 		if me == nil {
 			return DiscoverMsg{Err: fmt.Errorf("your vector not found — run: dating pool sync %s", poolName)}
 		}
+
+		// Load seen
+		seen, _ := pdb.GetSeen()
 
 		// Load schema for filtered ranking
 		var schema *gh.PoolSchema
@@ -123,19 +140,19 @@ func LoadDiscoverCmd(poolName string) tea.Cmd {
 			}
 		}
 
-		ranked := suggestions.RankSuggestions(schema, *me, pack.Records, pack.Seen, 50)
-		total := len(pack.Records) - 1
+		ranked := suggestions.RankSuggestions(schema, *me, records, seen, 50)
+		total := len(records) - 1
 		filtered := total - len(ranked)
 
 		return DiscoverMsg{
 			Suggestions: ranked,
+			Records:     records,
 			Total:       total,
 			Filtered:    filtered,
-			Pack:        pack,
-			PackPath:    packPath,
 			Schema:      schema,
 			PoolName:    poolName,
 			PoolRepo:    pool.Repo,
+			PoolDBPath:  poolDBPath,
 		}
 	}
 }
@@ -162,13 +179,13 @@ func (s DiscoverScreen) Update(msg tea.Msg) (DiscoverScreen, tea.Cmd) {
 			return s, nil
 		}
 		s.suggestions = msg.Suggestions
+		s.records = msg.Records
 		s.total = msg.Total
 		s.filtered = msg.Filtered
-		s.pack = msg.Pack
-		s.packPath = msg.PackPath
 		s.schema = msg.Schema
 		s.poolName = msg.PoolName
 		s.poolRepo = msg.PoolRepo
+		s.poolDBPath = msg.PoolDBPath
 		s.index = 0
 		s.Empty = len(s.suggestions) == 0
 		if cur := s.current(); cur != nil {
@@ -178,7 +195,7 @@ func (s DiscoverScreen) Update(msg tea.Msg) (DiscoverScreen, tea.Cmd) {
 		return s, s.schedulePoll()
 
 	case DiscoverPollMsg:
-		// Background sync — reload if index.pack changed
+		// Background sync — reload if index.db changed
 		return s, s.backgroundSync()
 
 	case tea.KeyMsg:
@@ -216,10 +233,11 @@ func (s DiscoverScreen) schedulePoll() tea.Cmd {
 	})
 }
 
-// backgroundSync syncs the pool repo, reloads index.pack, and re-ranks.
+// backgroundSync syncs the pool repo, reloads index.db, and re-ranks.
 func (s DiscoverScreen) backgroundSync() tea.Cmd {
 	poolRepo := s.poolRepo
 	poolName := s.poolName
+	poolDBPath := s.poolDBPath
 	if poolRepo == "" {
 		return s.schedulePoll()
 	}
@@ -234,17 +252,27 @@ func (s DiscoverScreen) backgroundSync() tea.Cmd {
 			return DiscoverPollMsg{} // no changes, schedule next poll
 		}
 
-		// Reload index.pack from release asset
-		packPath := filepath.Join(config.Dir(), "pools", poolName, "suggestions.pack")
-		pack, err := suggestions.Load(packPath)
+		// Open pool.db
+		pdb, err := pooldb.Open(poolDBPath)
 		if err != nil {
 			return DiscoverPollMsg{}
 		}
+		defer pdb.Close()
 
-		indexPackPath := filepath.Join(config.Dir(), "pools", poolName, "index.pack")
-		if dlErr := gh.DownloadReleaseAsset(poolRepo, "index-latest", "index.pack", indexPackPath); dlErr == nil {
-			pack.SyncFromIndexPack(indexPackPath)
-			pack.Save(packPath)
+		// Download and sync index.db
+		indexPath := filepath.Join(config.Dir(), "pools", poolName, "index.db")
+		if dlErr := gh.DownloadReleaseAsset(poolRepo, "index-latest", "index.db", indexPath); dlErr == nil {
+			pdb.SyncFromIndex(indexPath)
+		}
+
+		// Load profiles and convert
+		profiles, err := pdb.ListProfiles()
+		if err != nil {
+			return DiscoverPollMsg{}
+		}
+		records := make([]suggestions.Record, len(profiles))
+		for i, p := range profiles {
+			records[i] = suggestions.ProfileToRecord(p)
 		}
 
 		// Find self + re-rank
@@ -256,10 +284,18 @@ func (s DiscoverScreen) backgroundSync() tea.Cmd {
 				break
 			}
 		}
-		me := pack.Find(matchHash)
+		var me *suggestions.Record
+		for i := range records {
+			if records[i].MatchHash == matchHash {
+				me = &records[i]
+				break
+			}
+		}
 		if me == nil {
 			return DiscoverPollMsg{}
 		}
+
+		seen, _ := pdb.GetSeen()
 
 		var schema *gh.PoolSchema
 		manifest, mErr := loadManifestFromDir(repo.LocalDir)
@@ -267,37 +303,50 @@ func (s DiscoverScreen) backgroundSync() tea.Cmd {
 			schema = manifest.Schema
 		}
 
-		ranked := suggestions.RankSuggestions(schema, *me, pack.Records, pack.Seen, 50)
-		total := len(pack.Records) - 1
+		ranked := suggestions.RankSuggestions(schema, *me, records, seen, 50)
+		total := len(records) - 1
 		filtered := total - len(ranked)
 
 		return DiscoverMsg{
 			Suggestions: ranked,
+			Records:     records,
 			Total:       total,
 			Filtered:    filtered,
-			Pack:        pack,
-			PackPath:    packPath,
 			Schema:      schema,
 			PoolName:    poolName,
 			PoolRepo:    poolRepo,
+			PoolDBPath:  poolDBPath,
 		}
 	}
 }
 
 func (s *DiscoverScreen) markCurrentSeen() {
-	if s.pack == nil {
+	cur := s.current()
+	if cur == nil {
 		return
 	}
-	cur := s.current()
-	if cur != nil {
-		s.pack.MarkSeen(cur.MatchHash)
-		s.pack.Save(s.packPath) // persist immediately
+	// Mark seen in PoolDB
+	if s.poolDBPath != "" {
+		pdb, err := pooldb.Open(s.poolDBPath)
+		if err == nil {
+			pdb.MarkSeen(cur.MatchHash, "view")
+			pdb.Close()
+		}
 	}
 }
 
 func (s DiscoverScreen) current() *suggestions.Suggestion {
 	if s.index >= 0 && s.index < len(s.suggestions) {
 		return &s.suggestions[s.index]
+	}
+	return nil
+}
+
+func (s DiscoverScreen) findRecord(matchHash string) *suggestions.Record {
+	for i := range s.records {
+		if s.records[i].MatchHash == matchHash {
+			return &s.records[i]
+		}
 	}
 	return nil
 }
@@ -320,7 +369,7 @@ func (s DiscoverScreen) View() string {
 		return "\n  " + theme.DimStyle.Render("End of suggestions.") + "\n"
 	}
 
-	rec := s.pack.Find(cur.MatchHash)
+	rec := s.findRecord(cur.MatchHash)
 
 	// Build card content
 	width := s.Width - 6
@@ -352,7 +401,7 @@ func (s DiscoverScreen) View() string {
 		matchColor = theme.AmberStyle
 	}
 	heartScore := matchColor.Render("♥ " + matchPct)
-	nameAge := theme.BoldStyle.Render(name+age)
+	nameAge := theme.BoldStyle.Render(name + age)
 	gap := width - lipgloss.Width(nameAge) - lipgloss.Width(heartScore)
 	if gap < 1 {
 		gap = 1
