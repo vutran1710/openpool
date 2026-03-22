@@ -29,5 +29,5 @@ jobs:
             --pool-json pool.json \
             --operator-key "$OPERATOR_PRIVATE_KEY" \
             --users-dir users/ \
-            --output index.pack \
+            --output index.db \
             --upload

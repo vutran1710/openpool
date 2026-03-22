@@ -6,9 +6,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
-	"github.com/vutran1710/dating-dev/internal/cli/suggestions"
 	gh "github.com/vutran1710/dating-dev/internal/github"
 	"github.com/vutran1710/dating-dev/internal/gitrepo"
+	"github.com/vutran1710/dating-dev/internal/pooldb"
 )
 
 func newPoolSyncCmd() *cobra.Command {
@@ -39,34 +39,23 @@ func newPoolSyncCmd() *cobra.Command {
 				return fmt.Errorf("syncing pool repo: %w", err)
 			}
 
-			packPath := filepath.Join(config.Dir(), "pools", poolName, "suggestions.pack")
-
-			pack, err := suggestions.Load(packPath)
+			poolDBPath := filepath.Join(config.Dir(), "pool.db")
+			pdb, err := pooldb.Open(poolDBPath)
 			if err != nil {
-				return fmt.Errorf("loading suggestions: %w", err)
+				return fmt.Errorf("opening pool db: %w", err)
 			}
+			defer pdb.Close()
 
-			// Download index.pack from release asset, fall back to repo index/ directory
-			indexPackPath := filepath.Join(config.Dir(), "pools", poolName, "index.pack")
-			if dlErr := gh.DownloadReleaseAsset(pool.Repo, "index-latest", "index.pack", indexPackPath); dlErr == nil {
-				loaded, err := pack.SyncFromIndexPack(indexPackPath)
+			// Download index.db from release asset
+			indexPath := filepath.Join(config.Dir(), "pools", poolName, "index.db")
+			if dlErr := gh.DownloadReleaseAsset(pool.Repo, "index-latest", "index.db", indexPath); dlErr == nil {
+				synced, err := pdb.SyncFromIndex(indexPath)
 				if err != nil {
-					return fmt.Errorf("loading index.pack: %w", err)
+					return fmt.Errorf("syncing from index.db: %w", err)
 				}
-				if err := pack.Save(packPath); err != nil {
-					return fmt.Errorf("saving suggestions: %w", err)
-				}
-				printSuccess(fmt.Sprintf("Synced %d profiles from index.pack", loaded))
+				printSuccess(fmt.Sprintf("Synced %d profiles from index.db", synced))
 			} else {
-				indexDir := filepath.Join(repo.LocalDir, "index")
-				added, err := pack.SyncFromRecDir(indexDir)
-				if err != nil {
-					return fmt.Errorf("syncing vectors: %w", err)
-				}
-				if err := pack.Save(packPath); err != nil {
-					return fmt.Errorf("saving suggestions: %w", err)
-				}
-				printSuccess(fmt.Sprintf("Synced %d new vectors (total %d)", added, len(pack.Records)))
+				printError("Failed to download index.db: " + dlErr.Error())
 			}
 			return nil
 		},
