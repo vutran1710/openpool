@@ -61,15 +61,16 @@ Different users pick different permutations:
 my_permutation = hash(user_match_hash) mod M
 ```
 
-M=20-50 gives sufficient variation. Users on the same permutation see the same order — acceptable with enough M.
+M=3-5 is sufficient. Buckets are sparse (10-50 profiles per leaf due to min_bucket_size). 5 permutations of 30 profiles = negligible overhead. Some users share a permutation — acceptable since VDF is the real gating mechanism, not the permutation.
 
 ### Compression
 
 Profiles repeat across M permutations. LZ4 compression on the full bucket data:
 
 ```
-Raw:        M × N × profile_size (e.g., 20 × 100 × 500B = 1MB per bucket)
-Compressed: significantly smaller — LZ4 handles repeated data well
+Per bucket:  M × N × profile_size (e.g., 5 × 30 × 500B = 75KB)
+Full index:  buckets × per_bucket (e.g., 1000 × 75KB = 75MB raw)
+Compressed:  ~15MB (LZ4, profiles repeat across permutations)
 ```
 
 ### Index as Release Asset
