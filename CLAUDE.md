@@ -30,6 +30,7 @@ internal/
   gitrepo/        → Git clone management, raw content fetcher
   limits/         → Payload size constants
   message/        → Structured message format (Format/Parse for openpool blocks)
+  pooldb/         → PoolDB (SQLite for pool profiles, scores, seen — shared by indexer + client)
   relay/          → Relay server (stateless TOTP auth, hub, sessions, GitHub cache)
   debug/          → Debug logger (DEBUG=1)
 templates/
@@ -54,7 +55,7 @@ Go type: `crypto.IDHash` (for id_hash). Salt is a pool secret (only in GitHub Ac
 Each hash layer is **one-way and unlinkable** without the salt:
 
 - **bin_hash is public** — anyone can see it in `.bin` filenames during discovery
-- **match_hash is public** — it appears on interest PRs (PR title = target's match_hash)
+- **match_hash is public** — it appears on interest issues (issue title = target's match_hash)
 - **The key insight**: knowing bin_hash tells you nothing about match_hash (and vice versa) without the salt
 - An attacker who sees both bin_hash and match_hash **cannot link them** to the same person without the salt
 - The salt only exists in two places: pool repo's GitHub Actions secrets + relay server's env var
@@ -74,14 +75,14 @@ ws://relay/ws?id=<id_hash>&match=<match_hash>&sig=<totp_signature>
 
 Relay validates the chain (`id_hash → bin_hash → match_hash` via salt), fetches pubkey from GitHub raw content, then verifies `ed25519.Verify(pubkey, sha256(time_window), sig)`. ±1 window (5 min) for clock drift.
 
-Implemented in `internal/crypto/totp.go`: `TOTPSign(priv)`, `TOTPSignAt(priv, tw)`, `TOTPVerify(sigHex, pub)`.
+Implemented in `internal/crypto/totp.go`: `TOTPSign(priv, relayHost)`, `TOTPSignAt(priv, relayHost, tw)`, `TOTPVerify(sigHex, pub, relayHost)`. Channel-bound to the relay host.
 
 ### Registration Flow
 
 1. `dating profile create <pool>` → scaffolds local `profile.json`
-2. `dating pool join <pool>` → reads profile, encrypts, submits GitHub Issue
-3. GitHub Action runs `regcrypt` → computes hashes → encrypts `{bin_hash, match_hash}` to user's pubkey → posts as issue comment → commits `.bin`
-4. CLI polls issue comments → decrypts → persists hashes to config
+2. `dating pool join <pool>` → reads profile, encrypts, submits GitHub Issue with `registration` label
+3. GitHub Action runs `action-tool register` → computes hashes, encrypts, signs, commits `.bin`, closes + locks issue, posts operator-signed comment
+4. CLI polls issue comments → verifies operator signature → decrypts → persists hashes to config
 
 ### E2E Encrypted Chat
 
@@ -304,23 +305,32 @@ Key components:
 
 ## GitHub Actions (Pool Repo)
 
-Three Actions in `templates/actions/` — deployed to each pool repo:
+Four Actions in `templates/actions/` — deployed to each pool repo:
 
 | Action | Trigger | Purpose |
 |--------|---------|---------|
-| `pool-register.yml` | Issue opened with `registration` label | `./regcrypt register` — one-line, all logic in Go |
-| `pool-indexer.yml` | Cron (every 5 min) | Runs `indexer --rebuild`, commits `index.pack` |
-| `pool-interest.yml` | Issue opened with `interest` label | `./matchcrypt match` — one-line, all logic in Go |
+| `pool-register.yml` | Issue opened with `registration` label | `./action-tool register` |
+| `pool-interest.yml` | Issue opened with `interest` label | `./action-tool match` |
+| `pool-indexer.yml` | Cron (every 5 min) | `./action-tool index --upload` |
+| `pool-squash.yml` | Cron (hourly) | `./action-tool squash` (if commits > MAX_COMMIT_COUNT) |
 
-Action templates are thin wrappers — download binary + run. All parsing, crypto, git, and GitHub operations happen inside the Go tools. Issues are locked after processing to prevent re-open attacks.
+All Actions download one binary (`action-tool-linux-amd64`). All logic in Go. Invalid issues are rejected + locked as spam. Valid issues are locked as resolved after processing.
 
 ### Indexing & Discovery
 
 - `.bin` files: `[32B pubkey][NaCl box encrypted profile]` — committed by registration Action
-- `.rec` files: Not committed separately — indexer reads `.bin`, extracts filters + vectors + display info
-- `index.pack`: MessagePack bundle of all `IndexRecord`s — committed by cron indexer
-- CLI downloads `index.pack` for local discovery/ranking
-- Cron indexer is separate from registration to break `.bin`/`.rec` commit linkability
+- `index.db`: SQLite database of all profiles — uploaded as release asset (`index-latest` tag) by indexer cron
+- Client downloads `index.db` from release, merges into local `pool.db` via `ATTACH DATABASE`
+- Cron indexer is separate from registration to break `.bin` commit linkability
+- History squashing (hourly cron) removes git timeline to prevent timing correlation
+
+### Local Databases
+
+```
+~/.dating/
+  conversations.db    — messages, conversations, peer_keys (ChatClient)
+  pool.db             — profiles, scores, seen (synced from index.db)
+```
 
 ## Debug Mode
 

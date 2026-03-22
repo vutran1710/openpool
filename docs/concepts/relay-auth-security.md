@@ -1,6 +1,6 @@
 # Relay Auth Security Analysis
 
-## Status: Note
+## Status: Implemented — channel binding (PR #39), full analysis in SECURITY_DESIGN.md
 
 ## Mechanism
 

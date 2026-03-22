@@ -1,6 +1,6 @@
 # Interest as Issues (instead of PRs)
 
-## Status: Concept — next iteration
+## Status: Implemented (PR #42)
 
 ## Core Idea
 
