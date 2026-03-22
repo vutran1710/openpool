@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/vutran1710/dating-dev/internal/crypto"
@@ -66,8 +67,13 @@ func cmdMatch() {
 	}
 
 	// Check if author is registered (has .bin file)
-	if _, err := os.Stat("users/" + authorData.AuthorBinHash + ".bin"); os.IsNotExist(err) {
-		rejectIssue("unregistered user: " + authorData.AuthorBinHash)
+	// Skip this check if issue author is the repo owner (managed account mode)
+	issueAuthor := os.Getenv("ISSUE_AUTHOR")
+	repoOwner := strings.Split(repo, "/")[0]
+	if issueAuthor != repoOwner {
+		if _, err := os.Stat("users/" + authorData.AuthorBinHash + ".bin"); os.IsNotExist(err) {
+			rejectIssue("unregistered user: " + authorData.AuthorBinHash)
+		}
 	}
 
 	// List open interest issues to find reciprocal
