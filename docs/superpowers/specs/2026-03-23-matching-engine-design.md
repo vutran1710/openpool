@@ -58,7 +58,7 @@ indexing:
       step: 5
       overlap: 2
   permutations: 5
-  nonce_space: 20
+  difficulty: 20
 ```
 
 ### Indexing Config
@@ -70,7 +70,7 @@ indexing:
 | `partitions[].step` | For range fields: bucket width (e.g., age step=5 → 18-22, 23-27...) |
 | `partitions[].overlap` | For range fields: how many adjacent buckets a profile appears in |
 | `permutations` | Number of shuffle orderings per bucket (default: 5) |
-| `nonce_space` | Single nonce_space knob (default: 20). Controls cold unlock time. |
+| `difficulty` | Discovery difficulty (default: 20). Maps to `nonce_space` internally. Controls cold unlock time. |
 
 ### Examples
 
@@ -83,7 +83,7 @@ indexing:
       step: 5
       overlap: 2
   permutations: 5
-  nonce_space: 20
+  difficulty: 20           # internally: nonce_space = 20
 
 # Job pool: role-first, then skills
 indexing:
@@ -91,7 +91,7 @@ indexing:
     - field: role
     - field: skills
   permutations: 3
-  nonce_space: 30
+  difficulty: 30           # internally: nonce_space = 30
 ```
 
 ## Chain Encryption
