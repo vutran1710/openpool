@@ -81,6 +81,128 @@ func TestRangeBucket_Label(t *testing.T) {
 	}
 }
 
+// === Assign tests ===
+
+func TestAssign_SinglePartition(t *testing.T) {
+	config := []PartitionConfig{{Field: "role"}}
+
+	profiles := []Profile{
+		{Tag: "alice", Attributes: map[string]any{"role": "woman", "age": 27}},
+		{Tag: "bob", Attributes: map[string]any{"role": "man", "age": 28}},
+		{Tag: "carol", Attributes: map[string]any{"role": "woman", "age": 26}},
+	}
+
+	buckets := Assign(profiles, config, nil)
+
+	if len(buckets) != 2 {
+		t.Fatalf("expected 2 buckets (man, woman), got %d", len(buckets))
+	}
+
+	var women *Bucket
+	for i := range buckets {
+		if buckets[i].PartitionValues["role"] == "woman" {
+			women = &buckets[i]
+			break
+		}
+	}
+	if women == nil {
+		t.Fatal("missing women bucket")
+	}
+	if len(women.Tags) != 2 {
+		t.Errorf("expected 2 women, got %d", len(women.Tags))
+	}
+}
+
+func TestAssign_RangePartition(t *testing.T) {
+	config := []PartitionConfig{
+		{Field: "age", Step: 5, Overlap: 2},
+	}
+
+	fieldRanges := map[string][2]int{
+		"age": {18, 40},
+	}
+
+	profiles := []Profile{
+		{Tag: "a", Attributes: map[string]any{"age": 20}},
+		{Tag: "b", Attributes: map[string]any{"age": 24}},
+		{Tag: "c", Attributes: map[string]any{"age": 30}},
+	}
+
+	buckets := Assign(profiles, config, fieldRanges)
+
+	// Profile with age=24 should appear in multiple buckets due to overlap
+	count := 0
+	for _, b := range buckets {
+		for _, tag := range b.Tags {
+			if tag == "b" {
+				count++
+			}
+		}
+	}
+	if count < 2 {
+		t.Errorf("age=24 should appear in multiple overlapping buckets, appeared in %d", count)
+	}
+}
+
+func TestAssign_MultiPartition(t *testing.T) {
+	config := []PartitionConfig{
+		{Field: "role"},
+		{Field: "age", Step: 10, Overlap: 0},
+	}
+
+	fieldRanges := map[string][2]int{
+		"age": {18, 40},
+	}
+
+	profiles := []Profile{
+		{Tag: "a", Attributes: map[string]any{"role": "woman", "age": 25}},
+		{Tag: "b", Attributes: map[string]any{"role": "man", "age": 25}},
+		{Tag: "c", Attributes: map[string]any{"role": "woman", "age": 35}},
+	}
+
+	buckets := Assign(profiles, config, fieldRanges)
+
+	for _, b := range buckets {
+		t.Logf("bucket %s: %v", b.ID, b.Tags)
+	}
+
+	if len(buckets) < 3 {
+		t.Errorf("expected at least 3 buckets, got %d", len(buckets))
+	}
+}
+
+func TestAssign_MultiValueField(t *testing.T) {
+	config := []PartitionConfig{
+		{Field: "skills"},
+	}
+
+	profiles := []Profile{
+		{Tag: "a", Attributes: map[string]any{"skills": []any{"go", "python"}}},
+		{Tag: "b", Attributes: map[string]any{"skills": []any{"go", "rust"}}},
+		{Tag: "c", Attributes: map[string]any{"skills": []any{"python"}}},
+	}
+
+	buckets := Assign(profiles, config, nil)
+
+	goCount := 0
+	for _, b := range buckets {
+		if b.PartitionValues["skills"] == "go" {
+			goCount = len(b.Tags)
+		}
+	}
+	if goCount != 2 {
+		t.Errorf("go bucket should have 2 profiles, got %d", goCount)
+	}
+}
+
+func TestAssign_Empty(t *testing.T) {
+	config := []PartitionConfig{{Field: "role"}}
+	buckets := Assign(nil, config, nil)
+	if len(buckets) != 0 {
+		t.Error("empty profiles should produce no buckets")
+	}
+}
+
 func TestPartitionConfig_IsRange(t *testing.T) {
 	if (PartitionConfig{Field: "role"}).IsRange() {
 		t.Error("role should not be a range partition")
