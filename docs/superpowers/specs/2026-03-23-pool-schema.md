@@ -133,7 +133,7 @@ Each role inherits `profile` attributes plus its own. When `roles` is a map (not
 ## Visibility & Privacy
 
 - `public` attributes go into `index.db` — visible in discovery
-- `private` attributes stay in `.bin` — only revealed after mutual match via encrypted chat
+- `private` attributes stay in `.bin` — only revealed after mutual match via operator-signed comment on the interest issue (encrypted to the recipient's pubkey)
 - TUI marks private fields with 🔒 icon
 
 ## TUI Rendering
