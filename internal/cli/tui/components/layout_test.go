@@ -7,7 +7,7 @@ import (
 
 func TestLayout_SingleRow_SingleCol(t *testing.T) {
 	l := NewLayout(40, 10).Rows(
-		Row(Col("hello")),
+		NewRow(NewCol("hello")),
 	)
 	out := l.Render()
 	if !strings.Contains(out, "hello") {
@@ -17,9 +17,9 @@ func TestLayout_SingleRow_SingleCol(t *testing.T) {
 
 func TestLayout_TwoCols_EqualWidth(t *testing.T) {
 	l := NewLayout(40, 5).Rows(
-		Row(
-			Col("left").Width(0.5),
-			Col("right").Width(0.5),
+		NewRow(
+			NewCol("left").Width(0.5),
+			NewCol("right").Width(0.5),
 		),
 	)
 	out := l.Render()
@@ -30,8 +30,8 @@ func TestLayout_TwoCols_EqualWidth(t *testing.T) {
 
 func TestLayout_TwoRows(t *testing.T) {
 	l := NewLayout(40, 10).Rows(
-		Row(Col("top")).Height(0.5),
-		Row(Col("bottom")).Height(0.5),
+		NewRow(NewCol("top")).Height(0.5),
+		NewRow(NewCol("bottom")).Height(0.5),
 	)
 	out := l.Render()
 	if !strings.Contains(out, "top") || !strings.Contains(out, "bottom") {
@@ -41,9 +41,9 @@ func TestLayout_TwoRows(t *testing.T) {
 
 func TestLayout_FixedWidth(t *testing.T) {
 	l := NewLayout(80, 5).Rows(
-		Row(
-			Col("sidebar").FixedWidth(20),
-			Col("main"),
+		NewRow(
+			NewCol("sidebar").FixedWidth(20),
+			NewCol("main"),
 		),
 	)
 	out := l.Render()
@@ -54,9 +54,9 @@ func TestLayout_FixedWidth(t *testing.T) {
 
 func TestLayout_FixedHeight(t *testing.T) {
 	l := NewLayout(40, 20).Rows(
-		Row(Col("header")).FixedHeight(3),
-		Row(Col("body")),
-		Row(Col("footer")).FixedHeight(2),
+		NewRow(NewCol("header")).FixedHeight(3),
+		NewRow(NewCol("body")),
+		NewRow(NewCol("footer")).FixedHeight(2),
 	)
 	out := l.Render()
 	if !strings.Contains(out, "header") || !strings.Contains(out, "body") || !strings.Contains(out, "footer") {
@@ -66,9 +66,9 @@ func TestLayout_FixedHeight(t *testing.T) {
 
 func TestLayout_BorderLeft(t *testing.T) {
 	l := NewLayout(40, 5).Rows(
-		Row(
-			Col("left").Width(0.5),
-			Col("right").Width(0.5).BorderLeft(true),
+		NewRow(
+			NewCol("left").Width(0.5),
+			NewCol("right").Width(0.5).BorderLeft(true),
 		),
 	)
 	out := l.Render()
@@ -79,7 +79,7 @@ func TestLayout_BorderLeft(t *testing.T) {
 
 func TestLayout_FullBorder(t *testing.T) {
 	l := NewLayout(40, 5).Rows(
-		Row(Col("boxed").Border(true)),
+		NewRow(NewCol("boxed").Border(true)),
 	)
 	out := l.Render()
 	if !strings.Contains(out, "─") || !strings.Contains(out, "│") {
@@ -89,7 +89,7 @@ func TestLayout_FullBorder(t *testing.T) {
 
 func TestLayout_NoPadding(t *testing.T) {
 	l := NewLayout(20, 3).Rows(
-		Row(Col("tight").NoPadding()),
+		NewRow(NewCol("tight").NoPadding()),
 	)
 	out := l.Render()
 	lines := strings.Split(out, "\n")
@@ -106,7 +106,7 @@ func TestLayout_NoPadding(t *testing.T) {
 
 func TestLayout_AlignCenter(t *testing.T) {
 	l := NewLayout(40, 3).Rows(
-		Row(Col("center").AlignTo(AlignCenter).NoPadding()),
+		NewRow(NewCol("center").AlignTo(AlignCenter).NoPadding()),
 	)
 	out := l.Render()
 	lines := strings.Split(out, "\n")
@@ -123,7 +123,7 @@ func TestLayout_AlignCenter(t *testing.T) {
 
 func TestLayout_AlignRight(t *testing.T) {
 	l := NewLayout(40, 3).Rows(
-		Row(Col("right").AlignTo(AlignRight).NoPadding()),
+		NewRow(NewCol("right").AlignTo(AlignRight).NoPadding()),
 	)
 	out := l.Render()
 	if !strings.Contains(out, "right") {
@@ -142,7 +142,7 @@ func TestLayout_EmptyRows(t *testing.T) {
 func TestLayout_AutoWidthDistribution(t *testing.T) {
 	// 3 auto cols should each get ~1/3 of width
 	l := NewLayout(60, 5).Rows(
-		Row(Col("a"), Col("b"), Col("c")),
+		NewRow(NewCol("a"), NewCol("b"), NewCol("c")),
 	)
 	out := l.Render()
 	if !strings.Contains(out, "a") || !strings.Contains(out, "b") || !strings.Contains(out, "c") {
@@ -163,12 +163,12 @@ func TestSeparator(t *testing.T) {
 func TestLayout_ComplexGrid(t *testing.T) {
 	// Real-world: home screen layout
 	l := NewLayout(80, 20).Rows(
-		Row(
-			Col("Menu\n  Discover\n  Matches\n  Inbox").Width(0.5),
-			Col("Conversations\n  alice: hey!\n  bob: sup").Width(0.5).BorderLeft(true),
+		NewRow(
+			NewCol("Menu\n  Discover\n  Matches\n  Inbox").Width(0.5),
+			NewCol("Conversations\n  alice: hey!\n  bob: sup").Width(0.5).BorderLeft(true),
 		).Height(0.8),
-		Row(
-			Col("↑↓ navigate · enter select · tab switch").Width(1.0),
+		NewRow(
+			NewCol("↑↓ navigate · enter select · tab switch").Width(1.0),
 		).FixedHeight(2),
 	)
 	out := l.Render()
