@@ -236,9 +236,9 @@ looking_for:
    d. On success: save constant, update seen, score profile
 6. Display scored profiles to user
 
-### Scoring (post-unlock)
+### Scoring (per-unlock, informational)
 
-After unlocking a profile, the explorer scores it against preferences:
+Each profile is scored immediately upon unlock — displayed alongside the profile as a compatibility indicator. Scoring does NOT affect ordering — the chain order is fixed by the indexer. There is no ranking step.
 
 | Primitive | Input | Output |
 |-----------|-------|--------|
@@ -246,7 +246,7 @@ After unlocking a profile, the explorer scores it against preferences:
 | `proximity` | range value + tolerance | Linear decay: 1.0 at diff=0, 0.0 at diff=tolerance |
 | `overlap` | multi values + min count | 1.0 if shared >= count, scales down below |
 
-Score is local — only affects display ordering. The chain encryption handles rate-limiting; scoring handles ranking.
+Score is purely informational — a reference for the user when deciding to like or skip. The chain encryption controls discovery rate; the bucket selection controls relevance; scoring is just a visual aid.
 
 ### Local Storage
 
