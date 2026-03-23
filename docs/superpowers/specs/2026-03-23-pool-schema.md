@@ -162,6 +162,70 @@ The TUI generates profile forms dynamically from `pool.yaml`:
 
 Grouped by visibility + optionality. Component type determined by attribute type.
 
+## Onboarding Journey
+
+The TUI onboarding flow is driven by `pool.yaml`. Steps:
+
+### Step 1: Role Selection (if multiple roles)
+
+If `roles` is a list with > 1 item, or a map with > 1 key:
+
+```
+┌─ Join: <3 dating ─────────────────────────┐
+│                                            │
+│  What are you?                             │
+│                                            │
+│  ● man                                     │
+│  ○ woman                                   │
+│                                            │
+│           [ Next ]                         │
+└────────────────────────────────────────────┘
+```
+
+If only one role → skip this step.
+
+### Step 2: Base Profile (shared required fields)
+
+Fill in all `required: true` fields from `profile:`:
+
+```
+┌─ Profile ─────────────────────────────────┐
+│                                            │
+│  Age          [ 28 ]                       │
+│  Interests    ☑ hiking  ☐ coding  ☑ music │
+│  Phone        [ _________ ]  🔒           │
+│                                            │
+│           [ Next ]                         │
+└────────────────────────────────────────────┘
+```
+
+Optional fields shown but not enforced. Private fields marked with 🔒.
+
+### Step 3: Role-Specific Fields (if any)
+
+If the selected role has additional attributes (asymmetric roles):
+
+```
+┌─ Employer Details ────────────────────────┐
+│                                            │
+│  Company      [ _________________ ]        │
+│  Salary Range [ 80000 ] - [ 120000 ]       │
+│  Remote       ● yes  ○ no  ○ hybrid       │
+│                                            │
+│           [ Submit ]                       │
+└────────────────────────────────────────────┘
+```
+
+If roles are a simple list (no role-specific fields) → skip this step, go straight to submit.
+
+### Summary
+
+```
+Roles = 1           → Step 2 → Submit
+Roles > 1 (list)    → Step 1 → Step 2 → Submit
+Roles > 1 (map)     → Step 1 → Step 2 → Step 3 → Submit
+```
+
 ## Validation
 
 ### Client-side (UX)
