@@ -21,11 +21,6 @@ type profileLoadedMsg struct {
 	err     error
 }
 
-// ProfileUpdateMsg is emitted when the user saves an edited profile.
-type ProfileUpdateMsg struct {
-	Profile map[string]any
-}
-
 type ProfileScreen struct {
 	poolName string
 	profile  map[string]any

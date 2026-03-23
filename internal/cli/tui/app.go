@@ -15,7 +15,6 @@ import (
 	"github.com/vutran1710/dating-dev/internal/cli/chat"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
 	relayclient "github.com/vutran1710/dating-dev/internal/cli/relay"
-	"github.com/vutran1710/dating-dev/internal/cli/svc"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/screens"
@@ -36,9 +35,7 @@ const (
 	screenMatches
 	screenChat
 	screenPools
-	screenJoin
 	screenProfile
-	screenProfileForm
 	screenSettings
 	screenInbox
 	screenPoolOnboard
@@ -62,10 +59,8 @@ type app struct {
 	matches    screens.MatchesScreen
 	chat       screens.ChatScreen
 	pools      screens.PoolsScreen
-	join        screens.JoinScreen
 	poolOnboard screens.PoolOnboardScreen
 	profile     screens.ProfileScreen
-	profileForm screens.ProfileFormScreen
 	settings    screens.SettingsScreen
 	inbox      screens.InboxScreen
 
@@ -188,12 +183,8 @@ func (a *app) updateHelp() {
 		bindings = a.chat.HelpBindings()
 	case screenPools:
 		bindings = a.pools.HelpBindings()
-	case screenJoin:
-		bindings = a.join.HelpBindings()
 	case screenProfile:
 		bindings = a.profile.HelpBindings()
-	case screenProfileForm:
-		bindings = a.profileForm.HelpBindings()
 	case screenSettings:
 		bindings = a.settings.HelpBindings()
 	case screenInbox:
@@ -266,19 +257,6 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, func() tea.Msg {
 			return components.ToastMsg{
 				Text:  "Welcome! Join a pool to get started.",
-				Level: components.ToastSuccess,
-			}
-		}
-
-	case profileSubmitResultMsg:
-		if msg.err != nil {
-			return a, func() tea.Msg {
-				return components.ToastMsg{Text: "Profile update failed: " + msg.err.Error(), Level: components.ToastError}
-			}
-		}
-		return a, func() tea.Msg {
-			return components.ToastMsg{
-				Text:  fmt.Sprintf("Profile updated (Issue #%d) — waiting for pool to process", msg.issueNum),
 				Level: components.ToastSuccess,
 			}
 		}
@@ -602,39 +580,6 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case screens.JoinDoneMsg:
-		if msg.PoolName != "" {
-			a.pool = msg.PoolName
-			a.statusBar.Pool = msg.PoolName
-			// Refresh pools screen with pending status
-			cfg, _ := config.Load()
-			poolStatuses := make(map[string]string)
-			if cfg != nil {
-				for _, p := range cfg.Pools {
-					s := p.Status
-					if s == "" {
-						s = "active"
-					}
-					poolStatuses[p.Name] = s
-				}
-			}
-			ps2, pi2 := poolStatusesFromConfig()
-			a.pools = screens.NewPoolsScreen(a.registry, ps2, pi2)
-			a.pools.Width = a.width
-			a.pools.Height = a.height
-		}
-		a.screen = screenHome
-		a.updateHelp()
-		if msg.PoolName != "" {
-			return a, func() tea.Msg {
-				return components.ToastMsg{
-					Text:  "Registration submitted for " + msg.PoolName + " — we'll notify you when it's processed",
-					Level: components.ToastInfo,
-				}
-			}
-		}
-		return a, nil
-
 	case pendingPollResultMsg:
 		if msg.poolName != "" {
 			// Refresh pools screen with updated statuses
@@ -788,10 +733,10 @@ func (a app) handleSubmit(msg components.SubmitMsg) (tea.Model, tea.Cmd) {
 			a.updateHelp()
 			return a, screens.LoadProfileCmd(a.pool)
 		case "/profile-edit", "/edit":
-			a.screen = screenProfileForm
-			a.profileForm = screens.NewProfileFormScreen()
-			a.updateHelp()
-			return a, screens.LoadProfileFormCmd(a.pool)
+			// Redirect to pool onboard screen for profile editing
+			return a, func() tea.Msg {
+				return screens.PoolJoinMsg{Name: a.pool, Status: ""}
+			}
 		case "/inbox":
 			a.screen = screenInbox
 			a.inbox = screens.NewInboxScreen()
@@ -890,16 +835,11 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.chat, cmd = a.chat.Update(msg)
 	case screenPools:
 		a.pools, cmd = a.pools.Update(msg)
-	case screenJoin:
-		a.join, cmd = a.join.Update(msg)
-		a.updateHelp()
 	case screenPoolOnboard:
 		a.poolOnboard, cmd = a.poolOnboard.Update(msg)
 		a.updateHelp()
 	case screenProfile:
 		a.profile, cmd = a.profile.Update(msg)
-	case screenProfileForm:
-		a.profileForm, cmd = a.profileForm.Update(msg)
 	case screenSettings:
 		a.settings, cmd = a.settings.Update(msg)
 	case screenInbox:
@@ -908,7 +848,7 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if cmd != nil {
 		// Don't forward to input during onboarding (it steals key events)
-		if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenPoolOnboard || a.screen == screenProfileForm || a.screen == screenSettings || a.screen == screenInbox || a.screen == screenDiscover {
+		if a.screen == screenOnboarding || a.screen == screenPoolOnboard || a.screen == screenSettings || a.screen == screenInbox || a.screen == screenDiscover {
 			return a, cmd
 		}
 		var inputCmd tea.Cmd
@@ -916,7 +856,7 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(cmd, inputCmd)
 	}
 
-	if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenPoolOnboard || a.screen == screenProfileForm || a.screen == screenSettings || a.screen == screenInbox || a.screen == screenDiscover {
+	if a.screen == screenOnboarding || a.screen == screenPoolOnboard || a.screen == screenSettings || a.screen == screenInbox || a.screen == screenDiscover {
 		return a, nil
 	}
 
@@ -945,14 +885,10 @@ func (a app) View() string {
 		content = a.chat.View()
 	case screenPools:
 		content = a.pools.View()
-	case screenJoin:
-		content = a.join.View()
 	case screenPoolOnboard:
 		content = a.poolOnboard.View()
 	case screenProfile:
 		content = a.profile.View()
-	case screenProfileForm:
-		content = a.profileForm.View()
 	case screenSettings:
 		content = a.settings.View()
 	case screenInbox:
@@ -963,7 +899,7 @@ func (a app) View() string {
 
 	// During onboarding, hide the command input
 	bottom := ""
-	if a.screen != screenOnboarding && a.screen != screenJoin && a.screen != screenPoolOnboard {
+	if a.screen != screenOnboarding && a.screen != screenPoolOnboard {
 		palette := a.input.PaletteView()
 		if palette != "" {
 			bottom += palette + "\n"
@@ -1174,37 +1110,6 @@ func rejectLike(poolName string, issueNumber int) tea.Cmd {
 		client := gh.NewCLIOrHTTP(pool.Repo, ghToken)
 		err = client.CloseIssue(context.Background(), issueNumber, "not_planned")
 		return screens.InboxActionResult{Accepted: false, Err: err}
-	}
-}
-
-type profileSubmitResultMsg struct {
-	issueNum int
-	err      error
-}
-
-func submitProfileUpdate(profile *gh.DatingProfile) tea.Cmd {
-	return func() tea.Msg {
-		cfg, err := config.Load()
-		if err != nil {
-			return profileSubmitResultMsg{err: err}
-		}
-		pool := cfg.ActivePool()
-		if pool == nil {
-			return profileSubmitResultMsg{err: fmt.Errorf("no active pool")}
-		}
-		pub, priv, err := crypto.LoadKeyPair(config.KeysDir())
-		if err != nil {
-			return profileSubmitResultMsg{err: err}
-		}
-		token, err := cfg.DecryptToken(priv)
-		if err != nil {
-			return profileSubmitResultMsg{err: err}
-		}
-
-		ctx := context.Background()
-		num, err := svc.SubmitProfileToPool(ctx, pool.Repo, pool.OperatorPubKey, token,
-			profile, cfg.User.IDHash, pub, priv)
-		return profileSubmitResultMsg{issueNum: num, err: err}
 	}
 }
 

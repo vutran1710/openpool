@@ -13,11 +13,11 @@ import (
 
 func TestPoolOnboard_ScreenConstant(t *testing.T) {
 	// Verify the new screen constant exists and is distinct
-	if screenPoolOnboard == screenJoin {
-		t.Fatal("screenPoolOnboard should be distinct from screenJoin")
-	}
 	if screenPoolOnboard == screenHome {
 		t.Fatal("screenPoolOnboard should be distinct from screenHome")
+	}
+	if screenPoolOnboard == screenPools {
+		t.Fatal("screenPoolOnboard should be distinct from screenPools")
 	}
 }
 
