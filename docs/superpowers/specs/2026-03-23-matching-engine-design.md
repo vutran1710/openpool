@@ -120,9 +120,10 @@ With `const_space = 10,000` (fixed) and `6` orderings:
 | Job pool (candidate browsing) | 50-200 | Candidates browse fewer, more targeted |
 
 **Constraints:**
-- Minimum: `1` (no nonce, cold = 60K attempts, ~instant)
-- Maximum: no hard limit, but `>1000` makes cold unlock >6s which is poor UX
-- Practical range: `5` to `500`
+- Minimum: `1` (no nonce, cold = 60K attempts, ~instant — no rate limiting)
+- Maximum: no hard limit. Higher values = slower cold unlock = more thoughtful browsing
+- Practical range: `5` to `1000`+
+- Without hint is always infeasible regardless of difficulty (enforced by hint_space = 10^8)
 
 **Without hint is always infeasible** regardless of difficulty:
 - `10^8 × 10^4 × difficulty × 6` attempts
