@@ -103,6 +103,75 @@ func TestFullChainSolve(t *testing.T) {
 	}
 }
 
+// === Permutation jumping test ===
+
+func TestPermutationJump(t *testing.T) {
+	profiles := []ProfileEntry{
+		{Tag: "h1", Data: []byte(`{"name":"Alice"}`)},
+		{Tag: "h2", Data: []byte(`{"name":"Bob"}`)},
+		{Tag: "h3", Data: []byte(`{"name":"Carol"}`)},
+	}
+
+	chain0, _ := BuildChain(profiles, []byte("perm0"), 10)
+	// Different order for perm1
+	perm1 := []ProfileEntry{profiles[2], profiles[0], profiles[1]}
+	chain1, _ := BuildChain(perm1, []byte("perm1"), 10)
+
+	// Solve chain0 cold — learn all constants
+	known := make(map[string]int)
+	hint := chain0.SeedHintVal
+	for _, entry := range chain0.Entries {
+		payload, _, err := SolveCold(entry, hint, ConstSpace, chain0.NonceSpace)
+		if err != nil {
+			t.Fatal(err)
+		}
+		known[entry.Tag] = payload.MyConstant
+		hint = payload.NextHint
+	}
+
+	// Solve chain1 warm
+	hint = chain1.SeedHintVal
+	totalWarm := 0
+	for _, entry := range chain1.Entries {
+		constant := known[entry.Tag]
+		payload, attempts, err := SolveWarm(entry, hint, constant, chain1.NonceSpace)
+		if err != nil {
+			t.Fatal(err)
+		}
+		totalWarm += attempts
+		hint = payload.NextHint
+	}
+
+	t.Logf("warm total: %d attempts for %d profiles", totalWarm, len(profiles))
+	maxWarm := len(profiles) * chain1.NonceSpace * 6
+	if totalWarm > maxWarm {
+		t.Errorf("warm should not exceed %d, got %d", maxWarm, totalWarm)
+	}
+}
+
+// === Benchmarks ===
+
+func BenchmarkSolveCold(b *testing.B) {
+	profile := ProfileEntry{Tag: "bench", Data: []byte(`{"name":"Bench","age":25}`)}
+	chain, _ := BuildChain([]ProfileEntry{profile}, []byte("bench_seed"), 20)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		SolveCold(chain.Entries[0], chain.SeedHintVal, ConstSpace, chain.NonceSpace)
+	}
+}
+
+func BenchmarkSolveWarm(b *testing.B) {
+	profile := ProfileEntry{Tag: "bench", Data: []byte(`{"name":"Bench","age":25}`)}
+	chain, _ := BuildChain([]ProfileEntry{profile}, []byte("bench_seed"), 20)
+	payload, _, _ := SolveCold(chain.Entries[0], chain.SeedHintVal, ConstSpace, chain.NonceSpace)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		SolveWarm(chain.Entries[0], chain.SeedHintVal, payload.MyConstant, chain.NonceSpace)
+	}
+}
+
 // === BuildChain tests ===
 
 func TestBuildChain(t *testing.T) {
