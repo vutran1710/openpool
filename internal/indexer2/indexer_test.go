@@ -99,6 +99,86 @@ func TestBuild_RangePartitions(t *testing.T) {
 	t.Logf("range partition stats: %+v", stats)
 }
 
+func TestBuild_InvalidBinFile(t *testing.T) {
+	dir := t.TempDir()
+	usersDir := filepath.Join(dir, "users")
+	os.MkdirAll(usersDir, 0755)
+	_, opPriv, _ := ed25519.GenerateKey(rand.Reader)
+	opPub := opPriv.Public().(ed25519.PublicKey)
+
+	// Write one valid and one corrupt .bin file
+	createTestBinFile(t, dir, "valid", map[string]any{"role": "woman"}, opPub)
+	os.WriteFile(filepath.Join(usersDir, "corrupt.bin"), []byte("garbage"), 0644)
+
+	indexPath := filepath.Join(dir, "index.db")
+	err := Build(Config{
+		UsersDir:     usersDir,
+		OutputPath:   indexPath,
+		OperatorKey:  opPriv,
+		Partitions:   []bucket.PartitionConfig{{Field: "role"}},
+		Permutations: 1,
+		NonceSpace:   5,
+		Salt:         "test",
+	})
+	// Should succeed — corrupt file skipped, valid file indexed
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stats, _ := Stats(indexPath)
+	if stats.Entries != 1 {
+		t.Errorf("expected 1 entry (corrupt skipped), got %d", stats.Entries)
+	}
+}
+
+func TestBuild_WrongOperatorKey(t *testing.T) {
+	dir := t.TempDir()
+	_, opPriv1, _ := ed25519.GenerateKey(rand.Reader)
+	_, opPriv2, _ := ed25519.GenerateKey(rand.Reader)
+	opPub1 := opPriv1.Public().(ed25519.PublicKey)
+
+	// Create .bin encrypted to key 1
+	createTestBinFile(t, dir, "aaa", map[string]any{"role": "woman"}, opPub1)
+
+	indexPath := filepath.Join(dir, "index.db")
+	// Try building with key 2 — can't decrypt
+	err := Build(Config{
+		UsersDir:     filepath.Join(dir, "users"),
+		OutputPath:   indexPath,
+		OperatorKey:  opPriv2, // wrong key
+		Partitions:   []bucket.PartitionConfig{{Field: "role"}},
+		Permutations: 1,
+		NonceSpace:   5,
+		Salt:         "test",
+	})
+	// Should succeed but with 0 profiles (all failed to decrypt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats, _ := Stats(indexPath)
+	if stats.Entries != 0 {
+		t.Errorf("expected 0 entries (wrong key), got %d", stats.Entries)
+	}
+}
+
+func TestBuild_MissingUsersDir(t *testing.T) {
+	dir := t.TempDir()
+	_, opPriv, _ := ed25519.GenerateKey(rand.Reader)
+
+	err := Build(Config{
+		UsersDir:     filepath.Join(dir, "nonexistent"),
+		OutputPath:   filepath.Join(dir, "index.db"),
+		OperatorKey:  opPriv,
+		Partitions:   []bucket.PartitionConfig{{Field: "role"}},
+		Permutations: 1,
+		NonceSpace:   5,
+		Salt:         "test",
+	})
+	if err == nil {
+		t.Error("should fail with missing users dir")
+	}
+}
+
 func TestBuild_EmptyUsersDir(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "users"), 0755)

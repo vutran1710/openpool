@@ -173,6 +173,78 @@ func TestSeenSkip(t *testing.T) {
 	}
 }
 
+func TestGrind_InvalidBucket(t *testing.T) {
+	dir := t.TempDir()
+	indexPath := buildTestIndex(t, dir)
+
+	exp, err := Open(indexPath, filepath.Join(dir, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer exp.Close()
+
+	_, err = exp.Grind("nonexistent_bucket", 0, 10)
+	if err == nil {
+		t.Error("should fail with nonexistent bucket")
+	}
+}
+
+func TestGrind_InvalidPermutation(t *testing.T) {
+	dir := t.TempDir()
+	indexPath := buildTestIndex(t, dir)
+
+	exp, err := Open(indexPath, filepath.Join(dir, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer exp.Close()
+
+	buckets, _ := exp.ListBuckets()
+	_, err = exp.Grind(buckets[0].ID, 99, 10) // permutation 99 doesn't exist
+	if err == nil {
+		t.Error("should fail with invalid permutation")
+	}
+}
+
+func TestOpen_InvalidIndexPath(t *testing.T) {
+	dir := t.TempDir()
+	_, err := Open(filepath.Join(dir, "nonexistent.db"), filepath.Join(dir, "state.db"))
+	// sqlite will create the file, but queries will fail (no tables)
+	if err != nil {
+		return // some sqlite drivers error on open, that's fine
+	}
+	// If open succeeded, listing buckets should return empty
+	exp, _ := Open(filepath.Join(dir, "nonexistent.db"), filepath.Join(dir, "state.db"))
+	if exp != nil {
+		buckets, _ := exp.ListBuckets()
+		if len(buckets) != 0 {
+			t.Error("empty db should have no buckets")
+		}
+		exp.Close()
+	}
+}
+
+func TestGrind_MaxProfiles(t *testing.T) {
+	dir := t.TempDir()
+	indexPath := buildTestIndex(t, dir)
+
+	exp, err := Open(indexPath, filepath.Join(dir, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer exp.Close()
+
+	buckets, _ := exp.ListBuckets()
+	// Grind only 1 profile
+	results, err := exp.Grind(buckets[0].ID, 0, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Errorf("expected 1 result with maxProfiles=1, got %d", len(results))
+	}
+}
+
 func TestEndToEnd(t *testing.T) {
 	dir := t.TempDir()
 	indexPath := buildTestIndex(t, dir)
