@@ -94,6 +94,40 @@ indexing:
   difficulty: 30           # internally: nonce_space = 30
 ```
 
+### Difficulty Tuning Guide
+
+The `difficulty` (nonce_space) value controls how long it takes to unlock each profile. The cold unlock cost is `const_space × nonce_space × 6` AES-GCM attempts.
+
+With `const_space = 10,000` (fixed) and `6` orderings:
+
+| difficulty | Cold attempts | Cold time (Go, ~10M/s) | Warm attempts | Warm time | Profiles/hour (cold) |
+|------------|--------------|----------------------|---------------|-----------|---------------------|
+| 5 | 300,000 | ~0.03s | 30 | instant | ~120,000 |
+| 20 | 1,200,000 | ~0.12s | 120 | instant | ~30,000 |
+| 50 | 3,000,000 | ~0.3s | 300 | instant | ~12,000 |
+| 200 | 12,000,000 | ~1.2s | 1,200 | ~0.001s | ~3,000 |
+| 500 | 30,000,000 | ~3s | 3,000 | ~0.003s | ~1,200 |
+| 1000 | 60,000,000 | ~6s | 6,000 | ~0.006s | ~600 |
+
+**Recommendations:**
+
+| Pool type | difficulty | Rationale |
+|-----------|-----------|-----------|
+| Small dating pool (<100 users) | 5-20 | Few profiles, fast browsing encouraged |
+| Medium dating pool (100-1K) | 50-200 | Balance between discovery rate and scraping protection |
+| Large dating pool (1K-10K) | 200-500 | Strong scraping protection, ~1-3s per profile |
+| Job pool (employer browsing) | 20-50 | Employers need faster browsing |
+| Job pool (candidate browsing) | 50-200 | Candidates browse fewer, more targeted |
+
+**Constraints:**
+- Minimum: `1` (no nonce, cold = 60K attempts, ~instant)
+- Maximum: no hard limit, but `>1000` makes cold unlock >6s which is poor UX
+- Practical range: `5` to `500`
+
+**Without hint is always infeasible** regardless of difficulty:
+- `10^8 × 10^4 × difficulty × 6` attempts
+- Even at difficulty=1: `6 × 10^12` attempts → ~7 days at 10M/s
+
 ## Chain Encryption
 
 ### Key Components
