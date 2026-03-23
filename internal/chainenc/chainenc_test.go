@@ -4,6 +4,105 @@ import (
 	"testing"
 )
 
+// === Solve tests ===
+
+func TestSolveCold(t *testing.T) {
+	profiles := []ProfileEntry{
+		{Tag: "hash_a", Data: []byte(`{"name":"Alice","age":27}`)},
+		{Tag: "hash_b", Data: []byte(`{"name":"Bob","age":28}`)},
+	}
+
+	chain, err := BuildChain(profiles, []byte("test_seed"), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Solve first entry cold
+	payload, attempts, err := SolveCold(chain.Entries[0], chain.SeedHintVal, ConstSpace, chain.NonceSpace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.Profile["name"] != "Alice" {
+		t.Errorf("expected Alice, got %v", payload.Profile["name"])
+	}
+	if attempts == 0 {
+		t.Error("attempts should be > 0")
+	}
+	t.Logf("cold solve: %d attempts", attempts)
+
+	// Solve second entry with hint from first
+	payload2, _, err := SolveCold(chain.Entries[1], payload.NextHint, ConstSpace, chain.NonceSpace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload2.Profile["name"] != "Bob" {
+		t.Errorf("expected Bob, got %v", payload2.Profile["name"])
+	}
+}
+
+func TestSolveWarm(t *testing.T) {
+	profiles := []ProfileEntry{
+		{Tag: "hash_a", Data: []byte(`{"name":"Alice","age":27}`)},
+	}
+
+	chain, err := BuildChain(profiles, []byte("test_seed"), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Cold solve to learn constant
+	payload, coldAttempts, _ := SolveCold(chain.Entries[0], chain.SeedHintVal, ConstSpace, chain.NonceSpace)
+
+	// Build same profile with different seed (different permutation)
+	chain2, _ := BuildChain(profiles, []byte("other_seed"), 10)
+
+	// Warm solve
+	payload2, warmAttempts, err := SolveWarm(chain2.Entries[0], chain2.SeedHintVal, payload.MyConstant, chain2.NonceSpace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload2.Profile["name"] != "Alice" {
+		t.Errorf("expected Alice, got %v", payload2.Profile["name"])
+	}
+
+	t.Logf("cold: %d attempts, warm: %d attempts", coldAttempts, warmAttempts)
+	if warmAttempts >= coldAttempts {
+		t.Errorf("warm (%d) should be fewer than cold (%d)", warmAttempts, coldAttempts)
+	}
+}
+
+func TestSolveWithoutHint_Fails(t *testing.T) {
+	profiles := []ProfileEntry{
+		{Tag: "hash_a", Data: []byte(`{"name":"Alice"}`)},
+	}
+
+	chain, _ := BuildChain(profiles, []byte("seed"), 5)
+
+	_, _, err := SolveCold(chain.Entries[0], 99999999, ConstSpace, chain.NonceSpace)
+	if err == nil {
+		t.Error("should fail with wrong hint")
+	}
+}
+
+func TestFullChainSolve(t *testing.T) {
+	profiles := []ProfileEntry{
+		{Tag: "h1", Data: []byte(`{"name":"A"}`)},
+		{Tag: "h2", Data: []byte(`{"name":"B"}`)},
+		{Tag: "h3", Data: []byte(`{"name":"C"}`)},
+	}
+
+	chain, _ := BuildChain(profiles, []byte("seed"), 5)
+
+	hint := chain.SeedHintVal
+	for i, entry := range chain.Entries {
+		payload, _, err := SolveCold(entry, hint, ConstSpace, chain.NonceSpace)
+		if err != nil {
+			t.Fatalf("entry %d: %v", i, err)
+		}
+		hint = payload.NextHint
+	}
+}
+
 // === BuildChain tests ===
 
 func TestBuildChain(t *testing.T) {
