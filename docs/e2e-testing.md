@@ -147,102 +147,84 @@ gh issue list --repo $POOL_URL --label interest --state closed
 
 **What it tests**: WebSocket connection, TOTP auth, binary frame routing, E2E encrypted messages between two real users.
 
-**Prerequisites**: Pool relay running (Railway or local).
+**Prerequisites**: Pool relay running (Railway or local), two GitHub accounts.
+
+**Limitation**: Registration is tied to GitHub user ID. Testing two-user chat via TUI requires two distinct GitHub accounts. If you only have one, use the programmatic approach in Journey 5b below.
 
 #### Step 1: Set up two user environments
 
-Each user needs a separate `DATING_HOME` directory with its own keys, config, and profile.
+Each user gets its own `DATING_HOME` with separate keys, config, and profile.
 
 ```bash
-# Create two test homes
 mkdir -p /tmp/dating-user-a /tmp/dating-user-b
 ```
 
-#### Step 2: Register User A
+#### Step 2: Register User A (GitHub Account 1)
 
 ```bash
-export DATING_HOME=/tmp/dating-user-a
-dating
-# Complete app onboarding (GitHub auth, keys, registry)
-# Join test-pool → fill profile → submit
-# Wait for Action to process registration
-# Verify: Settings > Identity shows bin_hash + match_hash
+DATING_HOME=/tmp/dating-user-a dating
 ```
 
-Note User A's `match_hash` from Settings > Identity.
+1. App onboarding: authenticates with GitHub Account 1
+2. Join test-pool → select role → fill profile → Ctrl+D to submit
+3. Wait ~60s for Action to process registration
+4. Open Settings > Identity → note `match_hash` (e.g. `4f2765a51a18d12e`)
 
-#### Step 3: Register User B
+#### Step 3: Register User B (GitHub Account 2)
 
 ```bash
-export DATING_HOME=/tmp/dating-user-b
-dating
-# Same onboarding + pool join flow as User A
-# Use a different GitHub account, or use the E2E test to create a second user programmatically
+DATING_HOME=/tmp/dating-user-b dating
 ```
 
-Note User B's `match_hash` from Settings > Identity.
+Same flow as Step 2 but authenticated with a different GitHub account. Note User B's `match_hash`.
 
-**Alternative — create User B programmatically** (if you only have one GitHub account):
+#### Step 4: Create mutual interest
 
+In User A's TUI:
+1. `/discover` → find User B → press `l` to like
+
+In User B's TUI:
+1. `/discover` → find User A → press `l` to like
+
+Wait ~60s for the Action to detect the mutual match. Both interest issues should close + lock.
+
+Alternatively, create interest issues via CLI:
 ```bash
-# Generate a second keypair and register via the E2E test helper
-source /path/to/dating-test-pool/.dev-secrets
-export POOL_URL=vutran1710/dating-test-pool
-go run ./cmd/e2etest/
-# This creates test users with .bin files — note their match_hashes from output
+# A likes B (from User A's environment)
+DATING_HOME=/tmp/dating-user-a dating interest <B_match_hash>
+
+# B likes A (from User B's environment)
+DATING_HOME=/tmp/dating-user-b dating interest <A_match_hash>
 ```
-
-#### Step 4: Create mutual interest (if not already matched)
-
-Both users need to express interest in each other. Either:
-- Use the TUI Discover screen (`l` to like)
-- Or create interest issues manually:
-
-```bash
-# A likes B
-gh issue create --repo $POOL_URL --title "<B_match_hash>" --label interest \
-  --body "<!-- openpool:interest -->\n\`\`\`\n<encrypted_body>\n\`\`\`"
-
-# B likes A (same but reversed)
-```
-
-Wait for the Action to detect the mutual match (~30-60s).
 
 #### Step 5: Chat via tmux
 
+Replace `<B_match>` and `<A_match>` with actual match_hash values.
+
 ```bash
-# Start tmux with two panes
-tmux new-session -d -s chat
-
-# Pane 1: User A
-tmux send-keys -t chat "export DATING_HOME=/tmp/dating-user-a && dating chat <B_match_hash>" Enter
-
-# Pane 2: User B
-tmux split-window -h -t chat
-tmux send-keys -t chat "export DATING_HOME=/tmp/dating-user-b && dating chat <A_match_hash>" Enter
-
-# Attach
+# Option 1: tmux side-by-side
+tmux new-session -d -s chat \
+  "DATING_HOME=/tmp/dating-user-a dating chat <B_match>"
+tmux split-window -h -t chat \
+  "DATING_HOME=/tmp/dating-user-b dating chat <A_match>"
 tmux attach -t chat
-```
 
-Or manually in two terminal tabs:
-```bash
-# Tab 1
-DATING_HOME=/tmp/dating-user-a dating chat <B_match_hash>
-
-# Tab 2
-DATING_HOME=/tmp/dating-user-b dating chat <A_match_hash>
+# Option 2: two terminal tabs
+# Tab 1:
+DATING_HOME=/tmp/dating-user-a dating chat <B_match>
+# Tab 2:
+DATING_HOME=/tmp/dating-user-b dating chat <A_match>
 ```
 
 #### Step 6: Send messages
 
 - In User A's pane: type a message, press Enter
-- User B should see the message appear
+- User B should see the message appear in real-time
 - In User B's pane: type a reply, press Enter
 - User A should see the reply
 
 **Expected**:
-- WebSocket connects with TOTP auth (no login needed)
+- WebSocket connects with TOTP auth (no login endpoint, no token)
 - Messages are E2E encrypted (NaCl secretbox via ECDH)
 - Relay routes binary frames by match_hash
 - Messages persisted in each user's `conversations.db`
@@ -250,20 +232,86 @@ DATING_HOME=/tmp/dating-user-b dating chat <A_match_hash>
 
 **Verify**:
 ```bash
-# Check relay health
+# Relay health
 curl -s https://relay-production-0b24.up.railway.app/health
+# Should show "online": 2
 
-# Check User A's conversations
-sqlite3 /tmp/dating-user-a/conversations.db "SELECT * FROM messages ORDER BY created_at DESC LIMIT 5;"
+# User A's messages
+sqlite3 /tmp/dating-user-a/conversations.db \
+  "SELECT direction, substr(content,1,40), created_at FROM messages ORDER BY created_at DESC LIMIT 5;"
 
-# Check User B's conversations
-sqlite3 /tmp/dating-user-b/conversations.db "SELECT * FROM messages ORDER BY created_at DESC LIMIT 5;"
+# User B's messages
+sqlite3 /tmp/dating-user-b/conversations.db \
+  "SELECT direction, substr(content,1,40), created_at FROM messages ORDER BY created_at DESC LIMIT 5;"
 ```
 
 **Cleanup**:
 ```bash
 rm -rf /tmp/dating-user-a /tmp/dating-user-b
-tmux kill-session -t chat
+tmux kill-session -t chat 2>/dev/null
+```
+
+---
+
+### Journey 5b: Relay Chat (Single GitHub Account — Managed User B)
+
+When only one GitHub account is available, the operator can create a **managed account** for User B. The registration Action supports custom identities: when the issue author is `github-actions[bot]`, it uses the `userHash` field from the issue body as the identity instead of the GitHub user ID.
+
+This means the same GitHub account can register multiple distinct users by varying the `userHash`.
+
+#### Step 1: Set up User A (your real account)
+
+User A should already be registered:
+```bash
+grep match_hash ~/.dating/setting.toml
+# Should show: match_hash = '<hash>'
+```
+
+#### Step 2: Set up User B environment
+
+```bash
+mkdir -p /tmp/dating-user-b
+
+# Generate keys for User B
+DATING_HOME=/tmp/dating-user-b dating
+# Complete app onboarding (same GitHub account is fine)
+# This generates a separate keypair in /tmp/dating-user-b/keys/
+```
+
+#### Step 3: Register User B as managed account
+
+From User B's environment, join the pool. The registration issue will use the same GitHub account, but the `userHash` in the issue body is derived from the `DATING_HOME`-specific keypair — so the Action creates a distinct user.
+
+```bash
+DATING_HOME=/tmp/dating-user-b dating
+# Join test-pool → fill profile → submit
+# Wait for Action to process
+# Check Settings > Identity for User B's match_hash
+```
+
+#### Step 4: Create mutual interest + chat
+
+Follow Steps 4-6 from Journey 5 above, using:
+```bash
+# User A (default home):
+dating chat <B_match_hash>
+
+# User B (separate home):
+DATING_HOME=/tmp/dating-user-b dating chat <A_match_hash>
+```
+
+Or via tmux:
+```bash
+tmux new-session -d -s chat "dating chat <B_match>"
+tmux split-window -h -t chat \
+  "DATING_HOME=/tmp/dating-user-b dating chat <A_match>"
+tmux attach -t chat
+```
+
+**Cleanup**:
+```bash
+rm -rf /tmp/dating-user-b
+tmux kill-session -t chat 2>/dev/null
 ```
 
 ---
