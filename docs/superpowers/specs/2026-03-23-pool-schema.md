@@ -12,11 +12,6 @@ description: terminal-native dating for developers
 relay_url: wss://relay.example.com
 operator_public_key: c251e2cf...
 
-ranking:
-  strategy: tiered_shuffle
-  tiers: [0.05, 0.20, 0.50]
-  seen_cooldown: 7d
-
 profile:
   age:
     type: range
@@ -134,23 +129,6 @@ roles:
 ```
 
 Each role inherits `profile` attributes plus its own. When `roles` is a map (not a list), roles have different fields.
-
-## Ranking
-
-```yaml
-ranking:
-  strategy: tiered_shuffle    # or: top_score, weighted_random
-  tiers: [0.05, 0.20, 0.50]  # for tiered_shuffle only
-  seen_cooldown: 7d           # profiles reappear after this duration
-```
-
-| Strategy | Behavior |
-|----------|----------|
-| `tiered_shuffle` | Shuffle within score tiers (dating — fairness) |
-| `top_score` | Sort by score descending (job board — best first) |
-| `weighted_random` | Score-biased randomization (networking) |
-
-`seen_cooldown`: duration string (e.g., `7d`, `24h`, `30m`). Default: permanent (never reappear).
 
 ## Visibility & Privacy
 
