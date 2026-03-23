@@ -25,6 +25,49 @@ rm -f users/*.bin
 git add -A && git commit -m "clean test users" && git push
 ```
 
+## Creating Test Users
+
+Use `action-tool managed-register` to create additional test users without a second GitHub account. This directly commits the `.bin` file to the pool repo and outputs a complete `DATING_HOME` bundle.
+
+```bash
+# Build action-tool
+go build -o bin/action-tool ./cmd/action-tool/
+
+# Create a profile
+cat > /tmp/user-b-profile.json << 'EOF'
+{
+  "about": "Test user B",
+  "interests": ["coding", "gaming"],
+  "age": 25
+}
+EOF
+
+# Register managed user
+source /path/to/dating-test-pool/.dev-secrets
+bin/action-tool managed-register \
+  --provider managed \
+  --userid test-user-b \
+  --profile /tmp/user-b-profile.json \
+  --pool vutran1710/dating-test-pool \
+  --schema /path/to/dating-test-pool/pool.yaml \
+  --output-dir /tmp/dating-user-b
+
+# Use immediately
+DATING_HOME=/tmp/dating-user-b dating
+```
+
+For chat testing, also create a match file between User A and User B:
+```bash
+# Note match_hash values from managed-register output and User A's config
+# Compute pair_hash = sha256(min(a,b):max(a,b))[:12]
+cd /path/to/dating-test-pool
+mkdir -p matches
+echo '{"match_hash_1":"<A_match>","match_hash_2":"<B_match>"}' > matches/<pair_hash>.json
+git add -A && git commit -m "add test match" && git push
+```
+
+---
+
 ## User Journeys
 
 ### Journey 1: First-Time App Setup (App Onboarding)
@@ -255,58 +298,56 @@ tmux kill-session -t chat 2>/dev/null
 
 ### Journey 5b: Relay Chat (Single GitHub Account — Managed User B)
 
-When only one GitHub account is available, the operator can create a **managed account** for User B. The registration Action supports custom identities: when the issue author is `github-actions[bot]`, it uses the `userHash` field from the issue body as the identity instead of the GitHub user ID.
+When only one GitHub account is available, use `action-tool managed-register` to create User B.
 
-This means the same GitHub account can register multiple distinct users by varying the `userHash`.
+#### Step 1: Verify User A is registered
 
-#### Step 1: Set up User A (your real account)
-
-User A should already be registered:
 ```bash
 grep match_hash ~/.dating/setting.toml
-# Should show: match_hash = '<hash>'
+# Should show: match_hash = '<A_match>'
 ```
 
-#### Step 2: Set up User B environment
+#### Step 2: Create User B via managed-register
 
 ```bash
-mkdir -p /tmp/dating-user-b
+cat > /tmp/user-b-profile.json << 'EOF'
+{"about": "Test user B", "interests": ["coding", "gaming"], "age": 25}
+EOF
 
-# Generate keys for User B
-DATING_HOME=/tmp/dating-user-b dating
-# Complete app onboarding (same GitHub account is fine)
-# This generates a separate keypair in /tmp/dating-user-b/keys/
+source /path/to/dating-test-pool/.dev-secrets
+bin/action-tool managed-register \
+  --provider managed --userid chat-test-b \
+  --profile /tmp/user-b-profile.json \
+  --pool vutran1710/dating-test-pool \
+  --schema /path/to/dating-test-pool/pool.yaml \
+  --output-dir /tmp/dating-user-b
+
+# Note User B's match_hash from the output
 ```
 
-#### Step 3: Register User B as managed account
-
-From User B's environment, join the pool. The registration issue will use the same GitHub account, but the `userHash` in the issue body is derived from the `DATING_HOME`-specific keypair — so the Action creates a distinct user.
+#### Step 3: Create match file
 
 ```bash
-DATING_HOME=/tmp/dating-user-b dating
-# Join test-pool → fill profile → submit
-# Wait for Action to process
-# Check Settings > Identity for User B's match_hash
+# Use User A's match_hash and User B's match_hash
+# pair_hash = sha256(min(a,b) + ":" + max(a,b))[:12]
+cd /path/to/dating-test-pool
+mkdir -p matches
+echo '{"match_hash_1":"<A_match>","match_hash_2":"<B_match>"}' > matches/<pair_hash>.json
+git add -A && git commit -m "add test match" && git push
 ```
 
-#### Step 4: Create mutual interest + chat
+#### Step 4: Chat via tmux
 
-Follow Steps 4-6 from Journey 5 above, using:
-```bash
-# User A (default home):
-dating chat <B_match_hash>
-
-# User B (separate home):
-DATING_HOME=/tmp/dating-user-b dating chat <A_match_hash>
-```
-
-Or via tmux:
 ```bash
 tmux new-session -d -s chat "dating chat <B_match>"
 tmux split-window -h -t chat \
   "DATING_HOME=/tmp/dating-user-b dating chat <A_match>"
 tmux attach -t chat
 ```
+
+#### Step 5: Send messages
+
+Type in each pane — messages should appear in real-time in the other pane.
 
 **Cleanup**:
 ```bash
