@@ -1,0 +1,339 @@
+package screens
+
+import (
+	"fmt"
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
+	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
+	"github.com/vutran1710/dating-dev/internal/schema"
+)
+
+// PoolOnboardStep represents the current step in the onboarding wizard.
+type PoolOnboardStep int
+
+const (
+	PoolOnboardRole PoolOnboardStep = iota // role selection (if multiple)
+	PoolOnboardForm                        // fill profile fields
+	PoolOnboardDone                        // complete
+)
+
+// PoolOnboardDoneMsg is emitted when onboarding completes.
+type PoolOnboardDoneMsg struct {
+	PoolName string
+	Role     string
+	Profile  map[string]any
+}
+
+// PoolOnboardScreen implements a step-by-step wizard for pool registration.
+type PoolOnboardScreen struct {
+	poolName string
+	schema   *schema.PoolSchema
+	step     PoolOnboardStep
+
+	// Role selection
+	roles      []string
+	roleCursor int
+
+	// Form
+	formFields []components.FormField
+	steppers   []components.Stepper
+	fieldIdx   int
+	totalCount int // total number of navigable fields (formFields + steppers)
+
+	// Result
+	selectedRole string
+
+	width, height int
+	err           error
+}
+
+// NewPoolOnboardScreen creates a new onboarding screen for a pool.
+func NewPoolOnboardScreen(poolName string, s *schema.PoolSchema, width, height int) PoolOnboardScreen {
+	roles, _ := s.ParsedRoles()
+
+	screen := PoolOnboardScreen{
+		poolName: poolName,
+		schema:   s,
+		width:    width,
+		height:   height,
+		roles:    roles,
+	}
+
+	if len(roles) <= 1 {
+		// Skip role selection
+		if len(roles) == 1 {
+			screen.selectedRole = roles[0]
+		}
+		screen.step = PoolOnboardForm
+		screen.initForm()
+	} else {
+		screen.step = PoolOnboardRole
+	}
+
+	return screen
+}
+
+func (s *PoolOnboardScreen) initForm() {
+	fields, steppers, err := schema.BuildFormFields(s.schema.Profile, nil, "")
+	if err != nil {
+		s.err = err
+		return
+	}
+	s.formFields = fields
+	s.steppers = steppers
+	s.totalCount = len(fields) + len(steppers)
+	s.fieldIdx = 0
+	s.updateFieldFocus()
+}
+
+// updateFieldFocus sets the Focused flag on the currently selected field.
+func (s *PoolOnboardScreen) updateFieldFocus() {
+	for i := range s.formFields {
+		s.formFields[i].Focused = false
+	}
+	for i := range s.steppers {
+		s.steppers[i].Focused = false
+	}
+
+	if s.fieldIdx < len(s.formFields) {
+		s.formFields[s.fieldIdx].Focused = true
+	} else {
+		stepperIdx := s.fieldIdx - len(s.formFields)
+		if stepperIdx >= 0 && stepperIdx < len(s.steppers) {
+			s.steppers[stepperIdx].Focused = true
+		}
+	}
+}
+
+// Update handles messages for the onboarding screen.
+func (s PoolOnboardScreen) Update(msg tea.Msg) (PoolOnboardScreen, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		s.width = msg.Width
+		s.height = msg.Height
+		return s, nil
+
+	case tea.KeyMsg:
+		switch s.step {
+		case PoolOnboardRole:
+			return s.updateRole(msg)
+		case PoolOnboardForm:
+			return s.updateForm(msg)
+		case PoolOnboardDone:
+			if msg.String() == "enter" {
+				return s, func() tea.Msg {
+					return PoolOnboardDoneMsg{
+						PoolName: s.poolName,
+						Role:     s.selectedRole,
+						Profile:  s.collectProfile(),
+					}
+				}
+			}
+		}
+	}
+
+	return s, nil
+}
+
+func (s PoolOnboardScreen) updateRole(msg tea.KeyMsg) (PoolOnboardScreen, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if s.roleCursor > 0 {
+			s.roleCursor--
+		}
+	case "down", "j":
+		if s.roleCursor < len(s.roles)-1 {
+			s.roleCursor++
+		}
+	case "enter":
+		s.selectedRole = s.roles[s.roleCursor]
+		s.step = PoolOnboardForm
+		s.initForm()
+	}
+	return s, nil
+}
+
+func (s PoolOnboardScreen) updateForm(msg tea.KeyMsg) (PoolOnboardScreen, tea.Cmd) {
+	key := msg.String()
+
+	switch key {
+	case "tab", "down", "j":
+		if s.totalCount > 0 {
+			s.fieldIdx = (s.fieldIdx + 1) % s.totalCount
+			s.updateFieldFocus()
+		}
+		return s, nil
+	case "shift+tab", "up", "k":
+		if s.totalCount > 0 {
+			s.fieldIdx = (s.fieldIdx - 1 + s.totalCount) % s.totalCount
+			s.updateFieldFocus()
+		}
+		return s, nil
+	case "enter":
+		// If current field is a form field that needs enter (radio/checkbox), handle it
+		if s.fieldIdx < len(s.formFields) {
+			f := &s.formFields[s.fieldIdx]
+			if f.Type == components.FieldRadio || f.Type == components.FieldCheckbox {
+				f.HandleKey(key)
+				return s, nil
+			}
+		}
+		// Otherwise submit the form
+		s.step = PoolOnboardDone
+		return s, nil
+	case "ctrl+d":
+		// Submit form
+		s.step = PoolOnboardDone
+		return s, nil
+	}
+
+	// Delegate to the focused field
+	if s.fieldIdx < len(s.formFields) {
+		s.formFields[s.fieldIdx].HandleKey(key)
+	} else {
+		stepperIdx := s.fieldIdx - len(s.formFields)
+		if stepperIdx >= 0 && stepperIdx < len(s.steppers) {
+			s.steppers[stepperIdx], _ = s.steppers[stepperIdx].Update(msg)
+		}
+	}
+
+	return s, nil
+}
+
+func (s PoolOnboardScreen) collectProfile() map[string]any {
+	profile := make(map[string]any)
+	for _, f := range s.formFields {
+		profile[f.Name] = f.GetValue()
+	}
+	for _, st := range s.steppers {
+		profile[st.Name] = st.GetValue()
+	}
+	return profile
+}
+
+// View renders the onboarding screen.
+func (s PoolOnboardScreen) View() string {
+	pad := lipgloss.NewStyle().Padding(1, 3)
+
+	switch s.step {
+	case PoolOnboardRole:
+		return pad.Render(s.roleView())
+	case PoolOnboardForm:
+		return pad.Render(s.formView())
+	case PoolOnboardDone:
+		return pad.Render(s.doneView())
+	}
+	return ""
+}
+
+func (s PoolOnboardScreen) roleView() string {
+	title := theme.BoldStyle.Render("Join: " + s.poolName)
+	subtitle := theme.DimStyle.Render("What are you?")
+
+	var options []string
+	for i, role := range s.roles {
+		marker := "  ○ "
+		style := theme.DimStyle
+		if i == s.roleCursor {
+			marker = "  ● "
+			style = theme.BrandStyle
+		}
+		options = append(options, marker+style.Render(role))
+	}
+
+	content := title + "\n\n" + subtitle + "\n\n" + strings.Join(options, "\n") + "\n\n" +
+		theme.DimStyle.Render("  enter to continue")
+
+	maxWidth := s.width - 8
+	if maxWidth < 40 {
+		maxWidth = 40
+	}
+	return theme.BorderStyle.Width(maxWidth).Render(content)
+}
+
+func (s PoolOnboardScreen) formView() string {
+	title := theme.BoldStyle.Render("Profile")
+
+	var lines []string
+	lines = append(lines, title)
+	lines = append(lines, "")
+
+	if s.err != nil {
+		lines = append(lines, theme.RedStyle.Render("Error: "+s.err.Error()))
+		return strings.Join(lines, "\n")
+	}
+
+	for _, f := range s.formFields {
+		attr, ok := s.schema.Profile[f.Name]
+		label := f.Name
+		if ok && !attr.IsPublic() {
+			label += " \U0001F512" // lock emoji
+		}
+		if ok && !attr.IsRequired() {
+			label += " " + theme.DimStyle.Render("(optional)")
+		}
+
+		// Override the label for rendering
+		field := f
+		field.Label = label
+		lines = append(lines, field.Render(s.width))
+		lines = append(lines, "")
+	}
+
+	for _, st := range s.steppers {
+		attr, ok := s.schema.Profile[st.Name]
+		label := st.Name
+		if ok && !attr.IsPublic() {
+			label += " \U0001F512"
+		}
+		if ok && !attr.IsRequired() {
+			label += " " + theme.DimStyle.Render("(optional)")
+		}
+
+		stepper := st
+		stepper.Label = label
+		lines = append(lines, stepper.View())
+		lines = append(lines, "")
+	}
+
+	lines = append(lines, theme.DimStyle.Render("  ctrl+d or enter to submit"))
+
+	maxWidth := s.width - 8
+	if maxWidth < 40 {
+		maxWidth = 40
+	}
+	return theme.BorderStyle.Width(maxWidth).Render(strings.Join(lines, "\n"))
+}
+
+func (s PoolOnboardScreen) doneView() string {
+	out := theme.GreenStyle.Render("✓ ") + theme.BoldStyle.Render("Profile complete!") + "\n\n"
+	out += theme.DimStyle.Render("  Role: ") + theme.TextStyle.Render(s.selectedRole) + "\n"
+	out += theme.DimStyle.Render(fmt.Sprintf("  %d fields filled", len(s.formFields)+len(s.steppers))) + "\n\n"
+	out += theme.DimStyle.Render("  Press enter to continue")
+	return out
+}
+
+// HelpBindings returns contextual key bindings for the help bar.
+func (s PoolOnboardScreen) HelpBindings() []components.KeyBind {
+	switch s.step {
+	case PoolOnboardRole:
+		return []components.KeyBind{
+			{Key: "↑↓", Desc: "navigate"},
+			{Key: "enter", Desc: "select"},
+		}
+	case PoolOnboardForm:
+		return []components.KeyBind{
+			{Key: "↑↓", Desc: "navigate fields"},
+			{Key: "←→", Desc: "stepper"},
+			{Key: "space", Desc: "toggle"},
+			{Key: "ctrl+d", Desc: "submit"},
+		}
+	default:
+		return []components.KeyBind{
+			{Key: "enter", Desc: "continue"},
+		}
+	}
+}
