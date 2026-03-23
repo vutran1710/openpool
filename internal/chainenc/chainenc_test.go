@@ -4,6 +4,62 @@ import (
 	"testing"
 )
 
+// === BuildChain tests ===
+
+func TestBuildChain(t *testing.T) {
+	profiles := []ProfileEntry{
+		{Tag: "hash_alice", Data: []byte(`{"name":"Alice","age":27}`)},
+		{Tag: "hash_bob", Data: []byte(`{"name":"Bob","age":28}`)},
+		{Tag: "hash_carol", Data: []byte(`{"name":"Carol","age":26}`)},
+	}
+
+	chain, err := BuildChain(profiles, []byte("test_seed"), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(chain.Entries) != 3 {
+		t.Errorf("expected 3 entries, got %d", len(chain.Entries))
+	}
+
+	if chain.Entries[0].Tag != "hash_alice" {
+		t.Errorf("expected hash_alice, got %s", chain.Entries[0].Tag)
+	}
+
+	for i, e := range chain.Entries {
+		if len(e.Ciphertext) == 0 {
+			t.Errorf("entry %d: empty ciphertext", i)
+		}
+		if len(e.Nonce) != 12 {
+			t.Errorf("entry %d: nonce should be 12 bytes, got %d", i, len(e.Nonce))
+		}
+	}
+
+	if chain.SeedHintVal < 0 || chain.SeedHintVal >= HintSpace {
+		t.Errorf("seed hint out of range: %d", chain.SeedHintVal)
+	}
+}
+
+func TestBuildChain_DifferentSeeds(t *testing.T) {
+	profiles := []ProfileEntry{
+		{Tag: "hash_a", Data: []byte(`{"x":1}`)},
+	}
+
+	c1, _ := BuildChain(profiles, []byte("seed_1"), 10)
+	c2, _ := BuildChain(profiles, []byte("seed_2"), 10)
+
+	if string(c1.Entries[0].Ciphertext) == string(c2.Entries[0].Ciphertext) {
+		t.Error("different seeds should produce different ciphertexts")
+	}
+}
+
+func TestBuildChain_Empty(t *testing.T) {
+	_, err := BuildChain(nil, []byte("seed"), 10)
+	if err == nil {
+		t.Error("should fail with empty profiles")
+	}
+}
+
 func TestProfileConstant(t *testing.T) {
 	profile := []byte(`{"name":"Alice","age":27}`)
 
