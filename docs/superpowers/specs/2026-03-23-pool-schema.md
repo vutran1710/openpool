@@ -238,7 +238,17 @@ Before submitting registration:
 
 ### Action-side (trust boundary)
 
-`action-tool register` validates the same rules. Rejects + locks issues with invalid profiles.
+`action-tool register --schema ./pool.yaml` validates the profile against the schema. The `--schema` flag accepts a local path (in Action, repo is checked out) or a raw GitHub URL (for testing).
+
+```bash
+# In Action (repo checked out):
+./action-tool register --schema ./pool.yaml
+
+# For testing:
+./action-tool register --schema https://raw.githubusercontent.com/owner/pool/main/pool.yaml
+```
+
+Rejects + locks issues with invalid profiles (missing required fields, invalid values, out-of-range, etc.).
 
 ### Schema Changes (migration rules)
 
