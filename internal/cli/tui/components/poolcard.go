@@ -25,6 +25,7 @@ type PoolCardData struct {
 	Matches       int
 	Relationships int
 	Status        string // "active", "pending", "rejected", ""
+	IsCurrentPool bool   // true if this is the currently active pool
 	PendingIssue  int
 	Logo          string // pre-rendered ASCII logo
 }
@@ -136,7 +137,11 @@ func renderCardAction(p PoolCardData) string {
 	var line string
 	switch p.Status {
 	case "active":
-		line = theme.GreenStyle.Render("✓ Member") + theme.DimStyle.Render("  ·  Press enter to activate")
+		if p.IsCurrentPool {
+			line = theme.GreenStyle.Render("✓ Active")
+		} else {
+			line = theme.GreenStyle.Render("✓ Member") + theme.DimStyle.Render("  ·  Press enter to activate")
+		}
 	case "pending":
 		line = theme.AmberStyle.Render("Registration pending — waiting for pool to process")
 	case "rejected":

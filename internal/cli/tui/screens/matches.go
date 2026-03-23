@@ -51,8 +51,11 @@ func LoadMatchesCmd(poolName string) tea.Cmd {
 			return MatchesFetchedMsg{Err: err}
 		}
 		pool := cfg.ActivePool()
-		if pool == nil || pool.MatchHash == "" {
-			return MatchesFetchedMsg{Err: fmt.Errorf("not registered")}
+		if pool == nil {
+			return MatchesFetchedMsg{Err: fmt.Errorf("no active pool — join a pool first")}
+		}
+		if pool.MatchHash == "" {
+			return MatchesFetchedMsg{Err: fmt.Errorf("registration pending — wait for pool to process your request")}
 		}
 
 		ghToken, err := gh.GetCLIToken()

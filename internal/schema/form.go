@@ -78,7 +78,7 @@ func BuildFormFields(attrs map[string]Attribute, existingProfile map[string]any,
 					value = v
 				}
 			}
-			fields = append(fields, components.NewTextField(name, name, value))
+			fields = append(fields, components.NewTextAreaField(name, name, value, 500))
 
 		default:
 			return nil, nil, fmt.Errorf("unknown attribute type %q for field %s", attr.Type, name)

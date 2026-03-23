@@ -45,6 +45,7 @@ type PoolJoinMsg struct {
 
 type PoolsScreen struct {
 	registry     string
+	activePool   string            // currently active pool name
 	poolStatus   map[string]string // pool name → status
 	poolIssues   map[string]int    // pool name → pending issue number
 	pools       []poolItem
@@ -56,6 +57,10 @@ type PoolsScreen struct {
 	spinner     spinner.Model
 	Width       int
 	Height      int
+}
+
+func (s *PoolsScreen) SetActivePool(name string) {
+	s.activePool = name
 }
 
 func NewPoolsScreen(registry string, poolStatuses map[string]string, poolIssues ...map[string]int) PoolsScreen {
@@ -302,6 +307,7 @@ func (s PoolsScreen) renderDetail(width int) string {
 		Matches:       p.stats.Matches,
 		Relationships: p.stats.Relationships,
 		Status:        p.status,
+		IsCurrentPool: p.entry.Name == s.activePool,
 		PendingIssue:  p.pendingIssue,
 		Logo:          p.logo,
 	}

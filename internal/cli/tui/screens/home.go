@@ -1,11 +1,9 @@
 package screens
 
 import (
-	"github.com/charmbracelet/lipgloss"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/vutran1710/dating-dev/internal/cli/chat"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
-	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
 )
 
 // ConversationOpenMsg is emitted when a conversation is selected from the panel.
@@ -77,27 +75,19 @@ func (s HomeScreen) Update(msg tea.Msg) (HomeScreen, tea.Cmd) {
 }
 
 func (s HomeScreen) View() string {
-	leftW := s.width / 2
-	if leftW < 20 {
-		leftW = 20
-	}
-	rightW := s.width - leftW - 1 // -1 for border
-
 	leftContent := components.ScreenLayout("Home", "", s.Menu.View())
-	leftPanel := lipgloss.NewStyle().Width(leftW).Render(leftContent)
 
-	border := lipgloss.NewStyle().
-		Foreground(theme.Border).
-		Render("│")
-
-	convoHeader := theme.BoldStyle.Render("Conversations")
+	convoHints := ""
 	if !s.menuFocused {
-		convoHeader = theme.BrandStyle.Render("Conversations")
+		convoHints = components.DimHints("active")
 	}
-	rightContent := convoHeader + "\n\n" + s.Conversations.View()
-	rightPanel := lipgloss.NewStyle().Width(rightW).Render(rightContent)
+	rightContent := components.ScreenLayout("Conversations", convoHints, s.Conversations.View())
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, border, rightPanel)
+	return components.NewLayout(s.width, 0).
+		Rows(components.NewRow(
+			components.NewCol(leftContent).Width(0.5),
+			components.NewCol(rightContent).Width(0.5).BorderLeft(true),
+		)).Render()
 }
 
 func (s HomeScreen) HelpBindings() []components.KeyBind {

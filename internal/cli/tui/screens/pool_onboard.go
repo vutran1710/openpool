@@ -159,24 +159,25 @@ func (s PoolOnboardScreen) updateRole(msg tea.KeyMsg) (PoolOnboardScreen, tea.Cm
 func (s PoolOnboardScreen) updateForm(msg tea.KeyMsg) (PoolOnboardScreen, tea.Cmd) {
 	key := msg.String()
 
+	// Only use tab/shift+tab for navigation in form (j/k conflict with text input)
 	switch key {
-	case "tab", "down", "j":
+	case "tab", "down":
 		if s.totalCount > 0 {
 			s.fieldIdx = (s.fieldIdx + 1) % s.totalCount
 			s.updateFieldFocus()
 		}
 		return s, nil
-	case "shift+tab", "up", "k":
+	case "shift+tab", "up":
 		if s.totalCount > 0 {
 			s.fieldIdx = (s.fieldIdx - 1 + s.totalCount) % s.totalCount
 			s.updateFieldFocus()
 		}
 		return s, nil
 	case "enter":
-		// If current field is a form field that needs enter (radio/checkbox), handle it
+		// If current field handles enter (radio/checkbox/textarea), delegate
 		if s.fieldIdx < len(s.formFields) {
 			f := &s.formFields[s.fieldIdx]
-			if f.Type == components.FieldRadio || f.Type == components.FieldCheckbox {
+			if f.Type == components.FieldRadio || f.Type == components.FieldCheckbox || f.Type == components.FieldTextArea {
 				f.HandleKey(key)
 				return s, nil
 			}
@@ -216,21 +217,20 @@ func (s PoolOnboardScreen) collectProfile() map[string]any {
 
 // View renders the onboarding screen.
 func (s PoolOnboardScreen) View() string {
-	pad := lipgloss.NewStyle().Padding(1, 3)
-
+	var content string
 	switch s.step {
 	case PoolOnboardRole:
-		return pad.Render(s.roleView())
+		content = s.roleView()
 	case PoolOnboardForm:
-		return pad.Render(s.formView())
+		content = s.formView()
 	case PoolOnboardDone:
-		return pad.Render(s.doneView())
+		content = s.doneView()
 	}
-	return ""
+
+	return content
 }
 
 func (s PoolOnboardScreen) roleView() string {
-	title := theme.BoldStyle.Render("Join: " + s.poolName)
 	subtitle := theme.DimStyle.Render("What are you?")
 
 	var options []string
@@ -244,31 +244,22 @@ func (s PoolOnboardScreen) roleView() string {
 		options = append(options, marker+style.Render(role))
 	}
 
-	content := title + "\n\n" + subtitle + "\n\n" + strings.Join(options, "\n") + "\n\n" +
-		theme.DimStyle.Render("  enter to continue")
+	content := "  " + subtitle + "\n\n" + strings.Join(options, "\n") + "\n\n" +
+		theme.DimStyle.Render("    enter to continue")
 
-	maxWidth := s.width - 8
-	if maxWidth < 40 {
-		maxWidth = 40
-	}
-	return theme.BorderStyle.Width(maxWidth).Render(content)
+	return components.ScreenLayout("Join "+s.poolName, components.DimHints("select role"), content)
 }
 
 func (s PoolOnboardScreen) formView() string {
-	title := theme.BoldStyle.Render("Profile")
+	if s.err != nil {
+		return components.ScreenLayout("Join "+s.poolName, "", theme.RedStyle.Render("Error: "+s.err.Error()))
+	}
 
 	var lines []string
-	lines = append(lines, title)
-	lines = append(lines, "")
-
-	if s.err != nil {
-		lines = append(lines, theme.RedStyle.Render("Error: "+s.err.Error()))
-		return strings.Join(lines, "\n")
-	}
 
 	for _, f := range s.formFields {
 		attr, ok := s.schema.Profile[f.Name]
-		label := f.Name
+		label := titleCase(f.Name)
 		if ok && !attr.IsPublic() {
 			label += " \U0001F512" // lock emoji
 		}
@@ -285,7 +276,7 @@ func (s PoolOnboardScreen) formView() string {
 
 	for _, st := range s.steppers {
 		attr, ok := s.schema.Profile[st.Name]
-		label := st.Name
+		label := titleCase(st.Name)
 		if ok && !attr.IsPublic() {
 			label += " \U0001F512"
 		}
@@ -299,21 +290,25 @@ func (s PoolOnboardScreen) formView() string {
 		lines = append(lines, "")
 	}
 
-	lines = append(lines, theme.DimStyle.Render("  ctrl+d or enter to submit"))
+	lines = append(lines, theme.DimStyle.Render("  ctrl+d to submit"))
 
-	maxWidth := s.width - 8
-	if maxWidth < 40 {
-		maxWidth = 40
-	}
-	return theme.BorderStyle.Width(maxWidth).Render(strings.Join(lines, "\n"))
+	body := strings.Join(lines, "\n")
+	padded := lipgloss.NewStyle().PaddingLeft(2).Render(body)
+	return components.ScreenLayout("Join "+s.poolName, components.DimHints("fill profile"), padded)
 }
 
 func (s PoolOnboardScreen) doneView() string {
-	out := theme.GreenStyle.Render("✓ ") + theme.BoldStyle.Render("Profile complete!") + "\n\n"
-	out += theme.DimStyle.Render("  Role: ") + theme.TextStyle.Render(s.selectedRole) + "\n"
-	out += theme.DimStyle.Render(fmt.Sprintf("  %d fields filled", len(s.formFields)+len(s.steppers))) + "\n\n"
-	out += theme.DimStyle.Render("  Press enter to continue")
-	return out
+	var lines []string
+	lines = append(lines, theme.GreenStyle.Render("✓ ")+"Profile complete!")
+	lines = append(lines, "")
+	if s.selectedRole != "" {
+		lines = append(lines, theme.DimStyle.Render("  Role: ")+theme.TextStyle.Render(s.selectedRole))
+	}
+	lines = append(lines, theme.DimStyle.Render(fmt.Sprintf("  %d fields filled", len(s.formFields)+len(s.steppers))))
+	lines = append(lines, "")
+	lines = append(lines, theme.DimStyle.Render("  Press enter to continue"))
+
+	return components.ScreenLayout("Join "+s.poolName, components.DimHints("complete"), strings.Join(lines, "\n"))
 }
 
 // HelpBindings returns contextual key bindings for the help bar.
@@ -336,4 +331,18 @@ func (s PoolOnboardScreen) HelpBindings() []components.KeyBind {
 			{Key: "enter", Desc: "continue"},
 		}
 	}
+}
+
+func titleCase(s string) string {
+	if s == "" {
+		return s
+	}
+	// Replace underscores with spaces, capitalize each word
+	words := strings.Split(strings.ReplaceAll(s, "_", " "), " ")
+	for i, w := range words {
+		if len(w) > 0 {
+			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		}
+	}
+	return strings.Join(words, " ")
 }

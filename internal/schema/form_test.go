@@ -119,8 +119,8 @@ func TestBuildFormFields_Text(t *testing.T) {
 		t.Fatalf("expected 0 steppers, got %d", len(steppers))
 	}
 	f := fields[0]
-	if f.Type != components.FieldText {
-		t.Errorf("expected FieldText, got %d", f.Type)
+	if f.Type != components.FieldTextArea {
+		t.Errorf("expected FieldTextArea, got %d", f.Type)
 	}
 	if f.Value != "" {
 		t.Errorf("expected empty value, got %q", f.Value)

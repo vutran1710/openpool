@@ -17,7 +17,9 @@ import (
 	relayclient "github.com/vutran1710/dating-dev/internal/cli/relay"
 	"github.com/vutran1710/dating-dev/internal/cli/svc"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
+	"github.com/vmihailenco/msgpack/v5"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/screens"
+	"github.com/vutran1710/dating-dev/internal/gitrepo"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
 	"github.com/vutran1710/dating-dev/internal/crypto"
 	dbg "github.com/vutran1710/dating-dev/internal/debug"
@@ -100,6 +102,7 @@ func newApp(userName, userHash, pool, registry string, poolStatuses map[string]s
 		settings:   screens.NewSettingsScreen(pool, registry, userName, "", poolNames(poolStatuses), registries(registry)),
 		inbox:      screens.NewInboxScreen(),
 	}
+	a.pools.SetActivePool(pool)
 	a.statusBar.User = userName
 	a.statusBar.UserHash = userHash
 	a.statusBar.Pool = pool
@@ -280,10 +283,6 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case screens.ProfileUpdateMsg:
-		// Submit updated profile to pool
-		return a, submitProfileUpdate(msg.Profile)
-
 	case screens.InboxAcceptMsg:
 		return a, acceptLike(a.pool, msg.IssueNumber)
 
@@ -293,6 +292,7 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case screens.PoolSwitchMsg:
 		a.pool = msg.Name
 		a.statusBar.Pool = msg.Name
+		a.pools.SetActivePool(msg.Name)
 		// Save to config
 		if cfg, err := config.Load(); err == nil {
 			cfg.Active = msg.Name
@@ -456,23 +456,10 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Launch join flow (for "" or "rejected")
 		cfg, _ := config.Load()
-		username := ""
-		userID := ""
-		if cfg != nil {
-			username = cfg.User.Username
-			if username == "" {
-				username = cfg.User.DisplayName // fallback for old configs
-			}
-			userID = cfg.User.ProviderUserID
-		}
-		// Find pool entry from the pools screen (fetched from registry)
-		opKey := ""
-		relayURL := ""
+		// Find pool repo from the pools screen (fetched from registry)
 		poolRepo := ""
 		for _, p := range a.pools.GetPools() {
 			if p.Name == msg.Name {
-				opKey = p.OperatorPubKey
-				relayURL = p.RelayURL
 				poolRepo = p.Repo
 				break
 			}
@@ -481,8 +468,6 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if poolRepo == "" && cfg != nil {
 			for _, p := range cfg.Pools {
 				if p.Name == msg.Name {
-					opKey = p.OperatorPubKey
-					relayURL = p.RelayURL
 					poolRepo = p.Repo
 					break
 				}
@@ -494,35 +479,26 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Try loading pool.yaml from the cloned pool repo — use schema-driven onboard if available
-		poolRepoDir := filepath.Join(config.Dir(), "repos", gh.NormalizeRepo(poolRepo))
-		schemaPath := filepath.Join(poolRepoDir, "pool.yaml")
-		if s, err := schema.Load(schemaPath); err == nil {
-			// pool.yaml exists — use new schema-driven onboard
-			profilePath := schema.ProfilePath(config.Dir(), msg.Name)
-			existingProfile, validateErr := schema.LoadAndValidate(profilePath, s)
-
-			if validateErr != nil {
-				cmds = append(cmds, func() tea.Msg {
-					return components.ToastMsg{Text: "Profile invalid — creating new one", Level: components.ToastWarning}
-				})
-				existingProfile = nil
+		// Load pool.yaml via raw URL (fast), clone repo in background
+		rawURL := gitrepo.RawURL(poolRepo, "main", "pool.yaml")
+		s, err := schema.Load(rawURL)
+		if err != nil {
+			return a, func() tea.Msg {
+				return components.ToastMsg{Text: "Pool missing pool.yaml: " + err.Error(), Level: components.ToastError}
 			}
-			_ = existingProfile // future enhancement: pre-fill form
-
-			a.poolOnboard = screens.NewPoolOnboardScreen(msg.Name, s, a.width, a.height)
-			a.screen = screenPoolOnboard
-			a.updateHelp()
-			return a, tea.Batch(cmds...)
 		}
 
-		// No pool.yaml — fall back to old JoinScreen
-		a.join = screens.NewJoinScreen(msg.Name, poolRepo, opKey, relayURL, username, userID)
-		a.join.Width = a.width
-		a.join.Height = a.height
-		a.screen = screenJoin
+		// Clone repo in background for later use
+		go func() {
+			if repo, err := gitrepo.Clone(gitrepo.EnsureGitURL(poolRepo)); err == nil {
+				repo.Sync()
+			}
+		}()
+
+		a.poolOnboard = screens.NewPoolOnboardScreen(msg.Name, s, a.width, a.height)
+		a.screen = screenPoolOnboard
 		a.updateHelp()
-		return a, nil
+		return a, tea.Batch(cmds...)
 
 	case screens.PoolOnboardDoneMsg:
 		// Save profile to disk
@@ -536,6 +512,34 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Add role to profile if set
 		if msg.Role != "" {
 			msg.Profile["_role"] = msg.Role
+		}
+
+		// Ensure pool is in config before submitting (first-time join)
+		cfg, _ := config.Load()
+		if cfg != nil {
+			found := false
+			for _, p := range cfg.Pools {
+				if p.Name == msg.PoolName {
+					found = true
+					break
+				}
+			}
+			if !found {
+				// Add pool from registry entries
+				for _, p := range a.pools.GetPools() {
+					if p.Name == msg.PoolName {
+						cfg.AddPool(config.PoolConfig{
+							Name:           msg.PoolName,
+							Repo:           p.Repo,
+							OperatorPubKey: p.OperatorPubKey,
+							RelayURL:       p.RelayURL,
+							Status:         "joining",
+						})
+						cfg.Save()
+						break
+					}
+				}
+			}
 		}
 
 		// Trigger registration submission
@@ -734,12 +738,10 @@ func (a app) handleMenuSelect(key string) (tea.Model, tea.Cmd) {
 		return a, fetchInbox(a.pool, a.registry)
 	case "profile":
 		dbg.Log("navigate → profile")
+		a.profile.SetPool(a.pool)
 		a.screen = screenProfile
-		// Send WindowSizeMsg to initialize viewport dimensions
 		a.profile, _ = a.profile.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
-		if !a.profile.IsLoaded() {
-			return a, a.profile.LoadCmd
-		}
+		return a, screens.LoadProfileCmd(a.pool)
 	case "settings":
 		a.screen = screenSettings
 		a.settings.Width = a.width
@@ -780,9 +782,11 @@ func (a app) handleSubmit(msg components.SubmitMsg) (tea.Model, tea.Cmd) {
 			a.screen = screenPools
 			a.updateHelp()
 		case "/profile":
+			a.profile.SetPool(a.pool)
 			a.screen = screenProfile
 			a.profile, _ = a.profile.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 			a.updateHelp()
+			return a, screens.LoadProfileCmd(a.pool)
 		case "/profile-edit", "/edit":
 			a.screen = screenProfileForm
 			a.profileForm = screens.NewProfileFormScreen()
@@ -904,7 +908,7 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if cmd != nil {
 		// Don't forward to input during onboarding (it steals key events)
-		if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenPoolOnboard || a.screen == screenProfile || a.screen == screenProfileForm || a.screen == screenSettings || a.screen == screenInbox || a.screen == screenDiscover {
+		if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenPoolOnboard || a.screen == screenProfileForm || a.screen == screenSettings || a.screen == screenInbox || a.screen == screenDiscover {
 			return a, cmd
 		}
 		var inputCmd tea.Cmd
@@ -912,7 +916,7 @@ func (a app) updateActiveScreen(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(cmd, inputCmd)
 	}
 
-	if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenPoolOnboard || a.screen == screenProfile || a.screen == screenProfileForm || a.screen == screenSettings || a.screen == screenInbox || a.screen == screenDiscover {
+	if a.screen == screenOnboarding || a.screen == screenJoin || a.screen == screenPoolOnboard || a.screen == screenProfileForm || a.screen == screenSettings || a.screen == screenInbox || a.screen == screenDiscover {
 		return a, nil
 	}
 
@@ -1060,6 +1064,24 @@ func pollPendingPools() tea.Msg {
 
 		if issue.State == "closed" {
 			if issue.StateReason == "completed" {
+				// Read bin_hash and match_hash from operator's signed comment
+				operatorPubBytes, opErr := hex.DecodeString(p.OperatorPubKey)
+				if opErr == nil {
+					ghClient := gh.NewCLIOrHTTP(p.Repo, token)
+					ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
+					content, findErr := gh.FindOperatorReplyInIssue(ctx2, ghClient, p.PendingIssue, "registration", ed25519.PublicKey(operatorPubBytes))
+					cancel2()
+					if findErr == nil {
+						plaintext, decErr := crypto.DecryptSignedBlob(content, priv)
+						if decErr == nil {
+							var hashes map[string]string
+							if msgpack.Unmarshal(plaintext, &hashes) == nil {
+								cfg.Pools[i].BinHash = hashes["bin_hash"]
+								cfg.Pools[i].MatchHash = hashes["match_hash"]
+							}
+						}
+					}
+				}
 				cfg.Pools[i].Status = "active"
 				cfg.Pools[i].PendingIssue = 0
 				cfg.Save()
@@ -1085,8 +1107,11 @@ func fetchInbox(poolName, registry string) tea.Cmd {
 		}
 
 		pool := cfg.ActivePool()
-		if pool == nil || pool.MatchHash == "" {
-			return screens.InboxFetchedResult{Err: fmt.Errorf("not registered")}
+		if pool == nil {
+			return screens.InboxFetchedResult{Err: fmt.Errorf("no active pool — join a pool first")}
+		}
+		if pool.MatchHash == "" {
+			return screens.InboxFetchedResult{Err: fmt.Errorf("registration pending — wait for pool to process your request")}
 		}
 
 		ghToken, err := gh.GetCLIToken()

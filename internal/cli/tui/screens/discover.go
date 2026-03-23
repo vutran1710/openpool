@@ -79,7 +79,7 @@ func LoadDiscoverCmd(poolName string) tea.Cmd {
 			return DiscoverMsg{Err: fmt.Errorf("pool not found: %s", poolName)}
 		}
 		if pool.MatchHash == "" {
-			return DiscoverMsg{Err: fmt.Errorf("not registered in pool (no match_hash)")}
+			return DiscoverMsg{Err: fmt.Errorf("registration pending — wait for pool to process your request")}
 		}
 
 		// Sync repo

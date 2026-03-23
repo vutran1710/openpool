@@ -1,10 +1,14 @@
 package screens
 
 import (
+	"encoding/hex"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/vutran1710/dating-dev/internal/cli/config"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
+	"github.com/vutran1710/dating-dev/internal/crypto"
 )
 
 // PoolSwitchMsg is sent when the user switches the active pool.
@@ -41,6 +45,9 @@ type SettingsScreen struct {
 	pickTarget settingsItem // what we're picking (pool or registry)
 	pickItems  []string     // items in the picker
 	pickCursor int          // cursor in picker
+
+	// Identity expanded view
+	showIdentity bool
 }
 
 func NewSettingsScreen(pool, registry, user, provider string, pools []string, regs []string) SettingsScreen {
@@ -85,12 +92,7 @@ func (s SettingsScreen) Update(msg tea.Msg) (SettingsScreen, tea.Cmd) {
 					}
 				}
 			case settingsIdentity:
-				return s, func() tea.Msg {
-					return components.ToastMsg{
-						Text:  "Run: dating auth whoami",
-						Level: components.ToastInfo,
-					}
-				}
+				s.showIdentity = !s.showIdentity
 			}
 		}
 	}
@@ -151,7 +153,12 @@ func (s SettingsScreen) View() string {
 	if s.provider != "" {
 		idValue += theme.DimStyle.Render(" · " + s.provider)
 	}
-	idCard := renderSettingsCard("⬡", "Identity", idValue, "dating auth whoami", s.cursor == settingsIdentity, cardStyle, activeCardStyle)
+	hint := "enter to expand"
+	if s.showIdentity {
+		idValue += "\n" + s.renderIdentityDetails()
+		hint = "enter to collapse"
+	}
+	idCard := renderSettingsCard("⬡", "Identity", idValue, hint, s.cursor == settingsIdentity, cardStyle, activeCardStyle)
 	cards = append(cards, idCard)
 
 	body := lipgloss.JoinVertical(lipgloss.Left, cards...)
@@ -204,6 +211,47 @@ func renderSettingsCard(icon, label, value, hint string, active bool, normal, ac
 	row3 := theme.DimStyle.Render("  " + hint)
 
 	return sty.Render(row1 + "\n" + row2 + "\n" + row3)
+}
+
+func (s SettingsScreen) renderIdentityDetails() string {
+	cfg, err := config.Load()
+	if err != nil || cfg == nil {
+		return theme.DimStyle.Render("  config error")
+	}
+
+	var lines []string
+
+	// Public key
+	pub, _, keyErr := crypto.LoadKeyPair(config.KeysDir())
+	if keyErr == nil {
+		pubHex := hex.EncodeToString(pub)
+		if len(pubHex) > 20 {
+			pubHex = pubHex[:10] + "..." + pubHex[len(pubHex)-10:]
+		}
+		lines = append(lines, theme.DimStyle.Render("  Pubkey    ")+theme.TextStyle.Render(pubHex))
+	}
+
+	// Active pool details
+	pool := cfg.ActivePool()
+	if pool == nil {
+		lines = append(lines, theme.DimStyle.Render("  No active pool"))
+		return "\n" + lipgloss.JoinVertical(lipgloss.Left, lines...)
+	}
+
+	lines = append(lines, theme.DimStyle.Render("  Pool      ")+theme.AccentStyle.Render(pool.Name))
+	lines = append(lines, theme.DimStyle.Render("  Repo      ")+theme.TextStyle.Render(pool.Repo))
+
+	if pool.BinHash != "" {
+		lines = append(lines, theme.DimStyle.Render("  Bin Hash  ")+theme.TextStyle.Render(pool.BinHash))
+	}
+	if pool.MatchHash != "" {
+		lines = append(lines, theme.DimStyle.Render("  Match Hash ")+theme.TextStyle.Render(pool.MatchHash))
+	}
+	if pool.BinHash == "" && pool.MatchHash == "" {
+		lines = append(lines, theme.AmberStyle.Render("  Registration pending"))
+	}
+
+	return "\n" + lipgloss.JoinVertical(lipgloss.Left, lines...)
 }
 
 func min(a, b int) int {

@@ -163,20 +163,23 @@ func (f FormField) renderRadio() string {
 }
 
 func (f FormField) renderCheckbox() string {
-	var lines []string
+	var tags []string
 	for i, opt := range f.Options {
-		marker := "  ☐ "
-		style := theme.DimStyle
 		if f.Selected[i] {
-			marker = "  ☑ "
-			style = theme.TextStyle
+			if f.Focused && i == f.RadioIndex {
+				tags = append(tags, theme.BrandStyle.Render("["+opt+"]"))
+			} else {
+				tags = append(tags, theme.AccentStyle.Render("["+opt+"]"))
+			}
+		} else {
+			if f.Focused && i == f.RadioIndex {
+				tags = append(tags, theme.BrandStyle.Render(" "+opt+" "))
+			} else {
+				tags = append(tags, theme.DimStyle.Render(" "+opt+" "))
+			}
 		}
-		if f.Focused {
-			style = theme.AccentStyle
-		}
-		lines = append(lines, marker+style.Render(opt))
 	}
-	return strings.Join(lines, "\n")
+	return "  " + strings.Join(tags, " ")
 }
 
 // HandleKey processes a key press for the focused field. Returns true if handled.
@@ -267,12 +270,12 @@ func (f *FormField) handleCheckboxKey(key string) bool {
 			f.Selected[f.RadioIndex] = !f.Selected[f.RadioIndex]
 		}
 		return true
-	case "up", "k":
+	case "left":
 		if f.RadioIndex > 0 {
 			f.RadioIndex--
 		}
 		return true
-	case "down", "j":
+	case "right":
 		if f.RadioIndex < len(f.Options)-1 {
 			f.RadioIndex++
 		}
