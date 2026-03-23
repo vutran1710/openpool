@@ -22,7 +22,7 @@ import (
 
 func cmdIndex() {
 	fs := flag.NewFlagSet("index", flag.ExitOnError)
-	poolJSON := fs.String("pool-json", "pool.json", "path to pool.json with schema")
+	_ = fs.String("schema", "pool.yaml", "path to pool.yaml (reserved for future matching engine)")
 	weightsStr := fs.String("weights", "", "JSON weights (or INDEXER_WEIGHTS env var)")
 	operatorKeyHex := fs.String("operator-key", "", "operator ed25519 private key (hex)")
 	binFile := fs.String("bin-file", "", "single .bin file to index")
@@ -31,11 +31,11 @@ func cmdIndex() {
 	output := fs.String("output", "", "output file path for index.db")
 	upload := fs.Bool("upload", false, "upload index.db as a GitHub release asset")
 	usersDir := fs.String("users-dir", "users", "path to users/ directory")
-	salt := fs.String("salt", "", "pool salt (or POOL_SALT env var, needed for hash computation in rebuild)")
-	poolURL := fs.String("pool-url", "", "pool URL (or from pool.json, needed for hash computation in rebuild)")
+	salt := fs.String("salt", "", "pool salt (or POOL_SALT env var)")
+	poolURL := fs.String("pool-url", "", "pool URL (or REPO env var)")
 	fs.Parse(os.Args[2:])
 
-	// Resolve weights
+	// Resolve weights (reserved for future matching engine)
 	weights := *weightsStr
 	if weights == "" {
 		weights = os.Getenv("INDEXER_WEIGHTS")
@@ -48,19 +48,7 @@ func cmdIndex() {
 	} else {
 		weightMap = make(map[string]float64)
 	}
-
-	// Read pool.json
-	poolData, err := os.ReadFile(*poolJSON)
-	if err != nil {
-		log.Fatalf("reading pool.json: %v", err)
-	}
-	var manifest gh.PoolManifest
-	if err := json.Unmarshal(poolData, &manifest); err != nil {
-		log.Fatalf("parsing pool.json: %v", err)
-	}
-	if manifest.Schema == nil {
-		log.Fatal("pool.json has no schema")
-	}
+	_ = weightMap // reserved for future matching engine
 
 	// Parse operator key
 	if *operatorKeyHex == "" {
@@ -80,7 +68,7 @@ func cmdIndex() {
 			log.Fatal("single-user mode requires --match-hash")
 		}
 		os.MkdirAll(*outputDir, 0755)
-		indexOne(manifest.Schema, weightMap, ed25519.PrivateKey(operatorKey), *binFile, *matchHash, *outputDir)
+		indexOne(ed25519.PrivateKey(operatorKey), *binFile, *matchHash, *outputDir)
 	} else {
 		// Rebuild mode (default)
 		poolSalt := *salt
@@ -89,14 +77,14 @@ func cmdIndex() {
 		}
 		pURL := *poolURL
 		if pURL == "" {
-			pURL = manifest.Name
+			pURL = os.Getenv("REPO")
 		}
 
 		outPath := *output
 		if outPath == "" {
 			outPath = "index.db"
 		}
-		rebuildAll(manifest.Schema, weightMap, ed25519.PrivateKey(operatorKey), poolSalt, pURL, *usersDir, outPath)
+		rebuildAll(ed25519.PrivateKey(operatorKey), poolSalt, *usersDir, outPath)
 
 		if *upload {
 			repo := os.Getenv("REPO")
@@ -115,8 +103,8 @@ func cmdIndex() {
 	}
 }
 
-func indexOne(schema *gh.PoolSchema, weights map[string]float64, operatorKey ed25519.PrivateKey, binPath, mHash, outDir string) {
-	rec, err := processbin(schema, weights, operatorKey, binPath)
+func indexOne(operatorKey ed25519.PrivateKey, binPath, mHash, outDir string) {
+	rec, err := processbin(operatorKey, binPath)
 	if err != nil {
 		log.Fatalf("processing %s: %v", binPath, err)
 	}
@@ -125,11 +113,11 @@ func indexOne(schema *gh.PoolSchema, weights map[string]float64, operatorKey ed2
 	if err := gh.WriteRecFile(outPath, *rec); err != nil {
 		log.Fatalf("writing %s: %v", outPath, err)
 	}
-	fmt.Printf("indexed %s → %s (%d dims, %d filters)\n", binPath, outPath, len(rec.Vector), len(rec.Filters.Fields))
+	fmt.Printf("indexed %s → %s\n", binPath, outPath)
 }
 
 // rebuildAll processes all .bin files into a single index.db (SQLite).
-func rebuildAll(schema *gh.PoolSchema, weights map[string]float64, operatorKey ed25519.PrivateKey, poolSalt, poolURL, usersDir, outPath string) {
+func rebuildAll(operatorKey ed25519.PrivateKey, poolSalt, usersDir, outPath string) {
 	entries, err := os.ReadDir(usersDir)
 	if err != nil {
 		log.Fatalf("reading users dir: %v", err)
@@ -154,7 +142,7 @@ func rebuildAll(schema *gh.PoolSchema, weights map[string]float64, operatorKey e
 		binPath := filepath.Join(usersDir, e.Name())
 		binHash := strings.TrimSuffix(e.Name(), ".bin")
 
-		rec, err := processbin(schema, weights, operatorKey, binPath)
+		rec, err := processbin(operatorKey, binPath)
 		if err != nil {
 			log.Printf("skipping %s: %v", binPath, err)
 			continue
@@ -193,7 +181,7 @@ func encodeFloat32s(fs []float32) []byte {
 	return buf
 }
 
-func processbin(schema *gh.PoolSchema, weights map[string]float64, operatorKey ed25519.PrivateKey, binPath string) (*gh.IndexRecord, error) {
+func processbin(operatorKey ed25519.PrivateKey, binPath string) (*gh.IndexRecord, error) {
 	binData, err := os.ReadFile(binPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading file: %w", err)
@@ -209,13 +197,11 @@ func processbin(schema *gh.PoolSchema, weights map[string]float64, operatorKey e
 		return nil, fmt.Errorf("parsing profile: %w", err)
 	}
 
-	filters := gh.ExtractFilters(schema, profile)
-	vec := gh.EncodeProfile(schema, profile)
-	vec = gh.ApplyWeights(schema, vec, weights)
-
+	// Store basic profile data. Vector encoding and matching
+	// will be added when the matching engine is designed.
 	return &gh.IndexRecord{
-		Filters:     filters,
-		Vector:      vec,
+		Filters:     gh.FilterValues{Fields: make(map[string]int)},
+		Vector:      nil,
 		DisplayName: strField(profile, "display_name"),
 		About:       strField(profile, "about"),
 		Bio:         strField(profile, "bio"),

@@ -340,6 +340,10 @@ func (c *CLIClient) AddCommitPush(files []string, message string) error {
 		return fmt.Errorf("git commit: %s", string(out))
 	}
 
+	// Stash any unstaged changes (e.g. downloaded binaries in CI)
+	// so that git pull --rebase doesn't fail
+	exec.Command("git", "stash", "--include-untracked").Run()
+
 	// git pull --rebase + push (retry up to 3 times)
 	for attempt := 0; attempt < 3; attempt++ {
 		cmd = exec.Command("git", "pull", "--rebase", "origin", "main")
@@ -361,10 +365,13 @@ func (c *CLIClient) AddCommitPush(files []string, message string) error {
 			if strings.Contains(string(out), "rejected") {
 				continue // retry on rejection
 			}
+			exec.Command("git", "stash", "drop").Run()
 			return fmt.Errorf("git push: %s", string(out))
 		}
+		exec.Command("git", "stash", "drop").Run()
 		return nil
 	}
+	exec.Command("git", "stash", "drop").Run()
 	return fmt.Errorf("git push failed after 3 retries")
 }
 
