@@ -143,32 +143,127 @@ gh issue list --repo $POOL_URL --label interest --state closed
 
 ---
 
-### Journey 5: Relay Chat
+### Journey 5: Relay Chat (Two Users via tmux)
 
-**What it tests**: WebSocket connection, TOTP auth, binary frame routing, E2E encrypted messages.
+**What it tests**: WebSocket connection, TOTP auth, binary frame routing, E2E encrypted messages between two real users.
 
-**Prerequisites**: Two registered users with `bin_hash` and `match_hash`, a running relay server.
+**Prerequisites**: Pool relay running (Railway or local).
 
-**Steps**:
-1. Start relay: `POOL_URL=$POOL_URL POOL_SALT=$POOL_SALT PORT=8081 go run ./cmd/relay/`
-2. User A connects: `dating chat <B's match_hash>`
-3. User B connects: `dating chat <A's match_hash>`
-4. A sends a message — B receives it
-5. B replies — A receives it
+#### Step 1: Set up two user environments
+
+Each user needs a separate `DATING_HOME` directory with its own keys, config, and profile.
+
+```bash
+# Create two test homes
+mkdir -p /tmp/dating-user-a /tmp/dating-user-b
+```
+
+#### Step 2: Register User A
+
+```bash
+export DATING_HOME=/tmp/dating-user-a
+dating
+# Complete app onboarding (GitHub auth, keys, registry)
+# Join test-pool → fill profile → submit
+# Wait for Action to process registration
+# Verify: Settings > Identity shows bin_hash + match_hash
+```
+
+Note User A's `match_hash` from Settings > Identity.
+
+#### Step 3: Register User B
+
+```bash
+export DATING_HOME=/tmp/dating-user-b
+dating
+# Same onboarding + pool join flow as User A
+# Use a different GitHub account, or use the E2E test to create a second user programmatically
+```
+
+Note User B's `match_hash` from Settings > Identity.
+
+**Alternative — create User B programmatically** (if you only have one GitHub account):
+
+```bash
+# Generate a second keypair and register via the E2E test helper
+source /path/to/dating-test-pool/.dev-secrets
+export POOL_URL=vutran1710/dating-test-pool
+go run ./cmd/e2etest/
+# This creates test users with .bin files — note their match_hashes from output
+```
+
+#### Step 4: Create mutual interest (if not already matched)
+
+Both users need to express interest in each other. Either:
+- Use the TUI Discover screen (`l` to like)
+- Or create interest issues manually:
+
+```bash
+# A likes B
+gh issue create --repo $POOL_URL --title "<B_match_hash>" --label interest \
+  --body "<!-- openpool:interest -->\n\`\`\`\n<encrypted_body>\n\`\`\`"
+
+# B likes A (same but reversed)
+```
+
+Wait for the Action to detect the mutual match (~30-60s).
+
+#### Step 5: Chat via tmux
+
+```bash
+# Start tmux with two panes
+tmux new-session -d -s chat
+
+# Pane 1: User A
+tmux send-keys -t chat "export DATING_HOME=/tmp/dating-user-a && dating chat <B_match_hash>" Enter
+
+# Pane 2: User B
+tmux split-window -h -t chat
+tmux send-keys -t chat "export DATING_HOME=/tmp/dating-user-b && dating chat <A_match_hash>" Enter
+
+# Attach
+tmux attach -t chat
+```
+
+Or manually in two terminal tabs:
+```bash
+# Tab 1
+DATING_HOME=/tmp/dating-user-a dating chat <B_match_hash>
+
+# Tab 2
+DATING_HOME=/tmp/dating-user-b dating chat <A_match_hash>
+```
+
+#### Step 6: Send messages
+
+- In User A's pane: type a message, press Enter
+- User B should see the message appear
+- In User B's pane: type a reply, press Enter
+- User A should see the reply
 
 **Expected**:
 - WebSocket connects with TOTP auth (no login needed)
 - Messages are E2E encrypted (NaCl secretbox via ECDH)
 - Relay routes binary frames by match_hash
-- Messages persisted in `~/.dating/conversations.db`
+- Messages persisted in each user's `conversations.db`
+- Messages appear in real-time (no polling)
 
 **Verify**:
 ```bash
 # Check relay health
-curl http://localhost:8081/health
+curl -s https://relay-production-0b24.up.railway.app/health
 
-# Check conversations DB
-sqlite3 ~/.dating/conversations.db "SELECT * FROM messages ORDER BY created_at DESC LIMIT 5;"
+# Check User A's conversations
+sqlite3 /tmp/dating-user-a/conversations.db "SELECT * FROM messages ORDER BY created_at DESC LIMIT 5;"
+
+# Check User B's conversations
+sqlite3 /tmp/dating-user-b/conversations.db "SELECT * FROM messages ORDER BY created_at DESC LIMIT 5;"
+```
+
+**Cleanup**:
+```bash
+rm -rf /tmp/dating-user-a /tmp/dating-user-b
+tmux kill-session -t chat
 ```
 
 ---
