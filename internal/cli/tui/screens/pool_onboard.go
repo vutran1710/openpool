@@ -32,6 +32,8 @@ type PoolOnboardScreen struct {
 	poolName string
 	schema   *schema.PoolSchema
 	step     PoolOnboardStep
+	editMode bool           // true when editing existing profile
+	existing map[string]any // existing profile data for pre-fill
 
 	// Role selection
 	roles      []string
@@ -52,6 +54,15 @@ type PoolOnboardScreen struct {
 
 // NewPoolOnboardScreen creates a new onboarding screen for a pool.
 func NewPoolOnboardScreen(poolName string, s *schema.PoolSchema, width, height int) PoolOnboardScreen {
+	return newPoolOnboardScreen(poolName, s, width, height, false, nil)
+}
+
+// NewPoolEditScreen creates a screen for editing an existing pool profile.
+func NewPoolEditScreen(poolName string, s *schema.PoolSchema, width, height int, existing map[string]any) PoolOnboardScreen {
+	return newPoolOnboardScreen(poolName, s, width, height, true, existing)
+}
+
+func newPoolOnboardScreen(poolName string, s *schema.PoolSchema, width, height int, editMode bool, existing map[string]any) PoolOnboardScreen {
 	roles, _ := s.ParsedRoles()
 
 	screen := PoolOnboardScreen{
@@ -60,10 +71,21 @@ func NewPoolOnboardScreen(poolName string, s *schema.PoolSchema, width, height i
 		width:    width,
 		height:   height,
 		roles:    roles,
+		editMode: editMode,
+		existing: existing,
+	}
+
+	// In edit mode, skip role selection — go straight to form
+	if editMode {
+		if role, ok := existing["_role"].(string); ok {
+			screen.selectedRole = role
+		}
+		screen.step = PoolOnboardForm
+		screen.initForm()
+		return screen
 	}
 
 	if len(roles) <= 1 {
-		// Skip role selection
 		if len(roles) == 1 {
 			screen.selectedRole = roles[0]
 		}
@@ -77,7 +99,7 @@ func NewPoolOnboardScreen(poolName string, s *schema.PoolSchema, width, height i
 }
 
 func (s *PoolOnboardScreen) initForm() {
-	fields, steppers, err := schema.BuildFormFields(s.schema.Profile, nil, "")
+	fields, steppers, err := schema.BuildFormFields(s.schema.Profile, s.existing, "")
 	if err != nil {
 		s.err = err
 		return
@@ -247,12 +269,12 @@ func (s PoolOnboardScreen) roleView() string {
 	content := "  " + subtitle + "\n\n" + strings.Join(options, "\n") + "\n\n" +
 		theme.DimStyle.Render("    enter to continue")
 
-	return components.ScreenLayout("Join "+s.poolName, components.DimHints("select role"), content)
+	return components.ScreenLayout(s.screenTitle(), components.DimHints("select role"), content)
 }
 
 func (s PoolOnboardScreen) formView() string {
 	if s.err != nil {
-		return components.ScreenLayout("Join "+s.poolName, "", theme.RedStyle.Render("Error: "+s.err.Error()))
+		return components.ScreenLayout(s.screenTitle(), "", theme.RedStyle.Render("Error: "+s.err.Error()))
 	}
 
 	var lines []string
@@ -294,7 +316,7 @@ func (s PoolOnboardScreen) formView() string {
 
 	body := strings.Join(lines, "\n")
 	padded := lipgloss.NewStyle().PaddingLeft(2).Render(body)
-	return components.ScreenLayout("Join "+s.poolName, components.DimHints("fill profile"), padded)
+	return components.ScreenLayout(s.screenTitle(), components.DimHints("fill profile"), padded)
 }
 
 func (s PoolOnboardScreen) doneView() string {
@@ -308,7 +330,7 @@ func (s PoolOnboardScreen) doneView() string {
 	lines = append(lines, "")
 	lines = append(lines, theme.DimStyle.Render("  Press enter to continue"))
 
-	return components.ScreenLayout("Join "+s.poolName, components.DimHints("complete"), strings.Join(lines, "\n"))
+	return components.ScreenLayout(s.screenTitle(), components.DimHints("complete"), strings.Join(lines, "\n"))
 }
 
 // HelpBindings returns contextual key bindings for the help bar.
@@ -331,6 +353,13 @@ func (s PoolOnboardScreen) HelpBindings() []components.KeyBind {
 			{Key: "enter", Desc: "continue"},
 		}
 	}
+}
+
+func (s PoolOnboardScreen) screenTitle() string {
+	if s.editMode {
+		return "Edit Profile · " + s.poolName
+	}
+	return "Join " + s.poolName
 }
 
 func titleCase(s string) string {

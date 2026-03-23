@@ -733,10 +733,40 @@ func (a app) handleSubmit(msg components.SubmitMsg) (tea.Model, tea.Cmd) {
 			a.updateHelp()
 			return a, screens.LoadProfileCmd(a.pool)
 		case "/profile-edit", "/edit":
-			// Redirect to pool onboard screen for profile editing
-			return a, func() tea.Msg {
-				return screens.PoolJoinMsg{Name: a.pool, Status: ""}
+			if a.pool == "" {
+				return a, func() tea.Msg {
+					return components.ToastMsg{Text: "No active pool", Level: components.ToastError}
+				}
 			}
+			// Load existing profile and schema, launch edit screen
+			poolRepo := ""
+			cfg, _ := config.Load()
+			if cfg != nil {
+				for _, p := range cfg.Pools {
+					if p.Name == a.pool {
+						poolRepo = p.Repo
+						break
+					}
+				}
+			}
+			if poolRepo == "" {
+				return a, func() tea.Msg {
+					return components.ToastMsg{Text: "Pool not found in config", Level: components.ToastError}
+				}
+			}
+			rawURL := gitrepo.RawURL(poolRepo, "main", "pool.yaml")
+			s, err := schema.Load(rawURL)
+			if err != nil {
+				return a, func() tea.Msg {
+					return components.ToastMsg{Text: "Failed to load pool schema", Level: components.ToastError}
+				}
+			}
+			profilePath := schema.ProfilePath(config.Dir(), a.pool)
+			existing, _ := schema.LoadProfile(profilePath)
+			a.poolOnboard = screens.NewPoolEditScreen(a.pool, s, a.width, a.height, existing)
+			a.screen = screenPoolOnboard
+			a.updateHelp()
+			return a, nil
 		case "/inbox":
 			a.screen = screenInbox
 			a.inbox = screens.NewInboxScreen()
