@@ -121,7 +121,7 @@ With `const_space = 10,000` (fixed) and `6` orderings:
 
 **Constraints:**
 - Minimum: `1` (no nonce, cold = 60K attempts, ~instant — no rate limiting)
-- Maximum: no hard limit. Higher values = slower cold unlock = more thoughtful browsing
+- Maximum: no hard limit. Higher values = slower cold unlock = more thoughtful browsing. Rough guide at 10M attempts/s: difficulty 20 ≈ 0.1s, 200 ≈ 1s, 1000 ≈ 6s, 5000 ≈ 30s per profile
 - Practical range: `5` to `1000`+
 - Without hint is always infeasible regardless of difficulty (enforced by hint_space = 10^8)
 
