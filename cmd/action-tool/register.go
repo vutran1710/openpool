@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"github.com/vutran1710/dating-dev/internal/github"
 	"github.com/vutran1710/dating-dev/internal/limits"
 	"github.com/vutran1710/dating-dev/internal/message"
+	"github.com/vutran1710/dating-dev/internal/schema"
 )
 
 func cmdRegister() {
@@ -61,8 +63,39 @@ func cmdRegister() {
 	_ = lines[4] // identity_proof
 
 	_ = userHash
-	_ = blobHex
 	_ = signature
+
+	// Validate profile against schema if --schema is provided
+	schemaPath := envOrArg("--schema", "POOL_SCHEMA")
+	if schemaPath != "" {
+		s, err := schema.Load(schemaPath)
+		if err != nil {
+			rejectIssue("loading schema: " + err.Error())
+		}
+
+		blobBytes, err := hex.DecodeString(blobHex)
+		if err != nil {
+			rejectIssue("decoding profile blob: " + err.Error())
+		}
+
+		profileJSON, err := crypto.UnpackUserBin(ed25519.PrivateKey(operatorKey), blobBytes)
+		if err != nil {
+			rejectIssue("decrypting profile: " + err.Error())
+		}
+
+		var profile map[string]any
+		if err := json.Unmarshal(profileJSON, &profile); err != nil {
+			rejectIssue("parsing profile JSON: " + err.Error())
+		}
+
+		if errs := s.ValidateProfile(profile); len(errs) > 0 {
+			msgs := make([]string, len(errs))
+			for i, e := range errs {
+				msgs[i] = e.Error()
+			}
+			rejectIssue("invalid profile: " + strings.Join(msgs, "; "))
+		}
+	}
 
 	// Decode user pubkey
 	userPub, err := hex.DecodeString(pubkeyHex)

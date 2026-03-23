@@ -29,4 +29,4 @@ jobs:
           POOL_SALT: ${{ secrets.POOL_SALT }}
           OPERATOR_PRIVATE_KEY: ${{ secrets.OPERATOR_PRIVATE_KEY }}
           GH_TOKEN: ${{ github.token }}
-        run: ./action-tool register
+        run: ./action-tool register --schema ./pool.yaml
