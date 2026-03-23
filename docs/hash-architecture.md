@@ -5,14 +5,14 @@ Multi-layer pseudonym system ensuring unlinkability across contexts.
 ## Hash Types
 
 ```
-PublicID → (salt) → bin-hash → (salt) → match-hash
+id_hash → (salt) → bin_hash → (salt) → match_hash
 ```
 
-| Hash | Computed by | Known to | Purpose |
-|------|------------|----------|---------|
-| **PublicID** | Client | Client, Action, Relay | Self-identity. `SHA256(pool_repo:provider:user_id)`. Used for auth proofs to Action. |
-| **bin-hash** | Action/Relay | Action, Relay, Client (via relay API) | Pool repo filename (`users/{bin-hash}.bin`). `SHA256(salt:PublicID)[:16]`. Client sees others' bin-hashes from synced pool repo. |
-| **match-hash** | Matching engine | Relay, matched users | Used in discovery results, like PRs, and labels. `SHA256(salt:bin-hash)` or similar. Unlinkable to bin-hash without salt. |
+| Hash | Length | Computed by | Purpose |
+|------|--------|------------|---------|
+| **id_hash** | 64 hex | Client + Action | `SHA256(pool_repo:provider:user_id)`. Identity proof at registration. |
+| **bin_hash** | 16 hex | Action + Relay | `SHA256(salt:id_hash)[:16]`. Filename in pool repo (`users/{bin_hash}.bin`). Public in discovery. |
+| **match_hash** | 16 hex | Action + Relay | `SHA256(salt:bin_hash)[:16]`. Public handle for interest/chat. Unlinkable to bin_hash without salt. |
 
 ## Properties
 
@@ -23,17 +23,18 @@ PublicID → (salt) → bin-hash → (salt) → match-hash
 
 ## Who Knows What
 
-| Entity | PublicID | bin-hash | match-hash |
-|--------|----------|----------|------------|
-| Client (self) | Yes (computes) | Yes (asks relay) | Yes (from discovery) |
-| Client (others) | No | Yes (pool repo files) | Yes (from discovery) |
-| Relay | Yes | Yes | Yes |
-| Action | Yes | Yes | Yes |
-| GitHub (public) | No | Yes (filenames visible) | Yes (in PR labels) |
+| Entity | id_hash | bin_hash | match_hash |
+|--------|---------|----------|------------|
+| Client (self) | Yes (computes) | Yes (from registration) | Yes (from registration) |
+| Client (others) | No | Yes (pool repo .bin filenames) | Yes (interest issue titles) |
+| Relay | Yes (from connect params) | Yes (computes from salt) | Yes (computes from salt) |
+| Action | Yes (from issue body) | Yes (computes from salt) | Yes (computes from salt) |
+| GitHub (public) | No | Yes (.bin filenames visible) | Yes (interest issue titles) |
 
-## Current State
+## Security
 
-- `PublicID`: implemented (`crypto.UserHash()`)
-- `bin-hash`: computed by Action, client doesn't query relay for it yet
-- `match-hash`: not implemented (needs matching engine)
-- Labels use full hash for now, will use match-hash when matching engine exists
+- **bin_hash is public** — visible in `.bin` filenames during discovery
+- **match_hash is public** — appears as interest issue titles
+- **Unlinkable without salt** — knowing bin_hash tells you nothing about match_hash (and vice versa)
+- **Salt location** — only in pool repo GitHub Actions secrets + relay env var
+- **id_hash → bin_hash → match_hash**: each layer is one-way without the salt
