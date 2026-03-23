@@ -21,7 +21,7 @@ Model:
     - This profile's constant (advantage for re-solving in other permutations)
     - Next hint (8-digit, enables solving the next box — without it, infeasible)
 
-  Single tuning knob: difficulty (N)
+  Single tuning knob: nonce_space (N)
 """
 
 import hashlib
@@ -64,7 +64,7 @@ def ctx(seed, pos):
 
 # === Indexer ===
 
-def build_chain(profiles, seed, hint_space, const_space, difficulty):
+def build_chain(profiles, seed, hint_space, const_space, nonce_space):
     consts = []
     hints = []
     for p in profiles:
@@ -79,7 +79,7 @@ def build_chain(profiles, seed, hint_space, const_space, difficulty):
     for i, prof in enumerate(profiles):
         c = ctx(seed, i)
         ordering = pick_ordering(c)
-        nonce_val = random.randint(0, difficulty - 1)
+        nonce_val = random.randint(0, nonce_space - 1)
         next_h = hints[i + 1] if i + 1 < len(profiles) else seed_hint
 
         payload = json.dumps({
@@ -105,18 +105,18 @@ def build_chain(profiles, seed, hint_space, const_space, difficulty):
         "seed_hint": seed_hint,
         "hint_space": hint_space,
         "const_space": const_space,
-        "difficulty": difficulty,
+        "nonce_space": nonce_space,
         "boxes": boxes,
     }
 
 
 # === Explorer ===
 
-def solve_cold(box, hint, const_space, difficulty):
+def solve_cold(box, hint, const_space, nonce_space):
     """With hint, unknown constant + nonce + ordering."""
     attempts = 0
     for constant in range(const_space):
-        for nonce_val in range(difficulty):
+        for nonce_val in range(nonce_space):
             for ordering in ORDERINGS:
                 attempts += 1
                 key = derive_key(hint, constant, nonce_val, ordering)
@@ -128,10 +128,10 @@ def solve_cold(box, hint, const_space, difficulty):
     return None, attempts
 
 
-def solve_warm(box, hint, known_const, difficulty):
+def solve_warm(box, hint, known_const, nonce_space):
     """Known constant, unknown nonce + ordering."""
     attempts = 0
-    for nonce_val in range(difficulty):
+    for nonce_val in range(nonce_space):
         for ordering in ORDERINGS:
             attempts += 1
             key = derive_key(hint, known_const, nonce_val, ordering)
@@ -154,7 +154,7 @@ def explore(chain, known=None):
 
         if tag in known:
             t0 = time.time()
-            payload, att = solve_warm(box, cur_hint, known[tag], chain["difficulty"])
+            payload, att = solve_warm(box, cur_hint, known[tag], chain["nonce_space"])
             elapsed = time.time() - t0
             if payload:
                 print("  WARM:  {}... {:>8} attempts  {:.4f}s  -> {}".format(
@@ -164,7 +164,7 @@ def explore(chain, known=None):
                 continue
 
         t0 = time.time()
-        payload, att = solve_cold(box, cur_hint, chain["const_space"], chain["difficulty"])
+        payload, att = solve_cold(box, cur_hint, chain["const_space"], chain["nonce_space"])
         elapsed = time.time() - t0
 
         if payload:
@@ -195,22 +195,22 @@ def main():
     # --- Real-world parameters (commented — too slow for demo) ---
     # hint_space     = 100_000_000  # 10^8 — without hint = infeasible
     # const_space    = 10_000       # 10^4 — 4-digit profile constant
-    # difficulty    = 20           # tunable knob
+    # nonce_space    = 20           # tunable knob
 
     # --- Demo parameters (fast enough to run) ---
     hint_space = 100_000    # reduced for demo (real: 10^8)
     const_space = 100       # reduced for demo (real: 10^4)
-    difficulty = 10        # tunable knob
+    nonce_space = 10        # tunable knob
 
     print("=== CONFIG ===")
     print("  hint_space     = {:>12,}  (without hint = infeasible)".format(hint_space))
     print("  const_space    = {:>12,}  (profile constant range)".format(const_space))
-    print("  difficulty    = {:>12,}  (tunable knob)".format(difficulty))
+    print("  nonce_space    = {:>12,}  (tunable knob)".format(nonce_space))
     print("  orderings      = {:>12}  (3!)".format(6))
     print()
-    print("  without hint:  {:>12,} attempts (infeasible)".format(hint_space * const_space * difficulty * 6))
-    print("  cold (w/hint): {:>12,} attempts (~seconds)".format(const_space * difficulty * 6))
-    print("  warm:          {:>12,} attempts (~instant)".format(difficulty * 6))
+    print("  without hint:  {:>12,} attempts (infeasible)".format(hint_space * const_space * nonce_space * 6))
+    print("  cold (w/hint): {:>12,} attempts (~seconds)".format(const_space * nonce_space * 6))
+    print("  warm:          {:>12,} attempts (~instant)".format(nonce_space * 6))
 
     # Build two permutations
     perm0 = profiles[:]
@@ -222,8 +222,8 @@ def main():
     print("  Perm 0: {}".format(" -> ".join(p["name"] for p in perm0)))
     print("  Perm 1: {}".format(" -> ".join(p["name"] for p in perm1)))
 
-    chain0 = build_chain(perm0, b"perm0", hint_space, const_space, difficulty)
-    chain1 = build_chain(perm1, b"perm1", hint_space, const_space, difficulty)
+    chain0 = build_chain(perm0, b"perm0", hint_space, const_space, nonce_space)
+    chain1 = build_chain(perm1, b"perm1", hint_space, const_space, nonce_space)
 
     # Perm 0: cold
     print("\n=== EXPLORER: Permutation 0 (cold — no prior knowledge) ===")
@@ -248,15 +248,15 @@ def main():
 
     print("\n=== SECURITY MODEL ===")
     print("  Without hint: {:.1e} attempts — INFEASIBLE".format(
-        hint_space * const_space * difficulty * 6))
+        hint_space * const_space * nonce_space * 6))
     print("  With hint:    {:.1e} attempts — seconds (cold unlock)".format(
-        const_space * difficulty * 6))
+        const_space * nonce_space * 6))
     print("  Known const:  {:.1e} attempts — instant (warm re-encounter)".format(
-        difficulty * 6))
+        nonce_space * 6))
     print()
     print("  hint (8-digit):     gates sequential access — must solve box N to reach N+1")
     print("  constant (4-digit): per-profile fingerprint — carry across permutations")
-    print("  nonce (tunable):    per-entry random — single knob for difficulty")
+    print("  nonce (tunable):    per-entry random — single knob for nonce_space")
     print("  ordering (6):       randomized key component order — prevents optimization")
 
 
