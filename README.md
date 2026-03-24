@@ -211,6 +211,7 @@ make coverage  # coverage report
 - [ ] Forward secrecy for chat (ratcheted key exchange)
 - [ ] Web-based pool explorer (browse pools without CLI)
 - [ ] Multi-registry federation
+- [ ] Salt & operator private key rotation/migration
 
 ## License
 
