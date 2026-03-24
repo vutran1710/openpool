@@ -11,13 +11,10 @@ type StatusBar struct {
 	Pool     string
 	Registry string
 	Width    int
-	Heart    HeartBeat
 }
 
 func NewStatusBar() StatusBar {
-	return StatusBar{
-		Heart: NewHeartBeat(),
-	}
+	return StatusBar{}
 }
 
 func (s StatusBar) View() string {

@@ -43,20 +43,12 @@ func RenderPoolCard(p PoolCardData, width int, focused bool) string {
 		Width(width).
 		Padding(1, 2)
 
-	// Logo + header side by side
-	logo := p.Logo
-	if logo == "" {
-		logo = PoolLogo()
+	// Logo on top of pool name (if present)
+	content := ""
+	if p.Logo != "" {
+		content += p.Logo + "\n\n"
 	}
-	headerBlock := renderCardHeader(p)
-	headerSection := lipgloss.JoinHorizontal(
-		lipgloss.Top,
-		logo,
-		"  ",
-		headerBlock,
-	)
-
-	content := headerSection + "\n"
+	content += renderCardHeader(p) + "\n"
 
 	// Short description
 	if p.Description != "" {

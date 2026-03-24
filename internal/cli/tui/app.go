@@ -168,7 +168,7 @@ func (a *app) initChatClient() tea.Cmd {
 }
 
 func (a app) Init() tea.Cmd {
-	cmds := []tea.Cmd{inputInit(), a.statusBar.Heart.Tick(), a.initChatClient()}
+	cmds := []tea.Cmd{inputInit(), a.initChatClient()}
 	// Hint when starting with no active pool
 	if a.pool == "" && a.screen == screenPools {
 		cmds = append(cmds, func() tea.Msg {
@@ -656,11 +656,6 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case pendingPollTickMsg:
 		return a, pollPendingPools
-
-	case components.HeartTickMsg:
-		var cmd tea.Cmd
-		a.statusBar.Heart, cmd = a.statusBar.Heart.Update(msg)
-		return a, cmd
 
 	case components.ToastClearMsg:
 		a.toast, _ = a.toast.Update(msg)

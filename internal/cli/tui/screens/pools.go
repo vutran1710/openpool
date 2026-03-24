@@ -114,12 +114,14 @@ func (s PoolsScreen) fetchPools() tea.Msg {
 
 		// Fetch stats: use local clone for joined pools, API for unjoined
 		var stats gh.PoolStats
+		var poolRepo *gitrepo.Repo
 		isJoined := s.poolStatus[e.Name] == "active" || s.poolStatus[e.Name] == "pending"
 		if isJoined {
 			poolURL := gitrepo.EnsureGitURL(e.Repo)
-			if poolRepo, err := gitrepo.Clone(poolURL); err == nil {
-				poolRepo.Sync()
-				pool := gh.NewLocalPool(poolRepo)
+			if repo, err := gitrepo.Clone(poolURL); err == nil {
+				repo.Sync()
+				poolRepo = repo
+				pool := gh.NewLocalPool(repo)
 				stats = pool.Stats()
 			}
 			// Download chain-encrypted index.db for discovery
@@ -133,8 +135,8 @@ func (s PoolsScreen) fetchPools() tea.Msg {
 			stats = pool.Stats()
 		}
 
-		// Get logo (cached as logo.txt — instant after first render)
-		logo := components.PoolLogoFromRepo(regRepo, e.Name)
+		// Get logo from pool repo (logo.txt in pool root)
+		logo := components.PoolLogoFromRepo(poolRepo)
 
 		pools = append(pools, poolItem{
 			entry:  e,
