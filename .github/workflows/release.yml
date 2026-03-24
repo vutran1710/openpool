@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Verify tag is on main
+        run: |
+          TAG_COMMIT=$(git rev-list -n 1 "$GITHUB_REF")
+          MAIN_COMMITS=$(git rev-list origin/main)
+          if ! echo "$MAIN_COMMITS" | grep -q "$TAG_COMMIT"; then
+            echo "Error: tag must be on main branch"
+            exit 1
+          fi
+
+      - name: Run tests
+        env:
+          OPENPOOL_HOME: /tmp/openpool-test
+        run: go test ./... -race -timeout 120s
+
+      - name: Build binaries
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          LDFLAGS="-s -w -X main.version=${VERSION}"
+
+          # op (CLI/TUI)
+          GOOS=linux   GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/op-linux-amd64       ./cmd/op/
+          GOOS=linux   GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/op-linux-arm64       ./cmd/op/
+          GOOS=darwin  GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/op-darwin-amd64      ./cmd/op/
+          GOOS=darwin  GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/op-darwin-arm64      ./cmd/op/
+
+          # relay
+          GOOS=linux   GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/relay-linux-amd64    ./cmd/relay/
+          GOOS=linux   GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/relay-linux-arm64    ./cmd/relay/
+
+          # action-tool
+          GOOS=linux   GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/action-tool-linux-amd64 ./cmd/action-tool/
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --generate-notes \
+            dist/*

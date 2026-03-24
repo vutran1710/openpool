@@ -14,3 +14,5 @@ coverage.html
 /indexer
 /action-tool
 /action-tool-*
+dist/
+action-tool-linux-amd64
