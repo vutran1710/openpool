@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo/horizontal.svg" width="320" alt="openpool">
+  <img src="assets/logo/horizontal.svg" width="500" alt="openpool">
 </p>
 
 <p align="center">

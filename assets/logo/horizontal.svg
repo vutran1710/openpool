@@ -12,5 +12,5 @@
     <circle cx="92" cy="72" r="38" fill="#FBCFE8" opacity="0.25" style="mix-blend-mode: screen"/>
   </g>
   <circle cx="72" cy="72" r="60" stroke="#A78BFA" stroke-width="2" opacity="0.2" fill="none"/>
-  <text x="160" y="86" font-family="'JetBrains Mono', 'SF Mono', monospace" font-size="56" font-weight="600" fill="#1a1528">openpool</text>
+  <text x="160" y="86" font-family="'JetBrains Mono', 'SF Mono', monospace" font-size="56" font-weight="700" fill="#111111">openpool</text>
 </svg>
