@@ -2,36 +2,41 @@
 
 ## Project Overview
 
-Terminal-native, decentralized dating platform. GitHub repos as the database, encrypted profiles, CLI + TUI interface. Pre-launch (private repo).
+Terminal-native, decentralized matching platform. GitHub repos as the database, encrypted profiles, CLI + TUI interface. Pre-launch (private repo). Planned rename to **openpool**.
 
 ## Tech Stack
 
 - **Language**: Go 1.25
 - **CLI**: Cobra (commands), Bubbletea (TUI), Lipgloss (styling)
-- **Crypto**: ed25519 (signing/TOTP) + NaCl box with ed25519→curve25519 (encryption) + ECDH (chat keys)
+- **Crypto**: ed25519 (signing/TOTP) + NaCl box with ed25519→curve25519 (encryption) + ECDH (chat keys) + AES-256-GCM (chain encryption for discovery)
 - **Config**: TOML (`~/.dating/setting.toml`)
 - **Protocol**: Binary frames over WebSocket (text frames for control)
-- **Web**: Next.js (docs site at `web/`)
+- **Schema**: YAML (`pool.yaml`) — pool config, profile attributes, roles, indexing, interest expiry
 
 ## Architecture
 
 ```
 cmd/dating/       → CLI entry point
 cmd/relay/        → Per-pool WebSocket relay server
-cmd/action-tool/  → Unified Action binary (register, match, squash, index, sign, decrypt, pubkey)
+cmd/action-tool/  → Unified Action binary (register, match, squash, index, sign, decrypt, pubkey, managed-register)
 internal/
+  bucket/         → Profile bucketing (partition by attributes)
+  chainenc/       → Chain encryption (AES-256-GCM, rate-limited discovery)
   cli/            → CLI commands + TUI app
   cli/chat/       → ChatClient + ConversationDB (SQLite message persistence)
   cli/svc/        → Service interfaces (dependency injection)
   cli/tui/        → Bubbletea screens, components, theme
   cli/config/     → Config file management
-  crypto/         → Encryption, signing, TOTP, key derivation
+  crypto/         → Encryption, signing, TOTP, ephemeral hashes, key derivation
+  explorer/       → Chain-encrypted index explorer (grind, state tracking)
   github/         → GitHubClient interface (CLIClient + HTTPClient), pool operations
   gitrepo/        → Git clone management, raw content fetcher
+  indexer/        → Chain-encrypted index builder (buckets → chains → SQLite)
   limits/         → Payload size constants
   message/        → Structured message format (Format/Parse for openpool blocks)
-  pooldb/         → PoolDB (SQLite for pool profiles, scores, seen — shared by indexer + client)
+  pooldb/         → PoolDB (SQLite for legacy pool profiles)
   relay/          → Relay server (stateless TOTP auth, hub, sessions, GitHub cache)
+  schema/         → Pool schema parser (pool.yaml), validation, form generation
   debug/          → Debug logger (DEBUG=1)
 templates/
   actions/        → GitHub Action templates for pool repos (thin wrappers)
@@ -48,252 +53,124 @@ bin_hash   = sha256(salt:id_hash)[:16]             → 16 hex chars (relay routi
 match_hash = sha256(salt:bin_hash)[:16]             → 16 hex chars (TOTP secret, public handle for chat)
 ```
 
-Go type: `crypto.IDHash` (for id_hash). Salt is a pool secret (only in GitHub Actions secrets + relay env).
+Salt is a pool secret (only in GitHub Actions secrets + relay env var).
 
 ### Security Rationale
 
-Each hash layer is **one-way and unlinkable** without the salt:
+- **bin_hash is public** — visible in `.bin` filenames
+- **match_hash is public** — used in interest issue titles (ephemeral hash)
+- **Unlinkable without salt** — knowing bin_hash tells you nothing about match_hash
+- discovery (bin_hash), matching (match_hash), and identity (id_hash) are three unlinkable namespaces
 
-- **bin_hash is public** — anyone can see it in `.bin` filenames during discovery
-- **match_hash is public** — it appears on interest issues (issue title = target's match_hash)
-- **The key insight**: knowing bin_hash tells you nothing about match_hash (and vice versa) without the salt
-- An attacker who sees both bin_hash and match_hash **cannot link them** to the same person without the salt
-- The salt only exists in two places: pool repo's GitHub Actions secrets + relay server's env var
-- **real_id → id_hash**: anyone can compute (deterministic from public info), but only needed at registration
-- **id_hash → bin_hash**: only the salt holder can compute (one-way)
-- **bin_hash → match_hash**: only the salt holder can compute (one-way)
+### Pool Schema (`pool.yaml`)
 
-This separation means: discovery (bin_hash), matching (match_hash), and identity (id_hash) are three unlinkable namespaces.
+Single YAML file per pool repo with metadata, profile attributes, roles, indexing config, and interest expiry:
+
+```yaml
+name: "pool name"
+description: "description"
+relay_url: wss://relay.example.com
+operator_public_key: hex...
+interest_expiry: 3d           # required — ephemeral interest hash rotation
+
+profile:
+  age: { type: range, min: 18, max: 100 }
+  interests: { type: multi, values: hiking, coding, music }
+  about: { type: text, required: false }
+  phone: { type: text, visibility: private }
+
+roles:
+  - man
+  - woman
+
+indexing:
+  partitions:
+    - field: role
+    - field: age
+      step: 5
+      overlap: 2
+  permutations: 5
+  difficulty: 20
+```
+
+### Chain Encryption (Discovery)
+
+Profiles are chain-encrypted for rate-limited discovery:
+
+- **Indexer** (Action cron): decrypts .bin files → buckets by partitions → builds VDF-like chains per bucket → produces `index.db`
+- **Explorer** (client): downloads `index.db` → grinds chains to unlock profiles one at a time
+- **Three security tiers**: without hint = infeasible (10^8 × 10^4 × N × 6), cold = seconds, warm = instant
+- **Key**: `sha256("{hint}:{profile_constant}:{nonce}")` with randomized component ordering
+- **AES-256-GCM** authenticated encryption per profile entry
+
+### Short-Lived Interest Hashes
+
+Interest issue titles use ephemeral hashes that rotate based on `interest_expiry`:
+
+```
+window = unix_timestamp / expiry_seconds
+ephemeral_hash = sha256(match_hash + ":" + window)[:16]
+```
+
+Real `target_match_hash` is inside the encrypted issue body.
 
 ### Relay Auth (TOTP)
 
-No JWT, no tokens, no login endpoint, no database. Client computes signature at connect time:
+No JWT, no tokens, no login endpoint, no database:
 
 ```
 ws://relay/ws?id=<id_hash>&match=<match_hash>&sig=<totp_signature>
 ```
 
-Relay validates the chain (`id_hash → bin_hash → match_hash` via salt), fetches pubkey from GitHub raw content, then verifies `ed25519.Verify(pubkey, sha256(time_window), sig)`. ±1 window (5 min) for clock drift.
-
-Implemented in `internal/crypto/totp.go`: `TOTPSign(priv, relayHost)`, `TOTPSignAt(priv, relayHost, tw)`, `TOTPVerify(sigHex, pub, relayHost)`. Channel-bound to the relay host.
+Channel-bound to the relay host. ±1 window (5 min) for clock drift.
 
 ### Registration Flow
 
-1. `dating profile create <pool>` → scaffolds local `profile.json`
-2. `dating pool join <pool>` → reads profile, encrypts, submits GitHub Issue with `registration` label
-3. GitHub Action runs `action-tool register` → computes hashes, encrypts, signs, commits `.bin`, closes + locks issue, posts operator-signed comment
-4. CLI polls issue comments → verifies operator signature → decrypts → persists hashes to config
+1. TUI pool onboard → schema-driven form → fill profile → submit
+2. GitHub Issue created with `registration` label + encrypted profile blob
+3. Action runs `action-tool register --schema pool.yaml` → validates, computes hashes, commits `.bin`, posts operator-signed comment
+4. Client polls issue → verifies signature → decrypts → persists hashes
+
+### Discovery Flow
+
+1. Indexer Action (cron) builds chain-encrypted `index.db` → uploads as release asset
+2. Pools screen syncs: pull repo + download `index.db`
+3. Discover screen reads local `index.db` → grinds chains → shows profiles one at a time
+4. User likes → creates interest issue with ephemeral hash title
 
 ### E2E Encrypted Chat
 
-Messages encrypted with NaCl secretbox. Key derived via ECDH (ed25519→curve25519) + HKDF. Relay routes ciphertext only.
-
-### Match Notification as Key Exchange
-
-When a mutual match is detected, the GitHub Action encrypts a notification to each user containing the peer's **pubkey** (not just bin_hash). This means:
-- Match notification IS the key exchange — no separate key_request/key_response protocol needed
-- Each user receives their peer's ed25519 pubkey encrypted to their own pubkey
-- The client can derive the ECDH shared secret immediately from the notification
-- The relay never needs to store or serve pubkeys
-
-### Discovery & Matching Flow
-
-1. **Discovery**: Users browse `.bin` files (keyed by bin_hash), decrypt profiles with operator key
-2. **Interest**: User creates an Issue with `title=<target_match_hash>`, `label=interest`, encrypted body
-3. **Mutual match**: GitHub Action detects both directions, posts encrypted notifications with peer pubkeys, closes + locks both issues
-4. **Chat**: `dating chat <match_hash>` — user identifies peers by match_hash (not bin_hash)
-
-### Message Format
-
-All structured content (issues, comments) uses the `message` package:
-
-```
-<!-- openpool:{block_type} -->
-```​
-{content}
-```​
-```
-
-Block types: `registration-request`, `registration`, `interest`, `match`, `error`.
-Parsed by `message.Parse(raw)`, created by `message.Format(blockType, content)`.
-
-### ChatClient & Message Persistence
-
-`internal/cli/chat/` provides:
-- `ConversationDB` — SQLite at `~/.dating/conversations.db` (messages, conversations, peer_keys tables)
-- `ChatClient` — composes relay client + DB. Handles send, receive, history, mark read, peer key storage.
-
-Screens are pure views — they don't touch the relay or DB directly. ChatClient handles all logic.
-The TUI connects to the relay on startup (background). Incoming messages persist and update the conversations panel in real-time.
-The CLI `dating chat` command also uses ChatClient for persistence.
-
-### GitHub Client
-
-`internal/github/` has a `GitHubClient` interface with two implementations:
-- `CLIClient` — shells out to `gh` CLI (used by Action tools + CLI when `gh` is available)
-- `HTTPClient` — direct HTTP with PAT (fallback)
-
-`NewCLIOrHTTP(repo, token)` prefers CLI, falls back to HTTP.
-
-### Schema-Driven Matching
-
-Pool schema (`pool.json`) defines fields with 4 match modes:
-
-| Mode | Behavior | Example |
-|------|----------|---------|
-| `complementary` | Field A's value matches field B's target | gender: "male" seeks "female" |
-| `approximate` | Values within tolerance range | age: 25 ± 5 |
-| `exact` | Values must be identical | city: "Berlin" = "Berlin" |
-| `similarity` | Cosine similarity on interest vectors | interests overlap score |
-
-Operator-defined weights are private (not in schema). Ranking uses tier-shuffled ordering: top 5% → 5-20% → 20-50% → 50-100%, shuffled within each tier.
+Messages encrypted with NaCl secretbox. Key derived via ECDH (ed25519→curve25519) + HKDF. Relay routes ciphertext only. Match notification IS the key exchange (peer pubkey delivered in encrypted match comment).
 
 ## Conventions
 
 ### Code Style
 
 - No unnecessary abstractions — three similar lines is better than a premature helper
-- Single responsibility — functions do one thing. Don't jam fetch + parse + verify + decrypt into one function. Compose small functions.
-- Separate view from logic (React philosophy) — TUI screens are pure views, logic lives in dedicated classes (ChatClient, ConversationDB). Screens never import relay, DB, or crypto directly.
+- Single responsibility — functions do one thing
+- Separate view from logic — TUI screens are pure views, logic in dedicated classes
 - No backward compatibility during pre-launch — delete old code, don't maintain fallbacks
-- CLI commands must be fully scriptable — every interactive prompt needs a flag/env var alternative
-- Interfaces live in `internal/cli/svc/svc.go` — single source of truth
-- Real implementations in `internal/cli/services.go`, mocks in `internal/cli/services_mock.go`
-- Service-level mocks in `internal/cli/svc/mocks.go`
-- TUI screens in `internal/cli/tui/screens/`, components in `internal/cli/tui/components/`
+- CLI commands must be fully scriptable
 
 ### Naming
 
-- Files: `snake_case.go`
-- Test files: `snake_case_test.go` in the same package
-- Benchmark files: `snake_case_bench_test.go`
-- Mock files: `mock_*.go` or `*_mock.go`
-- Service interfaces: `FooService` with methods like `Load`, `Save`, `Get`
-- Hash types: `IDHash` (not `PublicID`), `BinHash`, `MatchHash`
+- Files: `snake_case.go`, tests: `snake_case_test.go`
+- Hash types: `IDHash`, `BinHash`, `MatchHash`
 
 ### Error Handling
 
 - Return errors, don't panic
 - Wrap with context: `fmt.Errorf("doing X: %w", err)`
-- In TUI screens: show error in UI (toast or error step), don't crash
-- In async tea.Cmd: return error messages, handle in Update
-
-### Imports
-
-- Group: stdlib, then external, then internal
-- Alias github packages: `gh "github.com/vutran1710/dating-dev/internal/github"`
-- Alias debug: `dbg "github.com/vutran1710/dating-dev/internal/debug"`
+- In TUI: show error in UI (toast), don't crash
 
 ## Testing
 
-### Running Tests
-
 ```bash
 make test      # runs with isolated DATING_HOME (temp dir)
-make coverage  # generates coverage.out + coverage.html
+make coverage  # coverage report
 ```
 
-**CRITICAL**: Always use `make test` or set `DATING_HOME` to a temp dir. Running bare `go test ./...` writes test data to real `~/.dating/setting.toml`.
-
-### Test Patterns
-
-- Unit tests in same package (`_test.go`)
-- Test both happy and sad paths (success, error, empty, invalid)
-- TUI screen tests: construct → send message → assert state + command
-- Use `tea.KeyMsg{Type: tea.KeyEnter}` for key simulation
-- Mock services via `svc/mocks.go` or `cli/services_mock.go`
-- Benchmarks for performance-sensitive code (profile rendering, glamour)
-- Use `-race` flag for concurrent code (TOTP, relay)
-
-### Test Isolation
-
-- `DATING_HOME` env var controls where config/keys/profiles are stored
-- `make test` sets it to a temp dir automatically
-- Never hardcode `~/.dating` in tests — use `config.Dir()` which reads `DATING_HOME`
-
-### Adding Tests
-
-Every code change must include tests:
-- New feature → unit tests for all state transitions
-- Bug fix → regression test proving the fix
-- New service method → test happy path + error path
-- New TUI component → test Update/View with key events
-
-## TUI Development
-
-### Screen Structure
-
-Each screen implements:
-```go
-type FooScreen struct { ... }
-func NewFooScreen(...) FooScreen
-func (s FooScreen) Update(msg tea.Msg) (FooScreen, tea.Cmd)
-func (s FooScreen) View() string
-func (s FooScreen) HelpBindings() []components.KeyBind
-```
-
-### Bubbletea Components Used
-
-- `bubbles/spinner` — loading indicators
-- `bubbles/textinput` — single-line input
-- `bubbles/textarea` — multi-line input (about text)
-- `bubbles/viewport` — scrollable content
-- `bubbles/table` — pool card info table
-- `bubbles/help` — help bar with key bindings
-
-### Key Input Routing
-
-- Screens that handle their own input (onboarding, join, profile) must block forwarding to the command input. Check `updateActiveScreen` in `app.go` — add screen to the `screenOnboarding || screenJoin || screenProfile` guard.
-
-### Performance
-
-- Glamour markdown rendering is slow (~94ms). Cache rendered output, never re-render on mode switch.
-- Profile card: cache Normal + Compact modes, swap cached strings on tab.
-- Git operations: `Clone()` returns instantly if already cloned. Use `Sync()` for smart updates.
-
-## Services (svc package)
-
-7 services, each with interface + real impl + mock:
-
-| Service | Scope |
-|---------|-------|
-| ConfigService | Read/write setting.toml |
-| CryptoService | Encrypt/decrypt/sign |
-| GitService | Clone/fetch git repos |
-| GitHubService | GitHub API calls |
-| ProfileService | Read/write profile files |
-| PersistenceService | Orchestrates config + profile writes |
-| PollingService | Background issue status polling |
-
-## Relay Server
-
-Per-pool stateless WebSocket server. Env vars: `POOL_URL`, `POOL_SALT`, `PORT`.
-
-Deployed on Railway (~$0.40/month). No database — fully stateless.
-
-Key components:
-- `Server` — HTTP handler, stateless TOTP auth at WS upgrade, hash derivation from salt
-- `GitHubCache` — Fetches pubkeys + match files from `raw.githubusercontent.com`, caches in memory
-- `Hub` — active session registry (keyed by `match_hash`) + offline message queue (cap 20)
-- `Session` — binary frame routing, text frame control messages
-
-### Wire Format
-
-- **Binary frames** (chat messages): `[target_match_hash_8B][ciphertext]` — relay prepends sender's match_hash when forwarding
-- **Text frames** (control): `queued`, `not matched`, `match check failed`, `queue full`, `frame too large`, `unknown user`
-- **Size limits**: 8 KB max binary frame, 4 KB max chat plaintext
-- Encryption: `crypto.SealRaw`/`crypto.OpenRaw` (NaCl secretbox, raw bytes — no base64)
-
-### Endpoints
-
-| Endpoint | Purpose |
-|----------|---------|
-| `GET /ws` | Stateless TOTP auth + WebSocket upgrade |
-| `GET /health` | `{status, online, queued}` JSON |
-
-### Match Authorization
-
-`pair_hash = sha256(min(a,b) + ":" + max(a,b))[:12]` where a,b are match_hashes. Relay fetches `matches/{pair_hash}.json` from GitHub raw content. Cached for 5 minutes (positive + 404 negative). 5xx/network errors NOT cached.
+**CRITICAL**: Always use `make test` or set `DATING_HOME` to a temp dir.
 
 ## Binaries
 
@@ -301,35 +178,27 @@ Key components:
 |--------|---------|-------------|
 | `dating` | CLI app | End users |
 | `relay` | Per-pool relay server | Pool operators (Railway) |
-| `action-tool` | All Action operations (register, match, squash, index, sign, decrypt, pubkey) | GitHub Actions, published to `vutran1710/regcrypt` |
+| `action-tool` | All Action operations (register, match, squash, index, managed-register, sign, decrypt, pubkey) | GitHub Actions |
 
 ## GitHub Actions (Pool Repo)
 
-Four Actions in `templates/actions/` — deployed to each pool repo:
-
 | Action | Trigger | Purpose |
 |--------|---------|---------|
-| `pool-register.yml` | Issue opened with `registration` label | `./action-tool register` |
-| `pool-interest.yml` | Issue opened with `interest` label | `./action-tool match` |
-| `pool-indexer.yml` | Cron (every 5 min) | `./action-tool index --upload` |
-| `pool-squash.yml` | Cron (hourly) | `./action-tool squash` (if commits > MAX_COMMIT_COUNT) |
+| `pool-register.yml` | Issue with `registration` label | `action-tool register --schema pool.yaml` |
+| `pool-interest.yml` | Issue with `interest` label | `action-tool match` |
+| `pool-indexer.yml` | Cron (every 5 min) | `action-tool index --upload` (chain-encrypted) |
+| `pool-squash.yml` | Cron (hourly) | `action-tool squash` |
 
-All Actions download one binary (`action-tool-linux-amd64`). All logic in Go. Invalid issues are rejected + locked as spam. Valid issues are locked as resolved after processing.
-
-### Indexing & Discovery
-
-- `.bin` files: `[32B pubkey][NaCl box encrypted profile]` — committed by registration Action
-- `index.db`: SQLite database of all profiles — uploaded as release asset (`index-latest` tag) by indexer cron
-- Client downloads `index.db` from release, merges into local `pool.db` via `ATTACH DATABASE`
-- Cron indexer is separate from registration to break `.bin` commit linkability
-- History squashing (hourly cron) removes git timeline to prevent timing correlation
-
-### Local Databases
+## Local Databases
 
 ```
 ~/.dating/
-  conversations.db    — messages, conversations, peer_keys (ChatClient)
-  pool.db             — profiles, scores, seen (synced from index.db)
+  conversations.db                    — messages, conversations, peer_keys (ChatClient)
+  pools/<pool-name>/
+    index.db                          — chain-encrypted profiles (downloaded from release)
+    explorer.db                       — explorer state (constants, checkpoints, seen)
+    profile.json                      — user's profile for this pool
+    preferences.yaml                  — local discovery preferences (never committed)
 ```
 
 ## Debug Mode
@@ -338,11 +207,8 @@ All Actions download one binary (`action-tool-linux-amd64`). All logic in Go. In
 DEBUG=1 dating
 ```
 
-Shows timestamped logs in TUI status bar. Use `dbg.Log()` and `dbg.Timer()` from `internal/debug`.
-
 ## Common Gotchas
 
-- **Config corruption**: Tests MUST use `DATING_HOME` temp dir. Bare `go test` writes to real config.
-- **Viewport blank**: Screens need `WindowSizeMsg` before rendering. Send it explicitly when navigating.
-- **Key events eaten**: Command input steals arrow/tab keys. Block forwarding for screens that need them.
-- **Glamour slow**: Never call glamour in `Update()` or on mode switch. Cache once, swap strings.
+- **Config corruption**: Tests MUST use `DATING_HOME` temp dir
+- **Key events eaten**: Command input steals arrow/tab keys — block forwarding for interactive screens
+- **CDN cache**: raw.githubusercontent.com caches for ~5 min — relay may have stale pubkeys after .bin update
