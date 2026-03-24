@@ -41,3 +41,23 @@ func Logo() string {
 func Cursor() string {
 	return BrandStyle.Render("❯ ")
 }
+
+// AccentPresets maps accent names to colors.
+var AccentPresets = map[string]lipgloss.Color{
+	"pink":   lipgloss.Color("#FF6B9D"),
+	"violet": lipgloss.Color("#A78BFA"),
+	"green":  lipgloss.Color("#7CDB8A"),
+	"blue":   lipgloss.Color("#60A5FA"),
+	"amber":  lipgloss.Color("#FBBF24"),
+}
+
+// SetAccent updates the brand/accent colors based on a preset name.
+func SetAccent(name string) {
+	color, ok := AccentPresets[name]
+	if !ok {
+		return
+	}
+	Pink = color
+	BrandStyle = lipgloss.NewStyle().Foreground(color)
+	ActiveItem = lipgloss.NewStyle().Foreground(color).Bold(true)
+}
