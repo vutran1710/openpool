@@ -56,6 +56,7 @@ func NewRootCmd() *cobra.Command {
 		newFetchCmd(),
 		newViewCmd(),
 		newLikeCmd(),
+		newUnmatchCmd(),
 		newInboxCmd(),
 		newMatchesCmd(),
 		newChatCmd(),
