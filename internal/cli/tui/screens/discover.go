@@ -85,11 +85,14 @@ func LoadDiscoverCmd(poolName string) tea.Cmd {
 		}
 
 		// Open explorer
-		statePath := filepath.Join(config.Dir(), "pools", poolName, "explorer-state.db")
+		statePath := filepath.Join(config.Dir(), "pools", poolName, "explorer.db")
 		exp, err := explorer.Open(indexPath, statePath)
 		if err != nil {
 			return discoverLoadedMsg{err: fmt.Errorf("opening explorer: %w", err)}
 		}
+
+		// Clear checkpoints — index may have been rebuilt with new permutations
+		exp.OnIndexUpdated()
 
 		buckets, err := exp.ListBuckets()
 		if err != nil {

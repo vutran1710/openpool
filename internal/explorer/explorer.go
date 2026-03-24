@@ -193,3 +193,9 @@ func (e *Explorer) GrindNext(bucketID string, permutation int) (*GrindResult, er
 func (e *Explorer) MarkSeen(matchHash, action string) {
 	e.state.MarkSeen(matchHash, action)
 }
+
+// OnIndexUpdated clears checkpoints after a new index.db is downloaded.
+// Constants and seen data are preserved — they carry across rebuilds.
+func (e *Explorer) OnIndexUpdated() {
+	e.state.ClearCheckpoints()
+}

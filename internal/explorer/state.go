@@ -46,6 +46,12 @@ func openState(path string) (*State, error) {
 
 func (s *State) Close() error { return s.db.Close() }
 
+// ClearCheckpoints removes all checkpoint data (call after index.db is updated).
+// Constants and seen data are preserved — they carry across rebuilds.
+func (s *State) ClearCheckpoints() {
+	s.db.Exec("DELETE FROM checkpoints")
+}
+
 func (s *State) GetConstant(matchHash string) (int, bool) {
 	var c int
 	err := s.db.QueryRow("SELECT profile_constant FROM constants WHERE match_hash = ?", matchHash).Scan(&c)
