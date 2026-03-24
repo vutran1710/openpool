@@ -7,8 +7,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/openpool/internal/cli/config"
@@ -40,11 +40,12 @@ func parseRegistryInput(input string) (string, error) {
 	return "", fmt.Errorf("invalid registry format: expected owner/repo or full git URL, got %q", input)
 }
 
-// validateRegistry checks that the git repo exists and is accessible.
+// validateRegistry checks that the git repo exists and has a valid registry.yaml.
 func validateRegistry(repoURL string) error {
-	cmd := exec.Command("git", "ls-remote", "--exit-code", repoURL)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("cannot access registry: %s", repoURL)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if !gitrepo.FileExistsRaw(ctx, repoURL, "main", "registry.yaml") {
+		return fmt.Errorf("cannot access registry or missing registry.yaml: %s", repoURL)
 	}
 	return nil
 }

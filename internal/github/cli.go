@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+
+	"github.com/vutran1710/openpool/internal/gitrepo"
 	"strconv"
 	"strings"
 )
@@ -321,58 +323,9 @@ func encodeBase64Content(data []byte) string {
 }
 
 // AddCommitPush stages files, commits, pulls with rebase, and pushes.
-// This is only available on CLIClient (requires local git checkout).
+// Delegates to gitrepo.AddCommitPush.
 func (c *CLIClient) AddCommitPush(files []string, message string) error {
-	// Set git identity (required in CI/Actions environments)
-	exec.Command("git", "config", "user.name", "openpool-bot").Run()
-	exec.Command("git", "config", "user.email", "bot@openpool.dev").Run()
-
-	// git add
-	addArgs := append([]string{"add"}, files...)
-	cmd := exec.Command("git", addArgs...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git add: %s", string(out))
-	}
-
-	// git commit
-	cmd = exec.Command("git", "commit", "-m", message)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git commit: %s", string(out))
-	}
-
-	// Stash any unstaged changes (e.g. downloaded binaries in CI)
-	// so that git pull --rebase doesn't fail
-	exec.Command("git", "stash", "--include-untracked").Run()
-
-	// git pull --rebase + push (retry up to 3 times)
-	for attempt := 0; attempt < 3; attempt++ {
-		cmd = exec.Command("git", "pull", "--rebase", "origin", "main")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			outStr := string(out)
-			// If rebase fails due to divergent history (force-pushed remote / squashed),
-			// recover by fetching fresh and re-applying our commit on top
-			if strings.Contains(outStr, "fatal") || strings.Contains(outStr, "divergent") || strings.Contains(outStr, "unrelated") {
-				exec.Command("git", "rebase", "--abort").Run()
-				exec.Command("git", "fetch", "--depth=1", "origin", "main").Run()
-				exec.Command("git", "reset", "--soft", "origin/main").Run()
-				exec.Command("git", "commit", "-m", message).Run()
-			} else {
-				return fmt.Errorf("git pull --rebase: %s", outStr)
-			}
-		}
-		cmd = exec.Command("git", "push", "origin", "main")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			if strings.Contains(string(out), "rejected") {
-				continue // retry on rejection
-			}
-			exec.Command("git", "stash", "drop").Run()
-			return fmt.Errorf("git push: %s", string(out))
-		}
-		exec.Command("git", "stash", "drop").Run()
-		return nil
-	}
-	exec.Command("git", "stash", "drop").Run()
-	return fmt.Errorf("git push failed after 3 retries")
+	return gitrepo.AddCommitPush(files, message)
 }
 
 func (c *CLIClient) UploadReleaseAsset(_ context.Context, tag, assetName, filePath string) error {
