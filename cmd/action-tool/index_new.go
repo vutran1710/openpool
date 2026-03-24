@@ -11,7 +11,7 @@ import (
 
 	gh "github.com/vutran1710/dating-dev/internal/github"
 	"github.com/vutran1710/dating-dev/internal/bucket"
-	"github.com/vutran1710/dating-dev/internal/indexer2"
+	"github.com/vutran1710/dating-dev/internal/indexer"
 	"github.com/vutran1710/dating-dev/internal/schema"
 )
 
@@ -74,7 +74,7 @@ func cmdIndex() {
 	fmt.Printf("  permutations: %d\n", permutations)
 	fmt.Printf("  difficulty:   %d (nonce_space)\n", nonceSpace)
 
-	err = indexer2.Build(indexer2.Config{
+	err = indexer.Build(indexer.Config{
 		UsersDir:     *usersDir,
 		OutputPath:   *output,
 		OperatorKey:  ed25519.PrivateKey(opKey),
@@ -88,7 +88,7 @@ func cmdIndex() {
 		log.Fatalf("building index: %v", err)
 	}
 
-	stats, _ := indexer2.Stats(*output)
+	stats, _ := indexer.Stats(*output)
 	fmt.Printf("  buckets:      %d\n", stats.Buckets)
 	fmt.Printf("  entries:      %d\n", stats.Entries)
 	fmt.Printf("  output:       %s\n", *output)

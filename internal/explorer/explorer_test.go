@@ -1,4 +1,4 @@
-package explorer2
+package explorer
 
 import (
 	"crypto/ed25519"
@@ -10,7 +10,7 @@ import (
 
 	"github.com/vutran1710/dating-dev/internal/bucket"
 	"github.com/vutran1710/dating-dev/internal/crypto"
-	"github.com/vutran1710/dating-dev/internal/indexer2"
+	"github.com/vutran1710/dating-dev/internal/indexer"
 )
 
 func buildTestIndex(t *testing.T, dir string) string {
@@ -38,7 +38,7 @@ func buildTestIndex(t *testing.T, dir string) string {
 	}
 
 	indexPath := filepath.Join(dir, "index.db")
-	err := indexer2.Build(indexer2.Config{
+	err := indexer.Build(indexer.Config{
 		UsersDir:     usersDir,
 		OutputPath:   indexPath,
 		OperatorKey:  opPriv,

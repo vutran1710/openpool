@@ -15,7 +15,7 @@ import (
 // on the pool repo. Used by both initial registration (join) and profile updates.
 // Reuses RegisterUserViaIssue — same title, same labels, same Action processing.
 func SubmitProfileToPool(ctx context.Context, poolRepo, operatorPubKeyHex, token string,
-	profile *gh.DatingProfile, userHash string,
+	profile any, userHash string,
 	pub ed25519.PublicKey, priv ed25519.PrivateKey) (int, error) {
 
 	profileJSON, err := json.Marshal(profile)

@@ -50,19 +50,6 @@ func (p *Pool) Client() GitHubClient {
 	return p.client
 }
 
-func (p *Pool) GetManifest(ctx context.Context) (*PoolManifest, error) {
-	data, err := p.client.GetFile(ctx, "pool.json")
-	if err != nil {
-		return nil, fmt.Errorf("reading pool manifest: %w", err)
-	}
-
-	var manifest PoolManifest
-	if err := decodeJSON(data, &manifest); err != nil {
-		return nil, fmt.Errorf("parsing pool manifest: %w", err)
-	}
-	return &manifest, nil
-}
-
 func (p *Pool) GetUserBlob(ctx context.Context, userHash string) ([]byte, error) {
 	return p.client.GetFile(ctx, "users/"+userHash+".bin")
 }
