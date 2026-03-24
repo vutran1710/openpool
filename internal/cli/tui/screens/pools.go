@@ -133,15 +133,16 @@ func (s PoolsScreen) fetchPools() tea.Msg {
 			// Unjoined: use API (no token needed for public repos)
 			pool := gh.NewPoolWithClient(gh.NewCLIOrHTTP(e.Repo, ""))
 			stats = pool.Stats()
-			// Still clone for logo
-			poolURL := gitrepo.EnsureGitURL(e.Repo)
-			if repo, err := gitrepo.Clone(poolURL); err == nil {
-				poolRepo = repo
-			}
 		}
 
-		// Get logo from pool repo (logo.txt in pool root)
-		logo := components.PoolLogoFromRepo(poolRepo)
+		// Get logo: from local clone if available, otherwise fetch via raw URL
+		logo := ""
+		if poolRepo != nil {
+			logo = components.PoolLogoFromRepo(poolRepo)
+		}
+		if logo == "" {
+			logo = components.PoolLogoFromRaw(e.Repo)
+		}
 
 		pools = append(pools, poolItem{
 			entry:  e,
