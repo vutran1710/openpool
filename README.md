@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo/icon.svg" width="100" alt="openpool">
+  <img src="assets/logo.png" width="200" alt="openpool">
 </p>
 
 <h1 align="center">openpool</h1>

@@ -16,3 +16,4 @@ coverage.html
 /action-tool-*
 dist/
 action-tool-linux-amd64
+.DS_Store
