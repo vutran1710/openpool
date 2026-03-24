@@ -1,6 +1,13 @@
-# openpool
+<p align="center">
+  <img src="assets/logo/icon.svg" width="120" alt="openpool logo">
+</p>
 
-Decentralized, terminal-native matching platform. GitHub repos as the database, encrypted profiles, chain-encrypted discovery, E2E encrypted chat.
+<h1 align="center">openpool</h1>
+
+<p align="center">
+  Decentralized, terminal-native matching platform.<br>
+  GitHub repos as the database, encrypted profiles, chain-encrypted discovery, E2E encrypted chat.
+</p>
 
 ## Philosophy
 

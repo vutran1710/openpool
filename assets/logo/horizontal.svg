@@ -1,0 +1,16 @@
+<svg width="380" height="72" viewBox="0 0 380 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <clipPath id="c">
+      <circle cx="36" cy="36" r="30"/>
+    </clipPath>
+  </defs>
+  <circle cx="36" cy="36" r="30" fill="#0f0a1a"/>
+  <g clip-path="url(#c)">
+    <circle cx="26" cy="36" r="19" fill="#A78BFA" opacity="0.7"/>
+    <circle cx="46" cy="36" r="19" fill="#EC4899" opacity="0.5"/>
+    <circle cx="26" cy="36" r="19" fill="#E9D5FF" opacity="0.25" style="mix-blend-mode: screen"/>
+    <circle cx="46" cy="36" r="19" fill="#FBCFE8" opacity="0.25" style="mix-blend-mode: screen"/>
+  </g>
+  <circle cx="36" cy="36" r="30" stroke="#A78BFA" stroke-width="1.5" opacity="0.2" fill="none"/>
+  <text x="80" y="43" font-family="'JetBrains Mono', 'SF Mono', monospace" font-size="28" font-weight="600" fill="#E8E4F0">openpool</text>
+</svg>
