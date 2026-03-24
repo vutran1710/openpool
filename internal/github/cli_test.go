@@ -11,6 +11,10 @@ func skipIfNoGH(t *testing.T) {
 	if _, err := exec.LookPath("gh"); err != nil {
 		t.Skip("gh CLI not installed, skipping")
 	}
+	// Skip if gh is not authenticated (e.g., in CI without GH_TOKEN)
+	if out, err := exec.Command("gh", "auth", "status").CombinedOutput(); err != nil {
+		t.Skipf("gh not authenticated, skipping: %s", string(out))
+	}
 }
 
 func TestCLIClient_NewCLI(t *testing.T) {
