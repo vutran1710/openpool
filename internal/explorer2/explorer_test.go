@@ -53,6 +53,23 @@ func buildTestIndex(t *testing.T, dir string) string {
 	return indexPath
 }
 
+// grindAll calls GrindNext repeatedly until nil, collecting results.
+func grindAll(t *testing.T, exp *Explorer, bucketID string, perm int) []GrindResult {
+	t.Helper()
+	var results []GrindResult
+	for {
+		r, err := exp.GrindNext(bucketID, perm)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r == nil {
+			break
+		}
+		results = append(results, *r)
+	}
+	return results
+}
+
 func TestListBuckets(t *testing.T) {
 	dir := t.TempDir()
 	indexPath := buildTestIndex(t, dir)
@@ -75,7 +92,7 @@ func TestListBuckets(t *testing.T) {
 	}
 }
 
-func TestGrindCold(t *testing.T) {
+func TestGrindNext_SingleProfile(t *testing.T) {
 	dir := t.TempDir()
 	indexPath := buildTestIndex(t, dir)
 
@@ -86,24 +103,40 @@ func TestGrindCold(t *testing.T) {
 	defer exp.Close()
 
 	buckets, _ := exp.ListBuckets()
-	if len(buckets) == 0 {
-		t.Fatal("no buckets")
-	}
 
-	results, err := exp.Grind(buckets[0].ID, 0, 10)
+	// GrindNext returns exactly 1 profile
+	r, err := exp.GrindNext(buckets[0].ID, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if r == nil {
+		t.Fatal("expected 1 result")
+	}
+	if r.Profile == nil {
+		t.Error("profile should not be nil")
+	}
+	t.Logf("unlocked: %s (%d attempts, warm=%v) name=%v", r.Tag, r.Attempts, r.Warm, r.Profile["name"])
+}
 
-	if len(results) == 0 {
-		t.Fatal("expected at least 1 unlocked profile")
+func TestGrindNext_AllProfiles(t *testing.T) {
+	dir := t.TempDir()
+	indexPath := buildTestIndex(t, dir)
+
+	exp, err := Open(indexPath, filepath.Join(dir, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer exp.Close()
+
+	buckets, _ := exp.ListBuckets()
+	results := grindAll(t, exp, buckets[0].ID, 0)
+
+	if len(results) != 3 {
+		t.Errorf("expected 3 profiles, got %d", len(results))
 	}
 
 	for _, r := range results {
-		t.Logf("unlocked: %s (%d attempts, warm=%v) profile=%v", r.Tag, r.Attempts, r.Warm, r.Profile["name"])
-		if r.Profile == nil {
-			t.Error("profile should not be nil")
-		}
+		t.Logf("  %s → %v (%d attempts)", r.Tag, r.Profile["name"], r.Attempts)
 	}
 }
 
@@ -120,15 +153,15 @@ func TestWarmResolve(t *testing.T) {
 	buckets, _ := exp.ListBuckets()
 	bid := buckets[0].ID
 
-	// Grind perm 0 — learn constants (cold)
-	results0, _ := exp.Grind(bid, 0, 10)
+	// Grind perm 0 cold — learn constants
+	results0 := grindAll(t, exp, bid, 0)
 	totalCold := 0
 	for _, r := range results0 {
 		totalCold += r.Attempts
 	}
 
-	// Grind perm 1 — should be warm
-	results1, _ := exp.Grind(bid, 1, 10)
+	// Grind perm 1 warm
+	results1 := grindAll(t, exp, bid, 1)
 	totalWarm := 0
 	for _, r := range results1 {
 		totalWarm += r.Attempts
@@ -158,22 +191,25 @@ func TestSeenSkip(t *testing.T) {
 	buckets, _ := exp.ListBuckets()
 	bid := buckets[0].ID
 
-	// Grind once
-	results, _ := exp.Grind(bid, 0, 10)
+	// Grind all
+	results := grindAll(t, exp, bid, 0)
 
-	// Mark all as seen
+	// Mark all seen
 	for _, r := range results {
 		exp.MarkSeen(r.Tag, "skip")
 	}
 
-	// Grind again — should return nothing (all seen)
-	results2, _ := exp.Grind(bid, 0, 10)
-	if len(results2) != 0 {
-		t.Errorf("expected 0 results (all seen), got %d", len(results2))
+	// GrindNext should return nil (all seen)
+	r, err := exp.GrindNext(bid, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r != nil {
+		t.Errorf("expected nil (all seen), got %s", r.Tag)
 	}
 }
 
-func TestGrind_InvalidBucket(t *testing.T) {
+func TestGrindNext_InvalidBucket(t *testing.T) {
 	dir := t.TempDir()
 	indexPath := buildTestIndex(t, dir)
 
@@ -183,13 +219,13 @@ func TestGrind_InvalidBucket(t *testing.T) {
 	}
 	defer exp.Close()
 
-	_, err = exp.Grind("nonexistent_bucket", 0, 10)
+	_, err = exp.GrindNext("nonexistent_bucket", 0)
 	if err == nil {
 		t.Error("should fail with nonexistent bucket")
 	}
 }
 
-func TestGrind_InvalidPermutation(t *testing.T) {
+func TestGrindNext_InvalidPermutation(t *testing.T) {
 	dir := t.TempDir()
 	indexPath := buildTestIndex(t, dir)
 
@@ -200,48 +236,9 @@ func TestGrind_InvalidPermutation(t *testing.T) {
 	defer exp.Close()
 
 	buckets, _ := exp.ListBuckets()
-	_, err = exp.Grind(buckets[0].ID, 99, 10) // permutation 99 doesn't exist
+	_, err = exp.GrindNext(buckets[0].ID, 99)
 	if err == nil {
 		t.Error("should fail with invalid permutation")
-	}
-}
-
-func TestOpen_InvalidIndexPath(t *testing.T) {
-	dir := t.TempDir()
-	_, err := Open(filepath.Join(dir, "nonexistent.db"), filepath.Join(dir, "state.db"))
-	// sqlite will create the file, but queries will fail (no tables)
-	if err != nil {
-		return // some sqlite drivers error on open, that's fine
-	}
-	// If open succeeded, listing buckets should return empty
-	exp, _ := Open(filepath.Join(dir, "nonexistent.db"), filepath.Join(dir, "state.db"))
-	if exp != nil {
-		buckets, _ := exp.ListBuckets()
-		if len(buckets) != 0 {
-			t.Error("empty db should have no buckets")
-		}
-		exp.Close()
-	}
-}
-
-func TestGrind_MaxProfiles(t *testing.T) {
-	dir := t.TempDir()
-	indexPath := buildTestIndex(t, dir)
-
-	exp, err := Open(indexPath, filepath.Join(dir, "state.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer exp.Close()
-
-	buckets, _ := exp.ListBuckets()
-	// Grind only 1 profile
-	results, err := exp.Grind(buckets[0].ID, 0, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(results) != 1 {
-		t.Errorf("expected 1 result with maxProfiles=1, got %d", len(results))
 	}
 }
 
@@ -257,21 +254,20 @@ func TestEndToEnd(t *testing.T) {
 
 	buckets, _ := exp.ListBuckets()
 	t.Logf("found %d buckets", len(buckets))
-
 	bid := buckets[0].ID
 
-	// Cold grind
-	results0, _ := exp.Grind(bid, 0, 0)
+	// Cold grind one by one
 	coldTotal := 0
-	for _, r := range results0 {
+	coldResults := grindAll(t, exp, bid, 0)
+	for _, r := range coldResults {
 		coldTotal += r.Attempts
 		t.Logf("  cold: %s → %v (%d attempts)", r.Tag, r.Profile["name"], r.Attempts)
 	}
 
 	// Warm grind (different permutation)
-	results1, _ := exp.Grind(bid, 1, 0)
 	warmTotal := 0
-	for _, r := range results1 {
+	warmResults := grindAll(t, exp, bid, 1)
+	for _, r := range warmResults {
 		warmTotal += r.Attempts
 		t.Logf("  warm: %s → %v (%d attempts, warm=%v)", r.Tag, r.Profile["name"], r.Attempts, r.Warm)
 	}

@@ -81,10 +81,10 @@ func (e *Explorer) ListBuckets() ([]BucketInfo, error) {
 	return buckets, nil
 }
 
-// Grind unlocks profiles in a bucket permutation.
-// maxProfiles limits how many new profiles to unlock (0 = all).
+// GrindNext unlocks the next unseen profile in a bucket permutation.
+// Returns nil result if all profiles in the chain are seen.
 // Skips seen profiles. Uses warm solving for known constants.
-func (e *Explorer) Grind(bucketID string, permutation int, maxProfiles int) ([]GrindResult, error) {
+func (e *Explorer) GrindNext(bucketID string, permutation int) (*GrindResult, error) {
 	// Load chain metadata
 	var seed []byte
 	var nonceSpace int
@@ -119,9 +119,19 @@ func (e *Explorer) Grind(bucketID string, permutation int, maxProfiles int) ([]G
 	}
 
 	hint := chainenc.SeedHint(seed)
-	var results []GrindResult
+	startPos := -1
+
+	// Resume from checkpoint if available
+	if cpPos, cpHint, ok := e.state.GetCheckpoint(bucketID, permutation); ok {
+		hint = cpHint
+		startPos = cpPos
+	}
 
 	for _, pe := range entries {
+		// Skip entries before checkpoint
+		if pe.pos <= startPos {
+			continue
+		}
 		entry := pe.entry
 
 		// Seen → still need to advance hint via warm solve (need next_hint)
@@ -170,17 +180,13 @@ func (e *Explorer) Grind(bucketID string, permutation int, maxProfiles int) ([]G
 			hint = payload.NextHint
 		}
 
-		results = append(results, result)
-
-		// Save checkpoint
+		// Save checkpoint and return the single result
 		e.state.SaveCheckpoint(bucketID, permutation, pe.pos, hint)
-
-		if maxProfiles > 0 && len(results) >= maxProfiles {
-			break
-		}
+		return &result, nil
 	}
 
-	return results, nil
+	// All profiles seen or chain broken
+	return nil, nil
 }
 
 // MarkSeen marks a profile as seen with the given action.
