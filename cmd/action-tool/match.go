@@ -11,7 +11,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/vutran1710/openpool/internal/crypto"
 	"github.com/vutran1710/openpool/internal/github"
@@ -194,18 +193,12 @@ func cmdMatch() {
 		return
 	}
 
-	// Write matches/{pair_hash}.json
-	matchData, _ := json.Marshal(map[string]string{
-		"pair_hash":  pairHash,
-		"match_a":    authorData.AuthorMatchHash,
-		"match_b":    recipData.AuthorMatchHash,
-		"matched_at": time.Now().UTC().Format(time.RFC3339),
-	})
+	// Write matches/{pair_hash}.json (empty — existence is the signal, commit time is the timestamp)
 	if err := os.MkdirAll("matches", 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "error: mkdir matches: %v\n", err)
 		os.Exit(1)
 	}
-	if err := os.WriteFile("matches/"+pairHash+".json", matchData, 0o644); err != nil {
+	if err := os.WriteFile("matches/"+pairHash+".json", []byte("{}"), 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "error: writing match file: %v\n", err)
 		os.Exit(1)
 	}
