@@ -7,7 +7,6 @@ import (
 	"crypto/ed25519"
 
 	"github.com/vutran1710/dating-dev/internal/cli/config"
-	gh "github.com/vutran1710/dating-dev/internal/github"
 	"github.com/vutran1710/dating-dev/internal/gitrepo"
 )
 
@@ -17,7 +16,6 @@ type Services struct {
 	Crypto      CryptoService
 	Git         GitService
 	GitHub      GitHubService
-	Profile     ProfileService
 	Persistence PersistenceService
 	Polling     PollingService
 }
@@ -72,21 +70,7 @@ type GitHubService interface {
 	RepoExists(ctx context.Context, token, repo string) bool
 }
 
-// ── Profile: read/write profile files ──
-
-type ProfileService interface {
-	// Global profile (all sources merged)
-	LoadGlobal() (*gh.DatingProfile, error)
-	SaveGlobal(p *gh.DatingProfile) error
-
-	// Per-pool profile (filtered fields submitted to a specific pool)
-	LoadPool(poolName string) (*gh.DatingProfile, error)
-	SavePool(poolName string, p *gh.DatingProfile) error
-
-	// Paths
-	GlobalPath() string
-	PoolPath(poolName string) string
-}
+// ProfileService was removed — profiles now use schema.ProfilePath() + map[string]any.
 
 // ── Persistence: orchestrates writes across config + profiles ──
 

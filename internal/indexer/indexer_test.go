@@ -1,4 +1,4 @@
-package indexer2
+package indexer
 
 import (
 	"crypto/ed25519"

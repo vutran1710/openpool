@@ -1,4 +1,4 @@
-package explorer2
+package explorer
 
 import (
 	"database/sql"
