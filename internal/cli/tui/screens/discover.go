@@ -25,6 +25,7 @@ type DiscoverLikeMsg struct {
 type discoverLoadedMsg struct {
 	explorer *explorer.Explorer
 	buckets  []explorer.BucketInfo
+	prefs    explorer.Preferences
 	err      error
 }
 
@@ -102,7 +103,11 @@ func LoadDiscoverCmd(poolName string) tea.Cmd {
 			return discoverLoadedMsg{err: fmt.Errorf("no profiles in pool yet")}
 		}
 
-		return discoverLoadedMsg{explorer: exp, buckets: buckets}
+		// Load preferences to auto-select bucket
+		prefsPath := filepath.Join(config.Dir(), "pools", poolName, "preferences.yaml")
+		prefs := explorer.LoadPreferences(prefsPath)
+
+		return discoverLoadedMsg{explorer: exp, buckets: buckets, prefs: prefs}
 	}
 }
 
@@ -115,7 +120,8 @@ func (s DiscoverScreen) Update(msg tea.Msg) (DiscoverScreen, tea.Cmd) {
 			return s, nil
 		}
 		s.explorer = msg.explorer
-		s.buckets = msg.buckets
+		// Rank buckets by preference match
+		s.buckets = explorer.RankBuckets(msg.buckets, msg.prefs)
 		s.bucketIdx = 0
 		s.permutation = rand.Intn(s.buckets[0].Permutations)
 		// Start grinding first profile

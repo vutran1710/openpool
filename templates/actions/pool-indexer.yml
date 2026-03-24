@@ -21,13 +21,14 @@ jobs:
       - name: Rebuild and upload index
         env:
           OPERATOR_PRIVATE_KEY: ${{ secrets.OPERATOR_PRIVATE_KEY }}
-          INDEXER_WEIGHTS: ${{ secrets.INDEXER_WEIGHTS }}
+          POOL_SALT: ${{ secrets.POOL_SALT }}
           REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: |
           ./action-tool index \
             --schema pool.yaml \
             --operator-key "$OPERATOR_PRIVATE_KEY" \
+            --salt "$POOL_SALT" \
             --users-dir users/ \
             --output index.db \
             --upload
