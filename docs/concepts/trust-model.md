@@ -37,15 +37,15 @@ Registry:
   - Commits index.db to pool repo
 
 Pool operator:
-  - Controls schema.yaml, matcher.yaml, pool.json
+  - Controls pool.yaml
   - Runs the relay (has POOL_SALT only — cannot decrypt profiles)
   - Gets index.db (vectors + public attributes, no raw profiles)
   - Never touches OPERATOR_PRIVATE_KEY (doesn't have it)
 ```
 
 ### What Pool Operators Control
-- Matching rules (matcher.yaml)
-- Schema definition (schema.yaml)
+- Matching rules (pool.yaml matching rules)
+- Schema definition (pool.yaml schema)
 - Relay server (routing only, zero knowledge)
 - Pool metadata
 
