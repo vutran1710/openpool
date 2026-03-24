@@ -44,15 +44,15 @@ func PoolLogoFromRaw(repoRef string) string {
 	return theme.BrandStyle.Render(clampLogo(string(data)))
 }
 
-// clampLogo truncates logo to max 20 lines x 20 chars wide.
+// clampLogo checks logo fits within 30x30. Returns alt text if too big.
 func clampLogo(raw string) string {
 	lines := strings.Split(strings.TrimRight(raw, "\n"), "\n")
 	if len(lines) > logoMaxLines {
-		lines = lines[:logoMaxLines]
+		return theme.DimStyle.Render("(logo too big to render)")
 	}
-	for i, line := range lines {
+	for _, line := range lines {
 		if len(line) > logoMaxWidth {
-			lines[i] = line[:logoMaxWidth]
+			return theme.DimStyle.Render("(logo too big to render)")
 		}
 	}
 	return strings.Join(lines, "\n")
