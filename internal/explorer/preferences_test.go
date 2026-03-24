@@ -68,9 +68,46 @@ func TestRankBuckets_RangePrefs(t *testing.T) {
 	}}
 	ranked := RankBuckets(buckets, prefs)
 
-	// Both 23-27 and 28-32 overlap with 25-30, 18-22 doesn't
+	// 18-22 has zero overlap → last
 	if ranked[len(ranked)-1].ID != "age:18-22" {
 		t.Errorf("18-22 should rank last, got %s", ranked[len(ranked)-1].ID)
+	}
+}
+
+func TestRankBuckets_RangeProportionScoring(t *testing.T) {
+	buckets := []BucketInfo{
+		{ID: "age:23-27", Partitions: map[string]string{"age": "23-27"}, ProfileCount: 5},
+		{ID: "age:28-32", Partitions: map[string]string{"age": "28-32"}, ProfileCount: 5},
+	}
+
+	// Preference 25-35: overlaps 25-27 (3/5=60%) with first, 28-32 (5/5=100%) with second
+	prefs := Preferences{LookingFor: map[string]any{
+		"age": map[string]any{"min": 25, "max": 35},
+	}}
+	ranked := RankBuckets(buckets, prefs)
+
+	if ranked[0].ID != "age:28-32" {
+		t.Errorf("28-32 (100%% overlap) should rank first, got %s", ranked[0].ID)
+	}
+}
+
+func TestScorePref_RangeOverlap(t *testing.T) {
+	// Full overlap
+	s := scorePref("25-30", map[string]any{"min": 20, "max": 35})
+	if s != 1.0 {
+		t.Errorf("full overlap should be 1.0, got %f", s)
+	}
+
+	// Partial overlap: bucket 25-30 (6 values), pref 28-35, overlap 28-30 (3 values) = 3/6 = 0.5
+	s = scorePref("25-30", map[string]any{"min": 28, "max": 35})
+	if s != 0.5 {
+		t.Errorf("half overlap should be 0.5, got %f", s)
+	}
+
+	// No overlap
+	s = scorePref("25-30", map[string]any{"min": 35, "max": 40})
+	if s != 0.0 {
+		t.Errorf("no overlap should be 0.0, got %f", s)
 	}
 }
 

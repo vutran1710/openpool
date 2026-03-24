@@ -44,23 +44,27 @@ func RankBuckets(buckets []BucketInfo, prefs Preferences) []BucketInfo {
 		return sorted
 	}
 
-	// Score each bucket
+	// Score each bucket using overlap proportion
 	type scored struct {
 		bucket BucketInfo
-		score  int
+		score  float64
 	}
 	var items []scored
 
 	for _, b := range buckets {
-		score := 0
+		score := 0.0
+		fields := 0
 		for field, prefVal := range prefs.LookingFor {
 			bucketVal, ok := b.Partitions[field]
 			if !ok {
 				continue
 			}
-			if matchesPref(bucketVal, prefVal) {
-				score++
-			}
+			fields++
+			score += scorePref(bucketVal, prefVal)
+		}
+		// Normalize by number of matched fields
+		if fields > 0 {
+			score /= float64(fields)
 		}
 		items = append(items, scored{bucket: b, score: score})
 	}
@@ -80,34 +84,66 @@ func RankBuckets(buckets []BucketInfo, prefs Preferences) []BucketInfo {
 	return result
 }
 
-// matchesPref checks if a bucket partition value matches a preference value.
-func matchesPref(bucketVal string, prefVal any) bool {
+// scorePref returns a score [0.0, 1.0] for how well a bucket partition value
+// matches a preference value. Uses overlap proportion for ranges.
+func scorePref(bucketVal string, prefVal any) float64 {
 	switch v := prefVal.(type) {
 	case string:
-		return bucketVal == v
+		// Exact match: 1.0 or 0.0
+		if bucketVal == v {
+			return 1.0
+		}
+		return 0.0
 
 	case map[string]any:
 		// Range preference: { min: 25, max: 35 }
 		// Bucket value: "25-30"
+		// Score = overlap proportion relative to bucket size
 		parts := strings.SplitN(bucketVal, "-", 2)
 		if len(parts) != 2 {
-			return false
+			return 0.0
 		}
 		bMin, err1 := strconv.Atoi(parts[0])
 		bMax, err2 := strconv.Atoi(parts[1])
 		if err1 != nil || err2 != nil {
-			return false
+			return 0.0
 		}
 
 		pMin := toIntFromAny(v["min"])
 		pMax := toIntFromAny(v["max"])
 
-		// Bucket overlaps with preference range
-		return bMax >= pMin && bMin <= pMax
+		// Compute overlap
+		overlapMin := bMin
+		if pMin > overlapMin {
+			overlapMin = pMin
+		}
+		overlapMax := bMax
+		if pMax < overlapMax {
+			overlapMax = pMax
+		}
+
+		if overlapMin > overlapMax {
+			return 0.0 // no overlap
+		}
+
+		overlap := float64(overlapMax - overlapMin + 1)
+		bucketSize := float64(bMax - bMin + 1)
+		if bucketSize <= 0 {
+			return 0.0
+		}
+		return overlap / bucketSize
 
 	default:
-		return fmt.Sprintf("%v", prefVal) == bucketVal
+		if fmt.Sprintf("%v", prefVal) == bucketVal {
+			return 1.0
+		}
+		return 0.0
 	}
+}
+
+// matchesPref checks if a bucket partition value matches a preference at all (score > 0).
+func matchesPref(bucketVal string, prefVal any) bool {
+	return scorePref(bucketVal, prefVal) > 0
 }
 
 func toIntFromAny(val any) int {
