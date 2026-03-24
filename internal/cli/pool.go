@@ -17,6 +17,7 @@ import (
 	"github.com/vutran1710/dating-dev/internal/crypto"
 	gh "github.com/vutran1710/dating-dev/internal/github"
 	"github.com/vutran1710/dating-dev/internal/gitrepo"
+	"github.com/vutran1710/dating-dev/internal/schema"
 )
 
 func parseCSV(s string) []string {
@@ -307,10 +308,10 @@ Prerequisites:
 			repo, repoErr := gitrepo.Clone(gitrepo.EnsureGitURL(entry.Repo))
 			if repoErr == nil {
 				repo.Sync()
-				manifest, mErr := loadManifest(repo.LocalDir)
-				if mErr == nil && manifest.Schema != nil {
-					if err := gh.ValidateProfile(manifest.Schema, profileData); err != nil {
-						printError(fmt.Sprintf("Profile validation failed: %v", err))
+				schemaPath := filepath.Join(repo.LocalDir, "pool.yaml")
+				if s, sErr := schema.Load(schemaPath); sErr == nil {
+					if errs := s.ValidateProfile(profileData); len(errs) > 0 {
+						printError(fmt.Sprintf("Profile validation failed: %v", errs[0]))
 						printDim(fmt.Sprintf("  Check your profile at: %s", profilePath))
 						return nil
 					}

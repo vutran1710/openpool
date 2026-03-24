@@ -15,7 +15,7 @@ import (
 	"github.com/vutran1710/dating-dev/internal/schema"
 )
 
-func cmdIndex2() {
+func cmdIndex() {
 	fs := flag.NewFlagSet("index2", flag.ExitOnError)
 	schemaPath := fs.String("schema", "pool.yaml", "path to pool.yaml")
 	operatorKeyHex := fs.String("operator-key", "", "operator ed25519 private key (hex)")

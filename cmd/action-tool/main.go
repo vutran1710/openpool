@@ -27,8 +27,6 @@ func main() {
 		cmdPubkey()
 	case "managed-register":
 		cmdManagedRegister()
-	case "index2":
-		cmdIndex2()
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		os.Exit(1)
