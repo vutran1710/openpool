@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/vutran1710/openpool/internal/github"
+	"github.com/vutran1710/openpool/internal/gitrepo"
 	"github.com/vutran1710/openpool/internal/schema"
 )
 
@@ -22,23 +21,15 @@ func cmdSquash() {
 	}
 	maxCount, _ := strconv.Atoi(maxStr)
 
-	out, _ := exec.Command("git", "rev-list", "--count", "HEAD").Output()
-	count, _ := strconv.Atoi(strings.TrimSpace(string(out)))
-
-	if count > maxCount {
-		log.Printf("squashing %d commits into 1...", count)
-		exec.Command("git", "config", "user.name", "openpool-bot").Run()
-		exec.Command("git", "config", "user.email", "bot@openpool.dev").Run()
-		exec.Command("git", "checkout", "--orphan", "squashed").Run()
-		exec.Command("git", "add", "-A").Run()
-		msg := fmt.Sprintf("Pool state (squashed %s)", time.Now().UTC().Format(time.RFC3339))
-		exec.Command("git", "commit", "-m", msg).Run()
-		if out, err := exec.Command("git", "push", "--force", "origin", "squashed:main").CombinedOutput(); err != nil {
-			writeError("force push: " + string(out))
-		}
-		log.Printf("squashed: %d → 1", count)
+	msg := fmt.Sprintf("Pool state (squashed %s)", time.Now().UTC().Format(time.RFC3339))
+	squashed, err := gitrepo.SquashHistory(maxCount, msg)
+	if err != nil {
+		writeError("squash: " + err.Error())
+	}
+	if squashed {
+		log.Printf("squashed to 1 commit")
 	} else {
-		log.Printf("commits: %d (max %d) — skipping squash", count, maxCount)
+		log.Printf("commits within limit — skipping squash")
 	}
 
 	// 2. Close stale interest issues (older than interest_expiry)
@@ -51,7 +42,6 @@ func closeStaleInterests() {
 		return
 	}
 
-	// Load schema for interest_expiry
 	s, err := schema.Load("pool.yaml")
 	if err != nil {
 		log.Printf("skipping stale interest cleanup: %v", err)
