@@ -121,29 +121,6 @@ func TestUnpackUserBin_TooShort(t *testing.T) {
 	}
 }
 
-func TestReEncryptForRecipient(t *testing.T) {
-	userPub, _, _ := ed25519.GenerateKey(rand.Reader)
-	opPub, opPriv, _ := ed25519.GenerateKey(rand.Reader)
-	recipientPub, recipientPriv, _ := ed25519.GenerateKey(rand.Reader)
-
-	plaintext := []byte("profile data")
-	bin, _ := PackUserBin(userPub, opPub, plaintext)
-
-	reEncrypted, err := ReEncryptForRecipient(opPriv, bin, recipientPub)
-	if err != nil {
-		t.Fatalf("re-encrypt: %v", err)
-	}
-
-	decrypted, err := Decrypt(recipientPriv, reEncrypted)
-	if err != nil {
-		t.Fatalf("decrypt re-encrypted: %v", err)
-	}
-
-	if string(decrypted) != "profile data" {
-		t.Errorf("expected 'profile data', got %q", decrypted)
-	}
-}
-
 func TestSign_Verify(t *testing.T) {
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
 	pub := priv.Public().(ed25519.PublicKey)

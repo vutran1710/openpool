@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"strings"
 	"time"
 
@@ -70,26 +69,6 @@ func (p *Pool) ListUsers(ctx context.Context) ([]string, error) {
 	return hashes, nil
 }
 
-func (p *Pool) DiscoverRandom(ctx context.Context, excludeHash string) (string, error) {
-	hashes, err := p.ListUsers(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	var candidates []string
-	for _, h := range hashes {
-		if h != excludeHash {
-			candidates = append(candidates, h)
-		}
-	}
-
-	if len(candidates) == 0 {
-		return "", nil
-	}
-
-	return candidates[rand.Intn(len(candidates))], nil
-}
-
 type PoolStats struct {
 	Members       int
 	Matches       int
@@ -149,27 +128,6 @@ func (p *Pool) IsUserRegistered(ctx context.Context, userHash string) bool {
 		return p.repo.FileExists("users/" + userHash + ".bin")
 	}
 	return p.client.FileExists(ctx, "users/"+userHash+".bin")
-}
-
-func (p *Pool) RegisterUser(ctx context.Context, userHash string, encryptedBlob []byte, signature, identityProof, templateBody string) (int, error) {
-	body := fmt.Sprintf(
-		"New member `%s` wants to join.\n\nSignature: `%s`\n\n**Identity proof** (encrypted for operator):\n```\n%s\n```",
-		crypto.ShortHash(userHash), signature, identityProof,
-	)
-	if templateBody != "" {
-		body = templateBody + "\n\n---\n\n" + body
-	}
-
-	pr := PRRequest{
-		Title:  fmt.Sprintf("Join: %s", crypto.ShortHash(userHash)),
-		Body:   body,
-		Branch: fmt.Sprintf("join/%s", userHash),
-		Files: []PRFile{
-			{Path: fmt.Sprintf("users/%s.bin", userHash), Content: encryptedBlob},
-		},
-	}
-
-	return p.client.CreatePullRequest(ctx, pr)
 }
 
 // SubmitIssue creates a GitHub issue with a structured message body.

@@ -4,7 +4,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"fmt"
 	"io"
 
@@ -61,31 +60,6 @@ func DeriveConversationKey(shared []byte, hashA, hashB, poolURL string) ([]byte,
 	return key, nil
 }
 
-// SealMessage encrypts plaintext with a 32-byte symmetric key using NaCl secretbox.
-// The returned string is base64 (RawStd) encoded: version(1) || nonce(24) || ciphertext.
-func SealMessage(key []byte, plaintext string) (string, error) {
-	if len(key) != 32 {
-		return "", fmt.Errorf("key must be 32 bytes, got %d", len(key))
-	}
-
-	var k [32]byte
-	copy(k[:], key)
-
-	var nonce [24]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
-		return "", fmt.Errorf("generating nonce: %w", err)
-	}
-
-	ciphertext := secretbox.Seal(nil, []byte(plaintext), &nonce, &k)
-
-	out := make([]byte, 0, 1+24+len(ciphertext))
-	out = append(out, e2eVersion)
-	out = append(out, nonce[:]...)
-	out = append(out, ciphertext...)
-
-	return base64.RawStdEncoding.EncodeToString(out), nil
-}
-
 // SealRaw encrypts plaintext with a 32-byte key, returning raw bytes:
 // version(1) || nonce(24) || secretbox ciphertext.
 func SealRaw(key, plaintext []byte) ([]byte, error) {
@@ -129,37 +103,3 @@ func OpenRaw(key, sealed []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
-// OpenMessage decrypts a message produced by SealMessage.
-func OpenMessage(key []byte, encoded string) (string, error) {
-	if len(key) != 32 {
-		return "", fmt.Errorf("key must be 32 bytes, got %d", len(key))
-	}
-
-	raw, err := base64.RawStdEncoding.DecodeString(encoded)
-	if err != nil {
-		return "", fmt.Errorf("base64 decode: %w", err)
-	}
-
-	minLen := 1 + 24 + secretbox.Overhead
-	if len(raw) < minLen {
-		return "", fmt.Errorf("message too short: got %d bytes, need at least %d", len(raw), minLen)
-	}
-
-	if raw[0] != e2eVersion {
-		return "", fmt.Errorf("unsupported version byte: 0x%02x", raw[0])
-	}
-
-	var nonce [24]byte
-	copy(nonce[:], raw[1:25])
-	ciphertext := raw[25:]
-
-	var k [32]byte
-	copy(k[:], key)
-
-	plaintext, ok := secretbox.Open(nil, ciphertext, &nonce, &k)
-	if !ok {
-		return "", fmt.Errorf("decryption failed: authentication tag mismatch")
-	}
-
-	return string(plaintext), nil
-}
