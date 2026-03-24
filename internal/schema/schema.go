@@ -16,6 +16,21 @@ type PoolSchema struct {
 	Profile           map[string]Attribute `yaml:"profile"`
 	Roles             yaml.Node            `yaml:"roles"`
 	Matching          yaml.Node            `yaml:"matching"`
+	Indexing          *IndexingConfig      `yaml:"indexing,omitempty"`
+}
+
+// IndexingConfig defines how profiles are bucketed and encrypted for discovery.
+type IndexingConfig struct {
+	Partitions   []PartitionConfig `yaml:"partitions"`
+	Permutations int               `yaml:"permutations"`
+	Difficulty   int               `yaml:"difficulty"` // maps to nonce_space internally
+}
+
+// PartitionConfig defines how to partition profiles on one attribute.
+type PartitionConfig struct {
+	Field   string `yaml:"field"`
+	Step    int    `yaml:"step,omitempty"`
+	Overlap int    `yaml:"overlap,omitempty"`
 }
 
 type Attribute struct {
