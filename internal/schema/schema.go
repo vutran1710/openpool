@@ -3,7 +3,9 @@ package schema
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -17,6 +19,7 @@ type PoolSchema struct {
 	Roles             yaml.Node            `yaml:"roles"`
 	Matching          yaml.Node            `yaml:"matching"`
 	Indexing          *IndexingConfig      `yaml:"indexing,omitempty"`
+	InterestExpiry    string               `yaml:"interest_expiry"` // e.g. "3d", "7d", "24h"
 }
 
 // IndexingConfig defines how profiles are bucketed and encrypted for discovery.
@@ -31,6 +34,34 @@ type PartitionConfig struct {
 	Field   string `yaml:"field"`
 	Step    int    `yaml:"step,omitempty"`
 	Overlap int    `yaml:"overlap,omitempty"`
+}
+
+// ParseInterestExpiry parses the interest_expiry field into a time.Duration.
+// Supports "3d", "7d", "24h", "72h" etc.
+func (s *PoolSchema) ParseInterestExpiry() (time.Duration, error) {
+	raw := strings.TrimSpace(s.InterestExpiry)
+	if raw == "" {
+		return 0, fmt.Errorf("interest_expiry is required")
+	}
+
+	// Handle "Nd" format (days)
+	if strings.HasSuffix(raw, "d") {
+		days, err := strconv.Atoi(strings.TrimSuffix(raw, "d"))
+		if err != nil || days <= 0 {
+			return 0, fmt.Errorf("invalid interest_expiry: %s", raw)
+		}
+		return time.Duration(days) * 24 * time.Hour, nil
+	}
+
+	// Fall back to Go duration parsing ("24h", "72h", etc.)
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("invalid interest_expiry: %s", raw)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("interest_expiry must be positive: %s", raw)
+	}
+	return d, nil
 }
 
 type Attribute struct {

@@ -171,34 +171,39 @@ func testInterestMatching(salt, poolURL string, operatorKey []byte, operatorPub 
 	exec.Command("bash", "-c", fmt.Sprintf("cd %s && git add -A && git commit -m 'e2e interest test' && git pull --rebase && git push", repoDir)).Run()
 	fmt.Println("  Pushed .bin files")
 
+	// Compute ephemeral hashes (3-day window, matching pool.yaml interest_expiry)
+	expiry := 3 * 24 * time.Hour
+	ephB := crypto.EphemeralHash(matchB, expiry)
+	ephA := crypto.EphemeralHash(matchA, expiry)
+
 	// A likes B
-	bodyA := interestBody(binA, matchA, "Hi from A!", operatorPub)
+	bodyA := interestBody(binA, matchA, matchB, "Hi from A!", operatorPub)
 	fmt.Println("  Creating interest A→B...")
-	exec.Command("gh", "issue", "create", "--repo", poolURL, "--title", matchB, "--label", "interest", "--body", bodyA).Run()
+	exec.Command("gh", "issue", "create", "--repo", poolURL, "--title", ephB, "--label", "interest", "--body", bodyA).Run()
 
 	fmt.Println("  Waiting 20s...")
 	time.Sleep(20 * time.Second)
 
 	// B likes A
-	bodyB := interestBody(binB, matchB, "Hi from B!", operatorPub)
+	bodyB := interestBody(binB, matchB, matchA, "Hi from B!", operatorPub)
 	fmt.Println("  Creating interest B→A...")
-	exec.Command("gh", "issue", "create", "--repo", poolURL, "--title", matchA, "--label", "interest", "--body", bodyB).Run()
+	exec.Command("gh", "issue", "create", "--repo", poolURL, "--title", ephA, "--label", "interest", "--body", bodyB).Run()
 
 	fmt.Println("  Waiting 45s for match detection...")
 	time.Sleep(45 * time.Second)
 
-	// Check both closed + locked
+	// Check both closed + locked (search by ephemeral hashes)
 	issuesJSON, _ := exec.Command("gh", "api",
 		fmt.Sprintf("repos/%s/issues?state=closed&labels=interest&per_page=5", poolURL),
-		"--jq", fmt.Sprintf("[.[] | select(.title == \"%s\" or .title == \"%s\") | {number,title,locked}]", matchA, matchB)).CombinedOutput()
+		"--jq", fmt.Sprintf("[.[] | select(.title == \"%s\" or .title == \"%s\") | {number,title,locked}]", ephA, ephB)).CombinedOutput()
 	fmt.Printf("  Closed issues: %s\n", strings.TrimSpace(string(issuesJSON)))
 
 	check("interest issues found", len(string(issuesJSON)) > 5, "no issues")
 	check("issues locked", strings.Contains(string(issuesJSON), `"locked":true`), string(issuesJSON))
 }
 
-func interestBody(binHash, matchHash, greeting string, opPub ed25519.PublicKey) string {
-	payload := fmt.Sprintf(`{"author_bin_hash":"%s","author_match_hash":"%s","greeting":"%s"}`, binHash, matchHash, greeting)
+func interestBody(binHash, matchHash, targetMatchHash, greeting string, opPub ed25519.PublicKey) string {
+	payload := fmt.Sprintf(`{"author_bin_hash":"%s","author_match_hash":"%s","target_match_hash":"%s","greeting":"%s"}`, binHash, matchHash, targetMatchHash, greeting)
 	enc, _ := crypto.Encrypt(opPub, []byte(payload))
 	return message.Format("interest", base64.StdEncoding.EncodeToString(enc))
 }

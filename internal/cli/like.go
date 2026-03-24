@@ -8,6 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/dating-dev/internal/cli/config"
+	"github.com/vutran1710/dating-dev/internal/crypto"
+	"github.com/vutran1710/dating-dev/internal/gitrepo"
+	"github.com/vutran1710/dating-dev/internal/schema"
 )
 
 func newLikeCmd() *cobra.Command {
@@ -53,12 +56,26 @@ func newLikeCmd() *cobra.Command {
 				greeting = "Hey! I'd like to connect."
 			}
 
+			// Load pool schema for interest_expiry
+			rawURL := gitrepo.RawURL(pool.Repo, "main", "pool.yaml")
+			s, sErr := schema.Load(rawURL)
+			if sErr != nil {
+				return fmt.Errorf("loading pool schema: %w", sErr)
+			}
+			expiry, eErr := s.ParseInterestExpiry()
+			if eErr != nil {
+				return fmt.Errorf("invalid interest_expiry: %w", eErr)
+			}
+
+			ephemeralTitle := crypto.EphemeralHash(targetMatchHash, expiry)
+
 			client := poolClientWithToken(pool, ghToken)
 			issueNumber, err := client.CreateInterestIssue(
 				ctx,
 				pool.BinHash,
 				pool.MatchHash,
 				targetMatchHash,
+				ephemeralTitle,
 				greeting,
 				ed25519.PublicKey(operatorPubBytes),
 			)
