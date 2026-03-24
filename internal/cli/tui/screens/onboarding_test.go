@@ -186,13 +186,13 @@ func TestOnboarding_EmptyRegistry_DoesNotSubmit(t *testing.T) {
 func TestOnboarding_RegistryInput_Submit(t *testing.T) {
 	s := NewOnboardingScreen()
 	s.step = stepAskRegistry
-	s.input.SetValue("vutran1710/dating-test-registry")
+	s.input.SetValue("vutran1710/openpool-base-registry")
 
 	s, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if s.step != stepCloningRegistry {
 		t.Errorf("expected stepCloningRegistry, got %d", s.step)
 	}
-	if s.registryURL != "vutran1710/dating-test-registry" {
+	if s.registryURL != "vutran1710/openpool-base-registry" {
 		t.Errorf("expected registryURL set, got %s", s.registryURL)
 	}
 	if cmd == nil {

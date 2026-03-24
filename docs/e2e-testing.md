@@ -5,22 +5,22 @@ End-to-end testing for the openpool platform. Tests cover the full user journey 
 ## Prerequisites
 
 - `gh` CLI authenticated (`gh auth status`)
-- Test pool: `vutran1710/dating-test-pool`
-- Test registry: `vutran1710/dating-test-registry`
-- Dev secrets: `dating-test-pool/.dev-secrets` (POOL_SALT, OPERATOR_PRIVATE_KEY)
+- Test pool: `vutran1710/openpool-base-pool`
+- Test registry: `vutran1710/openpool-base-registry`
+- Dev secrets: `openpool-base-pool/.dev-secrets` (POOL_SALT, OPERATOR_PRIVATE_KEY)
 - Relay server running locally (`go run ./cmd/relay/`)
 
 ## Environment Setup
 
 ```bash
 # Load test secrets
-source /Users/vutran/Works/terminal-dating/dating-test-pool/.dev-secrets
+source /Users/vutran/Works/terminal-dating/openpool-base-pool/.dev-secrets
 
 # Set test pool URL
-export POOL_URL=vutran1710/dating-test-pool
+export POOL_URL=vutran1710/openpool-base-pool
 
 # Optional: clean test pool before testing
-cd /path/to/dating-test-pool
+cd /path/to/openpool-base-pool
 rm -f users/*.bin
 git add -A && git commit -m "clean test users" && git push
 ```
@@ -43,13 +43,13 @@ cat > /tmp/user-b-profile.json << 'EOF'
 EOF
 
 # Register managed user
-source /path/to/dating-test-pool/.dev-secrets
+source /path/to/openpool-base-pool/.dev-secrets
 bin/action-tool managed-register \
   --provider managed \
   --userid test-user-b \
   --profile /tmp/user-b-profile.json \
-  --pool vutran1710/dating-test-pool \
-  --schema /path/to/dating-test-pool/pool.yaml \
+  --pool vutran1710/openpool-base-pool \
+  --schema /path/to/openpool-base-pool/pool.yaml \
   --output-dir /tmp/op-user-b
 
 # Use immediately
@@ -60,7 +60,7 @@ For chat testing, also create a match file between User A and User B:
 ```bash
 # Note match_hash values from managed-register output and User A's config
 # Compute pair_hash = sha256(min(a,b):max(a,b))[:12]
-cd /path/to/dating-test-pool
+cd /path/to/openpool-base-pool
 mkdir -p matches
 echo '{}' > matches/<pair_hash>.json
 git add -A && git commit -m "add test match" && git push
@@ -79,7 +79,7 @@ git add -A && git commit -m "add test match" && git push
 2. Run `op` — should show Welcome screen
 3. Press Enter — auto-detects `gh` CLI token
 4. Keys are generated automatically
-5. Enter registry: `vutran1710/dating-test-registry`
+5. Enter registry: `vutran1710/openpool-base-registry`
 6. Registry clones, pools are discovered
 7. Config saved — redirects to Pools screen
 
@@ -123,7 +123,7 @@ ls ~/.openpool/keys/           # should have ed25519 keypair
 gh issue list --repo $POOL_URL --label registration --state all
 
 # Check the .bin file was committed
-ls /path/to/dating-test-pool/users/
+ls /path/to/openpool-base-pool/users/
 
 # Check config has hashes
 grep -A5 'test-pool' ~/.openpool/setting.toml
@@ -314,12 +314,12 @@ cat > /tmp/user-b-profile.json << 'EOF'
 {"about": "Test user B", "interests": ["coding", "gaming"], "age": 25}
 EOF
 
-source /path/to/dating-test-pool/.dev-secrets
+source /path/to/openpool-base-pool/.dev-secrets
 bin/action-tool managed-register \
   --provider managed --userid chat-test-b \
   --profile /tmp/user-b-profile.json \
-  --pool vutran1710/dating-test-pool \
-  --schema /path/to/dating-test-pool/pool.yaml \
+  --pool vutran1710/openpool-base-pool \
+  --schema /path/to/openpool-base-pool/pool.yaml \
   --output-dir /tmp/op-user-b
 
 # Note User B's match_hash from the output
@@ -330,7 +330,7 @@ bin/action-tool managed-register \
 ```bash
 # Use User A's match_hash and User B's match_hash
 # pair_hash = sha256(min(a,b) + ":" + max(a,b))[:12]
-cd /path/to/dating-test-pool
+cd /path/to/openpool-base-pool
 mkdir -p matches
 echo '{}' > matches/<pair_hash>.json
 git add -A && git commit -m "add test match" && git push
@@ -414,7 +414,7 @@ The `cmd/e2etest/` binary tests registration (valid + invalid) and interest matc
 
 ```bash
 export POOL_SALT=<from .dev-secrets>
-export POOL_URL=vutran1710/dating-test-pool
+export POOL_URL=vutran1710/openpool-base-pool
 export OPERATOR_PRIVATE_KEY=<from .dev-secrets>
 
 go run ./cmd/e2etest/
@@ -427,7 +427,7 @@ This creates real GitHub issues, waits for Actions to process them, and verifies
 After testing, clean up the test pool:
 
 ```bash
-cd /path/to/dating-test-pool
+cd /path/to/openpool-base-pool
 
 # Remove all user .bin files
 rm -f users/*.bin
@@ -437,8 +437,8 @@ git add -A && git commit -m "clean test users" && git push
 cat > ~/.openpool/setting.toml << 'EOF'
 pools = []
 active_pool = ''
-registries = ['https://github.com/vutran1710/dating-test-registry']
-active_registry = 'https://github.com/vutran1710/dating-test-registry'
+registries = ['https://github.com/vutran1710/openpool-base-registry']
+active_registry = 'https://github.com/vutran1710/openpool-base-registry'
 
 [user]
 id_hash = ''
