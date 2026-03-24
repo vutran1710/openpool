@@ -1,6 +1,8 @@
 <p align="center">
-  <img src="assets/logo/horizontal.svg" width="500" alt="openpool">
+  <img src="assets/logo/icon.svg" width="100" alt="openpool">
 </p>
+
+<h1 align="center">openpool</h1>
 
 <p align="center">
   Decentralized, terminal-native matching platform.<br>
