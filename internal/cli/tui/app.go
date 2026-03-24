@@ -1287,12 +1287,26 @@ func sendLike(poolName, registry, targetMatchHash string) tea.Cmd {
 		}
 
 		operatorPubBytes, _ := hex.DecodeString(pool.OperatorPubKey)
+
+		// Compute ephemeral title from pool's interest_expiry
+		rawURL := gitrepo.RawURL(pool.Repo, "main", "pool.yaml")
+		s, sErr := schema.Load(rawURL)
+		if sErr != nil {
+			return components.ToastMsg{Text: "Failed to load pool schema", Level: components.ToastError}
+		}
+		expiry, eErr := s.ParseInterestExpiry()
+		if eErr != nil {
+			return components.ToastMsg{Text: "Pool missing interest_expiry", Level: components.ToastError}
+		}
+		ephemeralTitle := crypto.EphemeralHash(targetMatchHash, expiry)
+
 		client := gh.NewPoolWithClient(gh.NewCLIOrHTTP(pool.Repo, ghToken))
 		_, err = client.CreateInterestIssue(
 			context.Background(),
 			pool.BinHash,
 			pool.MatchHash,
 			targetMatchHash,
+			ephemeralTitle,
 			"Hey! I'd like to connect.",
 			ed25519.PublicKey(operatorPubBytes),
 		)

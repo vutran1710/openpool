@@ -17,6 +17,7 @@ import (
 	"github.com/vutran1710/dating-dev/internal/github"
 	"github.com/vutran1710/dating-dev/internal/limits"
 	"github.com/vutran1710/dating-dev/internal/message"
+	"github.com/vutran1710/dating-dev/internal/schema"
 )
 
 func cmdMatch() {
@@ -60,6 +61,7 @@ func cmdMatch() {
 	var authorData struct {
 		AuthorBinHash   string `json:"author_bin_hash"`
 		AuthorMatchHash string `json:"author_match_hash"`
+		TargetMatchHash string `json:"target_match_hash"`
 		Greeting        string `json:"greeting"`
 	}
 	if err := json.Unmarshal(authorPlain, &authorData); err != nil {
@@ -76,6 +78,23 @@ func cmdMatch() {
 		}
 	}
 
+	// Load pool schema for interest_expiry
+	schemaPath := envOrArg("--schema", "POOL_SCHEMA")
+	if schemaPath == "" {
+		schemaPath = "pool.yaml"
+	}
+	poolSchema, sErr := schema.Load(schemaPath)
+	if sErr != nil {
+		rejectIssue("loading schema: " + sErr.Error())
+	}
+	expiry, eErr := poolSchema.ParseInterestExpiry()
+	if eErr != nil {
+		rejectIssue("invalid interest_expiry: " + eErr.Error())
+	}
+
+	// Compute ephemeral hash for the author's match_hash (what a reciprocal issue targeting this author would have as title)
+	ephemeralAuthor := crypto.EphemeralHash(authorData.AuthorMatchHash, expiry)
+
 	// List open interest issues to find reciprocal
 	gh, err := github.NewCLI(repo)
 	if err != nil {
@@ -90,10 +109,10 @@ func cmdMatch() {
 		os.Exit(1)
 	}
 
-	// Find reciprocal issue: title == author_match_hash (someone targeting this author)
+	// Find reciprocal issue: title == ephemeral hash of author's match_hash
 	var recipIssue *github.Issue
 	for i := range recipIssues {
-		if recipIssues[i].Title == authorData.AuthorMatchHash && recipIssues[i].Number != issueNumber {
+		if recipIssues[i].Title == ephemeralAuthor && recipIssues[i].Number != issueNumber {
 			recipIssue = &recipIssues[i]
 			break
 		}
@@ -126,6 +145,7 @@ func cmdMatch() {
 	var recipData struct {
 		AuthorBinHash   string `json:"author_bin_hash"`
 		AuthorMatchHash string `json:"author_match_hash"`
+		TargetMatchHash string `json:"target_match_hash"`
 		Greeting        string `json:"greeting"`
 	}
 	if err := json.Unmarshal(recipPlain, &recipData); err != nil {

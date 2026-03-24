@@ -187,11 +187,13 @@ func (p *Pool) RegisterUserViaIssue(ctx context.Context, userHash string, encryp
 }
 
 // CreateInterestIssue creates an issue expressing interest in another user.
-// Title = target's match_hash. Body = encrypted {author_bin_hash, author_match_hash, greeting}.
-func (p *Pool) CreateInterestIssue(ctx context.Context, myBinHash, myMatchHash, targetMatchHash, greeting string, operatorPubKey ed25519.PublicKey) (int, error) {
+// Title = ephemeral hash of target's match_hash (rotates based on expiry).
+// Body = encrypted {author_bin_hash, author_match_hash, target_match_hash, greeting}.
+func (p *Pool) CreateInterestIssue(ctx context.Context, myBinHash, myMatchHash, targetMatchHash, ephemeralTitle, greeting string, operatorPubKey ed25519.PublicKey) (int, error) {
 	payload, _ := json.Marshal(map[string]string{
 		"author_bin_hash":   myBinHash,
 		"author_match_hash": myMatchHash,
+		"target_match_hash": targetMatchHash,
 		"greeting":          greeting,
 	})
 	encrypted, err := crypto.Encrypt(operatorPubKey, payload)
@@ -199,18 +201,19 @@ func (p *Pool) CreateInterestIssue(ctx context.Context, myBinHash, myMatchHash, 
 		return 0, fmt.Errorf("encrypting interest: %w", err)
 	}
 	encBody := base64.StdEncoding.EncodeToString(encrypted)
-	return p.SubmitIssue(ctx, targetMatchHash, "interest", encBody, []string{"interest"})
+	return p.SubmitIssue(ctx, ephemeralTitle, "interest", encBody, []string{"interest"})
 }
 
 // ListInterestsForMeIssues searches open interest issues targeting the given match_hash.
-func (p *Pool) ListInterestsForMeIssues(ctx context.Context, myMatchHash string) ([]Issue, error) {
+// Uses ephemeral hash as the search key (title = ephemeral hash of target's match_hash).
+func (p *Pool) ListInterestsForMeIssues(ctx context.Context, myEphemeralHash string) ([]Issue, error) {
 	issues, err := p.client.ListIssues(ctx, "open", "interest")
 	if err != nil {
 		return nil, err
 	}
 	var results []Issue
 	for _, iss := range issues {
-		if iss.Title == myMatchHash {
+		if iss.Title == myEphemeralHash {
 			results = append(results, iss)
 		}
 	}
