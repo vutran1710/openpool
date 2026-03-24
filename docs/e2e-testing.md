@@ -1,6 +1,6 @@
 # E2E Testing Guide
 
-End-to-end testing for the dating platform. Tests cover the full user journey from registration through matching to chat.
+End-to-end testing for the openpool platform. Tests cover the full user journey from registration through matching to chat.
 
 ## Prerequisites
 
@@ -50,7 +50,7 @@ bin/action-tool managed-register \
   --profile /tmp/user-b-profile.json \
   --pool vutran1710/dating-test-pool \
   --schema /path/to/dating-test-pool/pool.yaml \
-  --output-dir /tmp/dating-user-b
+  --output-dir /tmp/op-user-b
 
 # Use immediately
 OPENPOOL_HOME=/tmp/user-b op
@@ -199,7 +199,7 @@ gh issue list --repo $POOL_URL --label interest --state closed
 Each user gets its own `OPENPOOL_HOME` with separate keys, config, and profile.
 
 ```bash
-mkdir -p /tmp/dating-user-a /tmp/dating-user-b
+mkdir -p /tmp/op-user-a /tmp/op-user-b
 ```
 
 #### Step 2: Register User A (GitHub Account 1)
@@ -280,17 +280,17 @@ curl -s https://relay-production-0b24.up.railway.app/health
 # Should show "online": 2
 
 # User A's messages
-sqlite3 /tmp/dating-user-a/conversations.db \
+sqlite3 /tmp/op-user-a/conversations.db \
   "SELECT direction, substr(content,1,40), created_at FROM messages ORDER BY created_at DESC LIMIT 5;"
 
 # User B's messages
-sqlite3 /tmp/dating-user-b/conversations.db \
+sqlite3 /tmp/op-user-b/conversations.db \
   "SELECT direction, substr(content,1,40), created_at FROM messages ORDER BY created_at DESC LIMIT 5;"
 ```
 
 **Cleanup**:
 ```bash
-rm -rf /tmp/dating-user-a /tmp/dating-user-b
+rm -rf /tmp/op-user-a /tmp/op-user-b
 tmux kill-session -t chat 2>/dev/null
 ```
 
@@ -320,7 +320,7 @@ bin/action-tool managed-register \
   --profile /tmp/user-b-profile.json \
   --pool vutran1710/dating-test-pool \
   --schema /path/to/dating-test-pool/pool.yaml \
-  --output-dir /tmp/dating-user-b
+  --output-dir /tmp/op-user-b
 
 # Note User B's match_hash from the output
 ```
@@ -339,7 +339,7 @@ git add -A && git commit -m "add test match" && git push
 #### Step 4: Chat via tmux
 
 ```bash
-tmux new-session -d -s chat "dating chat <B_match>"
+tmux new-session -d -s chat "op chat <B_match>"
 tmux split-window -h -t chat \
   "OPENPOOL_HOME=/tmp/user-b op chat <A_match>"
 tmux attach -t chat
@@ -351,7 +351,7 @@ Type in each pane — messages should appear in real-time in the other pane.
 
 **Cleanup**:
 ```bash
-rm -rf /tmp/dating-user-b
+rm -rf /tmp/op-user-b
 tmux kill-session -t chat 2>/dev/null
 ```
 
