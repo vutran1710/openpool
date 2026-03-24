@@ -102,6 +102,20 @@ func newApp(userName, userHash, pool, registry string, poolStatuses map[string]s
 	a.statusBar.UserHash = userHash
 	a.statusBar.Pool = pool
 	a.statusBar.Registry = registry
+
+	// Load registry branding (accent color, name)
+	if registry != "" {
+		if reg, err := gh.CloneRegistry(registry); err == nil {
+			if meta := reg.Meta(); meta != nil {
+				if meta.Accent != "" {
+					theme.SetAccent(meta.Accent)
+				}
+				if meta.Name != "" {
+					a.statusBar.Registry = meta.Name
+				}
+			}
+		}
+	}
 	a.updateHelp()
 	return a
 }

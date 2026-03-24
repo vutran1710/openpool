@@ -4,13 +4,14 @@ package gitrepo
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Repo represents a locally cloned git repository.
@@ -60,21 +61,22 @@ func CloneRegistry(repoURL string) (*Repo, error) {
 		return &Repo{URL: repoURL, LocalDir: localDir}, nil
 	}
 
-	// Step 1: validate registry.json via raw content (instant, no rate limit)
+	// Step 1: validate registry.yaml via raw content (instant, no rate limit)
+	// TODO: consolidate git operations — gitrepo, github, and direct git commands are fragmented
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	regData, err := FetchRaw(ctx, repoURL, "main", "registry.json")
+	regData, err := FetchRaw(ctx, repoURL, "main", "registry.yaml")
 	if err != nil {
-		return nil, fmt.Errorf("not a valid registry: missing registry.json")
+		return nil, fmt.Errorf("not a valid registry: missing registry.yaml")
 	}
 
 	var regMeta struct {
-		Name    string `json:"name"`
-		Version int    `json:"version"`
+		Name    string `yaml:"name"`
+		Version int    `yaml:"version"`
 	}
-	if err := json.Unmarshal(regData, &regMeta); err != nil || regMeta.Name == "" || regMeta.Version == 0 {
-		return nil, fmt.Errorf("not a valid registry: invalid registry.json (requires name and version)")
+	if err := yaml.Unmarshal(regData, &regMeta); err != nil || regMeta.Name == "" || regMeta.Version == 0 {
+		return nil, fmt.Errorf("not a valid registry: invalid registry.yaml (requires name and version)")
 	}
 
 	// Step 2: validated — do a normal shallow clone
