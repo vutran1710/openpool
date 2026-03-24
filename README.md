@@ -108,6 +108,28 @@ indexing:
 
 ## Install
 
+**Download the latest release:**
+
+```bash
+# macOS (Apple Silicon)
+curl -fsSL https://github.com/vutran1710/openpool/releases/latest/download/op-darwin-arm64 -o op
+chmod +x op && sudo mv op /usr/local/bin/
+
+# macOS (Intel)
+curl -fsSL https://github.com/vutran1710/openpool/releases/latest/download/op-darwin-amd64 -o op
+chmod +x op && sudo mv op /usr/local/bin/
+
+# Linux (x86_64)
+curl -fsSL https://github.com/vutran1710/openpool/releases/latest/download/op-linux-amd64 -o op
+chmod +x op && sudo mv op /usr/local/bin/
+
+# Linux (ARM64)
+curl -fsSL https://github.com/vutran1710/openpool/releases/latest/download/op-linux-arm64 -o op
+chmod +x op && sudo mv op /usr/local/bin/
+```
+
+**Or build from source:**
+
 ```bash
 git clone https://github.com/vutran1710/openpool
 cd openpool
