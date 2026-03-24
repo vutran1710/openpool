@@ -203,6 +203,15 @@ make test      # tests with isolated OPENPOOL_HOME
 make coverage  # coverage report
 ```
 
+## Roadmap
+
+- [ ] AI assistance during chat via `/ai` command
+- [ ] Homebrew tap (`brew install vutran1710/tap/op`)
+- [ ] Self-hosted media via Cloudflare Tunnel
+- [ ] Forward secrecy for chat (ratcheted key exchange)
+- [ ] Web-based pool explorer (browse pools without CLI)
+- [ ] Multi-registry federation
+
 ## License
 
 MIT
