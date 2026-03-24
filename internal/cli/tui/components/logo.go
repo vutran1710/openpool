@@ -29,7 +29,7 @@ var logoExtensions = []string{".png", ".jpg", ".jpeg", ".gif", ".bmp"}
 // or image exceeds 1MB.
 func PoolLogoFromRepo(registryRepo *gitrepo.Repo, poolName string) string {
 	if registryRepo == nil {
-		return PoolLogo()
+		return ""
 	}
 
 	poolDir := filepath.Join(registryRepo.LocalDir, "pools", poolName)
@@ -51,19 +51,19 @@ func PoolLogoFromRepo(registryRepo *gitrepo.Repo, poolName string) string {
 	}
 
 	if imagePath == "" {
-		return PoolLogo()
+		return ""
 	}
 
 	// Check file size (max 1MB)
 	info, err := os.Stat(imagePath)
 	if err != nil || info.Size() > logoMaxBytes {
-		return PoolLogo()
+		return ""
 	}
 
 	// Resize to 100x100 and convert to ASCII
 	ascii, err := processLogo(imagePath)
 	if err != nil {
-		return PoolLogo()
+		return ""
 	}
 
 	// Cache the result
