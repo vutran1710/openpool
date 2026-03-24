@@ -156,7 +156,7 @@ func testBadRegistration(poolURL string, operatorPub ed25519.PublicKey) {
 
 func testInterestMatching(salt, poolURL string, operatorKey []byte, operatorPub ed25519.PublicKey) {
 	runID := fmt.Sprintf("%d", time.Now().UnixNano()%100000)
-	repoDir := "/Users/vutran/Works/terminal-dating/openpool-base-pool"
+	repoDir := os.Getenv("POOL_REPO_DIR")
 
 	pubA, _, _ := ed25519.GenerateKey(rand.Reader)
 	pubB, _, _ := ed25519.GenerateKey(rand.Reader)
@@ -228,7 +228,7 @@ func testUnmatch(poolURL string, operatorPub ed25519.PublicKey) {
 		a, b = b, a
 	}
 	pairHash := short(a + ":" + b)
-	repoDir := "/Users/vutran/Works/terminal-dating/openpool-base-pool"
+	repoDir := os.Getenv("POOL_REPO_DIR")
 
 	os.MkdirAll(repoDir+"/matches", 0755)
 	matchData := fmt.Sprintf(`{"match_hash_1":"%s","match_hash_2":"%s"}`, matchA, matchB)
