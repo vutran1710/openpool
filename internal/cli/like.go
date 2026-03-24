@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/openpool/internal/cli/config"
 	"github.com/vutran1710/openpool/internal/crypto"
-	"github.com/vutran1710/openpool/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/gitclient"
 	"github.com/vutran1710/openpool/internal/schema"
 )
 
@@ -57,7 +57,7 @@ func newLikeCmd() *cobra.Command {
 			}
 
 			// Load pool schema for interest_expiry
-			rawURL := gitrepo.RawURL(pool.Repo, "main", "pool.yaml")
+			rawURL := gitclient.RawURL(pool.Repo, "main", "pool.yaml")
 			s, sErr := schema.Load(rawURL)
 			if sErr != nil {
 				return fmt.Errorf("loading pool schema: %w", sErr)

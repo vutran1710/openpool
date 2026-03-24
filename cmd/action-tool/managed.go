@@ -12,7 +12,7 @@ import (
 
 	"github.com/vutran1710/openpool/internal/crypto"
 	"github.com/vutran1710/openpool/internal/github"
-	"github.com/vutran1710/openpool/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/gitclient"
 	"github.com/vutran1710/openpool/internal/schema"
 )
 
@@ -86,7 +86,7 @@ func cmdManagedRegister() {
 	}
 
 	// 5. Clone pool repo and commit .bin
-	repo, err := gitrepo.Clone(gitrepo.EnsureGitURL(*pool))
+	repo, err := gitclient.Clone(gitclient.EnsureGitURL(*pool))
 	if err != nil {
 		writeError("cloning pool repo: " + err.Error())
 	}

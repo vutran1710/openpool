@@ -16,7 +16,7 @@ import (
 	"github.com/vutran1710/openpool/internal/cli/config"
 	"github.com/vutran1710/openpool/internal/crypto"
 	gh "github.com/vutran1710/openpool/internal/github"
-	"github.com/vutran1710/openpool/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/gitclient"
 	"github.com/vutran1710/openpool/internal/schema"
 )
 
@@ -305,7 +305,7 @@ Prerequisites:
 			}
 
 			// Validate against pool schema if available
-			repo, repoErr := gitrepo.Clone(gitrepo.EnsureGitURL(entry.Repo))
+			repo, repoErr := gitclient.Clone(gitclient.EnsureGitURL(entry.Repo))
 			if repoErr == nil {
 				repo.Sync()
 				schemaPath := filepath.Join(repo.LocalDir, "pool.yaml")

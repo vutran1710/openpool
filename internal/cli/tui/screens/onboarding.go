@@ -20,7 +20,7 @@ import (
 	"github.com/vutran1710/openpool/internal/cli/tui/theme"
 	"github.com/vutran1710/openpool/internal/crypto"
 	gh "github.com/vutran1710/openpool/internal/github"
-	"github.com/vutran1710/openpool/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/gitclient"
 )
 
 var onboardingHTTPClient = &http.Client{Timeout: 30 * time.Second}
@@ -537,8 +537,8 @@ func (s OnboardingScreen) generateKeys() tea.Msg {
 }
 
 func (s OnboardingScreen) cloneRegistry() tea.Msg {
-	repoURL := gitrepo.EnsureGitURL(s.registryURL)
-	_, err := gitrepo.CloneRegistry(repoURL)
+	repoURL := gitclient.EnsureGitURL(s.registryURL)
+	_, err := gitclient.CloneRegistry(repoURL)
 	if err != nil {
 		return registryCloneResult{err: err}
 	}

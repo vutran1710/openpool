@@ -1,6 +1,6 @@
 // Package gitrepo provides local git clone and file access.
 // All reads go through local clones — no API calls needed.
-package gitrepo
+package gitclient
 
 import (
 	"context"

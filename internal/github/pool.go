@@ -14,13 +14,13 @@ import (
 
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/vutran1710/openpool/internal/crypto"
-	"github.com/vutran1710/openpool/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/gitclient"
 	"github.com/vutran1710/openpool/internal/message"
 )
 
 type Pool struct {
 	client GitHubClient  // for writes (issues, PRs)
-	repo   *gitrepo.Repo // for reads (local clone)
+	repo   *gitclient.Repo // for reads (local clone)
 }
 
 func NewPool(repoURL, token string) *Pool {
@@ -33,13 +33,13 @@ func NewPoolWithClient(client GitHubClient) *Pool {
 }
 
 // NewLocalPool creates a pool from a local git clone (read-only).
-func NewLocalPool(repo *gitrepo.Repo) *Pool {
+func NewLocalPool(repo *gitclient.Repo) *Pool {
 	return &Pool{repo: repo}
 }
 
 // ClonePool clones the pool repo and returns a Pool with local read access.
 func ClonePool(repoURL string) (*Pool, error) {
-	repo, err := gitrepo.Clone(gitrepo.EnsureGitURL(repoURL))
+	repo, err := gitclient.Clone(gitclient.EnsureGitURL(repoURL))
 	if err != nil {
 		return nil, fmt.Errorf("cloning pool: %w", err)
 	}

@@ -7,7 +7,7 @@ import (
 	"crypto/ed25519"
 
 	"github.com/vutran1710/openpool/internal/cli/config"
-	"github.com/vutran1710/openpool/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/gitclient"
 )
 
 // Services bundles all service dependencies.
@@ -43,8 +43,8 @@ type CryptoService interface {
 // ── Git: clone/fetch repos ──
 
 type GitService interface {
-	Clone(repoURL string) (*gitrepo.Repo, error)
-	CloneRegistry(repoURL string) (*gitrepo.Repo, error)
+	Clone(repoURL string) (*gitclient.Repo, error)
+	CloneRegistry(repoURL string) (*gitclient.Repo, error)
 	EnsureGitURL(input string) string
 	FetchRaw(ctx context.Context, repoRef, branch, path string) ([]byte, error)
 	FileExistsRaw(ctx context.Context, repoRef, branch, path string) bool

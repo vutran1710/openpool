@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/openpool/internal/cli/config"
-	"github.com/vutran1710/openpool/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/gitclient"
 	poolschema "github.com/vutran1710/openpool/internal/schema"
 )
 
@@ -96,7 +96,7 @@ Edit the generated file, then run: op pool join <pool>`,
 				"display_name": cfg.User.DisplayName,
 			}
 			if repoURL != "" {
-				repo, err := gitrepo.Clone(gitrepo.EnsureGitURL(repoURL))
+				repo, err := gitclient.Clone(gitclient.EnsureGitURL(repoURL))
 				if err == nil {
 					repo.Sync()
 					schemaPath := filepath.Join(repo.LocalDir, "pool.yaml")
@@ -213,4 +213,4 @@ func printProfileHint(poolName, path string) {
 }
 
 // Ensure imports are used
-var _ = gitrepo.Clone
+var _ = gitclient.Clone

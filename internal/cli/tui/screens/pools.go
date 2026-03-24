@@ -13,7 +13,7 @@ import (
 	"github.com/vutran1710/openpool/internal/cli/tui/components"
 	"github.com/vutran1710/openpool/internal/cli/tui/theme"
 	dbg "github.com/vutran1710/openpool/internal/debug"
-	"github.com/vutran1710/openpool/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/gitclient"
 	gh "github.com/vutran1710/openpool/internal/github"
 )
 
@@ -90,7 +90,7 @@ func (s PoolsScreen) fetchPools() tea.Msg {
 	defer done()
 
 	// Clone registry (instant if already cloned)
-	regRepo, err := gitrepo.CloneRegistry(gitrepo.EnsureGitURL(s.registry))
+	regRepo, err := gitclient.CloneRegistry(gitclient.EnsureGitURL(s.registry))
 	if err != nil {
 		return poolsFetchedMsg{err: err}
 	}
@@ -114,11 +114,11 @@ func (s PoolsScreen) fetchPools() tea.Msg {
 
 		// Fetch stats: use local clone for joined pools, API for unjoined
 		var stats gh.PoolStats
-		var poolRepo *gitrepo.Repo
+		var poolRepo *gitclient.Repo
 		isJoined := s.poolStatus[e.Name] == "active" || s.poolStatus[e.Name] == "pending"
 		if isJoined {
-			poolURL := gitrepo.EnsureGitURL(e.Repo)
-			if repo, err := gitrepo.Clone(poolURL); err == nil {
+			poolURL := gitclient.EnsureGitURL(e.Repo)
+			if repo, err := gitclient.Clone(poolURL); err == nil {
 				repo.Sync()
 				poolRepo = repo
 				pool := gh.NewLocalPool(repo)

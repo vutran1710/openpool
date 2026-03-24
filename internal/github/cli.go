@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 
-	"github.com/vutran1710/openpool/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/gitclient"
 	"strconv"
 	"strings"
 )
@@ -323,9 +323,9 @@ func encodeBase64Content(data []byte) string {
 }
 
 // AddCommitPush stages files, commits, pulls with rebase, and pushes.
-// Delegates to gitrepo.AddCommitPush.
+// Delegates to gitclient.AddCommitPush.
 func (c *CLIClient) AddCommitPush(files []string, message string) error {
-	return gitrepo.AddCommitPush(files, message)
+	return gitclient.AddCommitPush(files, message)
 }
 
 func (c *CLIClient) UploadReleaseAsset(_ context.Context, tag, assetName, filePath string) error {

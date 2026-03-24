@@ -14,7 +14,7 @@ import (
 	"github.com/vutran1710/openpool/internal/cli/config"
 	"github.com/vutran1710/openpool/internal/crypto"
 	gh "github.com/vutran1710/openpool/internal/github"
-	"github.com/vutran1710/openpool/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/gitclient"
 )
 
 // parseRegistryInput normalizes registry input to a git-cloneable URL.
@@ -44,7 +44,7 @@ func parseRegistryInput(input string) (string, error) {
 func validateRegistry(repoURL string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if !gitrepo.FileExistsRaw(ctx, repoURL, "main", "registry.yaml") {
+	if !gitclient.FileExistsRaw(ctx, repoURL, "main", "registry.yaml") {
 		return fmt.Errorf("cannot access registry or missing registry.yaml: %s", repoURL)
 	}
 	return nil
@@ -92,8 +92,8 @@ func runRegistryAdd(input string) error {
 		return nil
 	}
 
-	regRepo, err := withSpinner("Validating & cloning "+repoURL, func() (*gitrepo.Repo, error) {
-		return gitrepo.CloneRegistry(repoURL)
+	regRepo, err := withSpinner("Validating & cloning "+repoURL, func() (*gitclient.Repo, error) {
+		return gitclient.CloneRegistry(repoURL)
 	})
 	if err != nil {
 		return nil
@@ -181,9 +181,9 @@ func runRegistryAdd(input string) error {
 			userHash := crypto.UserHash(p.Repo, "github", identity.UserID)
 
 			// Clone pool repo to check registration
-			poolURL := gitrepo.EnsureGitURL(p.Repo)
-			poolRepo, err := withSpinner(fmt.Sprintf("Cloning %s", p.Name), func() (*gitrepo.Repo, error) {
-				return gitrepo.Clone(poolURL)
+			poolURL := gitclient.EnsureGitURL(p.Repo)
+			poolRepo, err := withSpinner(fmt.Sprintf("Cloning %s", p.Name), func() (*gitclient.Repo, error) {
+				return gitclient.Clone(poolURL)
 			})
 			if err != nil {
 				continue

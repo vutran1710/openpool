@@ -14,7 +14,7 @@ import (
 	"github.com/vutran1710/openpool/internal/cli/config"
 	"github.com/vutran1710/openpool/internal/cli/svc"
 	"github.com/vutran1710/openpool/internal/crypto"
-	"github.com/vutran1710/openpool/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/gitclient"
 )
 
 // normalizeRepo extracts "owner/repo" from git URL formats.
@@ -82,14 +82,14 @@ func (r *realCrypto) Sign(priv ed25519.PrivateKey, message []byte) string {
 
 type realGit struct{}
 
-func (r *realGit) Clone(repoURL string) (*gitrepo.Repo, error)         { return gitrepo.Clone(repoURL) }
-func (r *realGit) CloneRegistry(repoURL string) (*gitrepo.Repo, error) { return gitrepo.CloneRegistry(repoURL) }
-func (r *realGit) EnsureGitURL(input string) string                    { return gitrepo.EnsureGitURL(input) }
+func (r *realGit) Clone(repoURL string) (*gitclient.Repo, error)         { return gitclient.Clone(repoURL) }
+func (r *realGit) CloneRegistry(repoURL string) (*gitclient.Repo, error) { return gitclient.CloneRegistry(repoURL) }
+func (r *realGit) EnsureGitURL(input string) string                    { return gitclient.EnsureGitURL(input) }
 func (r *realGit) FetchRaw(ctx context.Context, repoRef, branch, path string) ([]byte, error) {
-	return gitrepo.FetchRaw(ctx, repoRef, branch, path)
+	return gitclient.FetchRaw(ctx, repoRef, branch, path)
 }
 func (r *realGit) FileExistsRaw(ctx context.Context, repoRef, branch, path string) bool {
-	return gitrepo.FileExistsRaw(ctx, repoRef, branch, path)
+	return gitclient.FileExistsRaw(ctx, repoRef, branch, path)
 }
 
 // --- GitHub ---

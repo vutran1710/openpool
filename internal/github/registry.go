@@ -9,7 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 	"github.com/vutran1710/openpool/internal/crypto"
-	"github.com/vutran1710/openpool/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/gitclient"
 )
 
 const PoolStatusPending = "pending"
@@ -46,7 +46,7 @@ type PoolTokens struct {
 
 type Registry struct {
 	client *HTTPClient
-	repo   *gitrepo.Repo
+	repo   *gitclient.Repo
 	meta   *RegistryMeta
 }
 
@@ -58,7 +58,7 @@ func NewRegistry(repoURL, token string) *Registry {
 }
 
 // NewLocalRegistry creates a registry from a local git clone (read-only).
-func NewLocalRegistry(repo *gitrepo.Repo) *Registry {
+func NewLocalRegistry(repo *gitclient.Repo) *Registry {
 	r := &Registry{repo: repo}
 	r.loadMeta()
 	return r
@@ -66,7 +66,7 @@ func NewLocalRegistry(repo *gitrepo.Repo) *Registry {
 
 // CloneRegistry clones the registry repo (with validation) and returns a read-only Registry.
 func CloneRegistry(repoURL string) (*Registry, error) {
-	repo, err := gitrepo.CloneRegistry(gitrepo.EnsureGitURL(repoURL))
+	repo, err := gitclient.CloneRegistry(gitclient.EnsureGitURL(repoURL))
 	if err != nil {
 		return nil, fmt.Errorf("cloning registry: %w", err)
 	}

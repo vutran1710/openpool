@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/vutran1710/openpool/internal/github"
-	"github.com/vutran1710/openpool/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/gitclient"
 	"github.com/vutran1710/openpool/internal/schema"
 )
 
@@ -22,7 +22,7 @@ func cmdSquash() {
 	maxCount, _ := strconv.Atoi(maxStr)
 
 	msg := fmt.Sprintf("Pool state (squashed %s)", time.Now().UTC().Format(time.RFC3339))
-	squashed, err := gitrepo.SquashHistory(maxCount, msg)
+	squashed, err := gitclient.SquashHistory(maxCount, msg)
 	if err != nil {
 		writeError("squash: " + err.Error())
 	}

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/vutran1710/openpool/internal/cli/tui/theme"
-	"github.com/vutran1710/openpool/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/gitclient"
 )
 
 const (
@@ -17,7 +17,7 @@ const (
 )
 
 // PoolLogoFromRepo reads logo.txt from a local pool repo clone.
-func PoolLogoFromRepo(poolRepo *gitrepo.Repo) string {
+func PoolLogoFromRepo(poolRepo *gitclient.Repo) string {
 	if poolRepo == nil {
 		return ""
 	}
@@ -36,7 +36,7 @@ func PoolLogoFromRaw(repoRef string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	data, err := gitrepo.FetchRaw(ctx, repoRef, "main", "logo.txt")
+	data, err := gitclient.FetchRaw(ctx, repoRef, "main", "logo.txt")
 	if err != nil {
 		return ""
 	}

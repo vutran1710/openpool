@@ -10,7 +10,7 @@ import (
 	"github.com/vutran1710/openpool/internal/cli/config"
 	"github.com/vutran1710/openpool/internal/cli/svc"
 	"github.com/vutran1710/openpool/internal/crypto"
-	"github.com/vutran1710/openpool/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/gitclient"
 )
 
 // MockServices creates a fully mocked Services for testing.
@@ -76,14 +76,14 @@ func (m *MockGitService) AddFile(repoURL, path string, content []byte) {
 	m.Repos[repoURL][path] = content
 }
 
-func (m *MockGitService) Clone(repoURL string) (*gitrepo.Repo, error) {
+func (m *MockGitService) Clone(repoURL string) (*gitclient.Repo, error) {
 	if _, ok := m.Repos[repoURL]; !ok {
 		return nil, fmt.Errorf("repo not found: %s", repoURL)
 	}
-	return &gitrepo.Repo{URL: repoURL, LocalDir: "/mock/" + repoURL}, nil
+	return &gitclient.Repo{URL: repoURL, LocalDir: "/mock/" + repoURL}, nil
 }
-func (m *MockGitService) CloneRegistry(repoURL string) (*gitrepo.Repo, error) { return m.Clone(repoURL) }
-func (m *MockGitService) EnsureGitURL(input string) string                    { return gitrepo.EnsureGitURL(input) }
+func (m *MockGitService) CloneRegistry(repoURL string) (*gitclient.Repo, error) { return m.Clone(repoURL) }
+func (m *MockGitService) EnsureGitURL(input string) string                    { return gitclient.EnsureGitURL(input) }
 func (m *MockGitService) FetchRaw(_ context.Context, repoRef, _, path string) ([]byte, error) {
 	files, ok := m.Repos[repoRef]
 	if !ok { return nil, fmt.Errorf("not found") }

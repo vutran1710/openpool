@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vutran1710/openpool/internal/cli/config"
 	gh "github.com/vutran1710/openpool/internal/github"
-	"github.com/vutran1710/openpool/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/gitclient"
 	"github.com/vutran1710/openpool/internal/pooldb"
 )
 
@@ -31,7 +31,7 @@ func newPoolSyncCmd() *cobra.Command {
 			}
 
 			fmt.Println("  Syncing pool repo...")
-			repo, err := gitrepo.Clone(gitrepo.EnsureGitURL(pool.Repo))
+			repo, err := gitclient.Clone(gitclient.EnsureGitURL(pool.Repo))
 			if err != nil {
 				return fmt.Errorf("cloning pool repo: %w", err)
 			}

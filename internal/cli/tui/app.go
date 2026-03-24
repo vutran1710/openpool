@@ -18,7 +18,7 @@ import (
 	"github.com/vutran1710/openpool/internal/cli/tui/components"
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/vutran1710/openpool/internal/cli/tui/screens"
-	"github.com/vutran1710/openpool/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/gitclient"
 	"github.com/vutran1710/openpool/internal/cli/tui/theme"
 	"github.com/vutran1710/openpool/internal/crypto"
 	dbg "github.com/vutran1710/openpool/internal/debug"
@@ -475,7 +475,7 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Load pool.yaml via raw URL (fast), clone repo in background
-		rawURL := gitrepo.RawURL(poolRepo, "main", "pool.yaml")
+		rawURL := gitclient.RawURL(poolRepo, "main", "pool.yaml")
 		s, err := schema.Load(rawURL)
 		if err != nil {
 			return a, func() tea.Msg {
@@ -485,7 +485,7 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Clone repo in background for later use
 		go func() {
-			if repo, err := gitrepo.Clone(gitrepo.EnsureGitURL(poolRepo)); err == nil {
+			if repo, err := gitclient.Clone(gitclient.EnsureGitURL(poolRepo)); err == nil {
 				repo.Sync()
 			}
 		}()
@@ -766,7 +766,7 @@ func (a app) handleSubmit(msg components.SubmitMsg) (tea.Model, tea.Cmd) {
 					return components.ToastMsg{Text: "Pool not found in config", Level: components.ToastError}
 				}
 			}
-			rawURL := gitrepo.RawURL(poolRepo, "main", "pool.yaml")
+			rawURL := gitclient.RawURL(poolRepo, "main", "pool.yaml")
 			s, err := schema.Load(rawURL)
 			if err != nil {
 				return a, func() tea.Msg {
@@ -1307,7 +1307,7 @@ func sendLike(poolName, registry, targetMatchHash string) tea.Cmd {
 		operatorPubBytes, _ := hex.DecodeString(pool.OperatorPubKey)
 
 		// Compute ephemeral title from pool's interest_expiry
-		rawURL := gitrepo.RawURL(pool.Repo, "main", "pool.yaml")
+		rawURL := gitclient.RawURL(pool.Repo, "main", "pool.yaml")
 		s, sErr := schema.Load(rawURL)
 		if sErr != nil {
 			return components.ToastMsg{Text: "Failed to load pool schema", Level: components.ToastError}
