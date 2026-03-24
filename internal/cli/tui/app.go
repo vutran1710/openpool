@@ -353,6 +353,9 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case screens.DiscoverLikeMsg:
 		return a, sendLike(a.pool, a.registry, msg.TargetMatchHash)
 
+	case screens.ChatUnmatchMsg:
+		return a, sendUnmatch(a.pool, msg.TargetMatchHash)
+
 	case chatClientInitMsg:
 		a.chatClient = msg.client
 		a.chatClient.OnMsg = func(peerMatchHash string) {
@@ -783,6 +786,12 @@ func (a app) handleSubmit(msg components.SubmitMsg) (tea.Model, tea.Cmd) {
 			if a.screen == screenChat {
 				a.screen = screenMatches
 				a.updateHelp()
+			}
+		case "/unmatch":
+			if a.screen == screenChat {
+				return a, func() tea.Msg {
+					return screens.ChatUnmatchMsg{TargetMatchHash: a.chat.TargetID}
+				}
 			}
 		default:
 			// Handle /pool <name> and /registry <name>
@@ -1318,6 +1327,44 @@ func sendLike(poolName, registry, targetMatchHash string) tea.Cmd {
 		}
 
 		return components.ToastMsg{Text: "♥ Interest sent!", Level: components.ToastSuccess}
+	}
+}
+
+func sendUnmatch(poolName, targetMatchHash string) tea.Cmd {
+	return func() tea.Msg {
+		cfg, err := config.Load()
+		if err != nil {
+			return components.ToastMsg{Text: "Error: " + err.Error(), Level: components.ToastError}
+		}
+		var pool *config.PoolConfig
+		for i := range cfg.Pools {
+			if cfg.Pools[i].Name == poolName {
+				pool = &cfg.Pools[i]
+				break
+			}
+		}
+		if pool == nil || pool.MatchHash == "" {
+			return components.ToastMsg{Text: "Not registered in pool", Level: components.ToastError}
+		}
+
+		ghToken, err := gh.GetCLIToken()
+		if err != nil {
+			return components.ToastMsg{Text: "GitHub auth required", Level: components.ToastError}
+		}
+
+		operatorPubBytes, _ := hex.DecodeString(pool.OperatorPubKey)
+		client := gh.NewPoolWithClient(gh.NewCLIOrHTTP(pool.Repo, ghToken))
+		_, err = client.SubmitUnmatchIssue(
+			context.Background(),
+			pool.MatchHash,
+			targetMatchHash,
+			ed25519.PublicKey(operatorPubBytes),
+		)
+		if err != nil {
+			return components.ToastMsg{Text: "Error: " + err.Error(), Level: components.ToastError}
+		}
+
+		return components.ToastMsg{Text: "Unmatch submitted — match will be dissolved", Level: components.ToastSuccess}
 	}
 }
 

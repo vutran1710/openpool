@@ -220,6 +220,20 @@ func (p *Pool) ListInterestsForMeIssues(ctx context.Context, myEphemeralHash str
 	return results, nil
 }
 
+// SubmitUnmatchIssue creates an issue to dissolve a match.
+func (p *Pool) SubmitUnmatchIssue(ctx context.Context, myMatchHash, targetMatchHash string, operatorPubKey ed25519.PublicKey) (int, error) {
+	payload, _ := json.Marshal(map[string]string{
+		"author_match_hash": myMatchHash,
+		"target_match_hash": targetMatchHash,
+	})
+	encrypted, err := crypto.Encrypt(operatorPubKey, payload)
+	if err != nil {
+		return 0, fmt.Errorf("encrypting unmatch: %w", err)
+	}
+	encBody := base64.StdEncoding.EncodeToString(encrypted)
+	return p.SubmitIssue(ctx, "Unmatch Request", "unmatch", encBody, []string{"unmatch"})
+}
+
 func (p *Pool) ListMatches(ctx context.Context) ([]string, error) {
 	return p.client.ListDir(ctx, "matches")
 }

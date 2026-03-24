@@ -1,0 +1,29 @@
+name: Process Unmatch
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  unmatch:
+    if: contains(github.event.issue.labels.*.name, 'unmatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download action-tool
+        run: |
+          curl -sL https://github.com/vutran1710/regcrypt/releases/latest/download/action-tool-linux-amd64 -o action-tool
+          chmod +x action-tool
+
+      - name: Unmatch
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          OPERATOR_PRIVATE_KEY: ${{ secrets.OPERATOR_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: ./action-tool unmatch

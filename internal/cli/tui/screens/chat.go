@@ -25,6 +25,11 @@ type ChatSendMsg struct {
 	Text          string
 }
 
+// ChatUnmatchMsg is emitted when the user wants to unmatch from the chat screen.
+type ChatUnmatchMsg struct {
+	TargetMatchHash string
+}
+
 type ChatScreen struct {
 	TargetID string
 	Messages []ChatMessage
