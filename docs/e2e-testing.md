@@ -62,7 +62,7 @@ For chat testing, also create a match file between User A and User B:
 # Compute pair_hash = sha256(min(a,b):max(a,b))[:12]
 cd /path/to/dating-test-pool
 mkdir -p matches
-echo '{"match_hash_1":"<A_match>","match_hash_2":"<B_match>"}' > matches/<pair_hash>.json
+echo '{}' > matches/<pair_hash>.json
 git add -A && git commit -m "add test match" && git push
 ```
 
@@ -332,7 +332,7 @@ bin/action-tool managed-register \
 # pair_hash = sha256(min(a,b) + ":" + max(a,b))[:12]
 cd /path/to/dating-test-pool
 mkdir -p matches
-echo '{"match_hash_1":"<A_match>","match_hash_2":"<B_match>"}' > matches/<pair_hash>.json
+echo '{}' > matches/<pair_hash>.json
 git add -A && git commit -m "add test match" && git push
 ```
 
