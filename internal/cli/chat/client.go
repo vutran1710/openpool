@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log"
 
-	relayclient "github.com/vutran1710/dating-dev/internal/cli/relay"
-	"github.com/vutran1710/dating-dev/internal/limits"
+	relayclient "github.com/vutran1710/openpool/internal/cli/relay"
+	"github.com/vutran1710/openpool/internal/limits"
 )
 
 type ChatClient struct {

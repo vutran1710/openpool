@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vutran1710/dating-dev/internal/cli/config"
-	"github.com/vutran1710/dating-dev/internal/cli/svc"
-	"github.com/vutran1710/dating-dev/internal/crypto"
-	"github.com/vutran1710/dating-dev/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/cli/config"
+	"github.com/vutran1710/openpool/internal/cli/svc"
+	"github.com/vutran1710/openpool/internal/crypto"
+	"github.com/vutran1710/openpool/internal/gitrepo"
 )
 
 // normalizeRepo extracts "owner/repo" from git URL formats.

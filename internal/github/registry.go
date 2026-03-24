@@ -8,8 +8,8 @@ import (
 	"fmt"
 
 	"gopkg.in/yaml.v3"
-	"github.com/vutran1710/dating-dev/internal/crypto"
-	"github.com/vutran1710/dating-dev/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/crypto"
+	"github.com/vutran1710/openpool/internal/gitrepo"
 )
 
 const PoolStatusPending = "pending"

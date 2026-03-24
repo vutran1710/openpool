@@ -9,14 +9,14 @@ Terminal-native, decentralized matching platform. GitHub repos as the database, 
 - **Language**: Go 1.25
 - **CLI**: Cobra (commands), Bubbletea (TUI), Lipgloss (styling)
 - **Crypto**: ed25519 (signing/TOTP) + NaCl box with ed25519→curve25519 (encryption) + ECDH (chat keys) + AES-256-GCM (chain encryption for discovery)
-- **Config**: TOML (`~/.dating/setting.toml`)
+- **Config**: TOML (`~/.openpool/setting.toml`)
 - **Protocol**: Binary frames over WebSocket (text frames for control)
 - **Schema**: YAML (`pool.yaml`) — pool config, profile attributes, roles, indexing, interest expiry
 
 ## Architecture
 
 ```
-cmd/dating/       → CLI entry point
+cmd/op/       → CLI entry point
 cmd/relay/        → Per-pool WebSocket relay server
 cmd/action-tool/  → Unified Action binary (register, match, squash, index, sign, decrypt, pubkey, managed-register)
 internal/
@@ -166,17 +166,17 @@ Messages encrypted with NaCl secretbox. Key derived via ECDH (ed25519→curve255
 ## Testing
 
 ```bash
-make test      # runs with isolated DATING_HOME (temp dir)
+make test      # runs with isolated OPENPOOL_HOME (temp dir)
 make coverage  # coverage report
 ```
 
-**CRITICAL**: Always use `make test` or set `DATING_HOME` to a temp dir.
+**CRITICAL**: Always use `make test` or set `OPENPOOL_HOME` to a temp dir.
 
 ## Binaries
 
 | Binary | Purpose | Distribution |
 |--------|---------|-------------|
-| `dating` | CLI app | End users |
+| `op` | CLI app | End users |
 | `relay` | Per-pool relay server | Pool operators (Railway) |
 | `action-tool` | All Action operations (register, match, squash, index, managed-register, sign, decrypt, pubkey) | GitHub Actions |
 
@@ -192,7 +192,7 @@ make coverage  # coverage report
 ## Local Databases
 
 ```
-~/.dating/
+~/.openpool/
   conversations.db                    — messages, conversations, peer_keys (ChatClient)
   pools/<pool-name>/
     index.db                          — chain-encrypted profiles (downloaded from release)
@@ -204,11 +204,11 @@ make coverage  # coverage report
 ## Debug Mode
 
 ```bash
-DEBUG=1 dating
+DEBUG=1 op
 ```
 
 ## Common Gotchas
 
-- **Config corruption**: Tests MUST use `DATING_HOME` temp dir
+- **Config corruption**: Tests MUST use `OPENPOOL_HOME` temp dir
 - **Key events eaten**: Command input steals arrow/tab keys — block forwarding for interactive screens
 - **CDN cache**: raw.githubusercontent.com caches for ~5 min — relay may have stale pubkeys after .bin update

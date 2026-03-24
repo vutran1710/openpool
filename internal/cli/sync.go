@@ -5,10 +5,10 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"github.com/vutran1710/dating-dev/internal/cli/config"
-	gh "github.com/vutran1710/dating-dev/internal/github"
-	"github.com/vutran1710/dating-dev/internal/gitrepo"
-	"github.com/vutran1710/dating-dev/internal/pooldb"
+	"github.com/vutran1710/openpool/internal/cli/config"
+	gh "github.com/vutran1710/openpool/internal/github"
+	"github.com/vutran1710/openpool/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/pooldb"
 )
 
 func newPoolSyncCmd() *cobra.Command {

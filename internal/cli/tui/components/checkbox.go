@@ -5,7 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
+	"github.com/vutran1710/openpool/internal/cli/tui/theme"
 )
 
 // CheckboxItem represents a single toggleable item.

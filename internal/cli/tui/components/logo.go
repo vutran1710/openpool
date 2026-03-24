@@ -12,8 +12,8 @@ import (
 
 	"github.com/nfnt/resize"
 	"github.com/qeesung/image2ascii/convert"
-	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
-	"github.com/vutran1710/dating-dev/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/cli/tui/theme"
+	"github.com/vutran1710/openpool/internal/gitrepo"
 )
 
 const (

@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/vutran1710/dating-dev/internal/crypto"
-	"github.com/vutran1710/dating-dev/internal/schema"
+	"github.com/vutran1710/openpool/internal/crypto"
+	"github.com/vutran1710/openpool/internal/schema"
 )
 
 func TestHashChain(t *testing.T) {

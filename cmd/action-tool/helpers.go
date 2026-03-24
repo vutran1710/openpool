@@ -8,7 +8,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/vutran1710/dating-dev/internal/github"
+	"github.com/vutran1710/openpool/internal/github"
 )
 
 // sha256Short computes SHA-256 and returns the first 16 hex characters.

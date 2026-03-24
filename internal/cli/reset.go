@@ -9,14 +9,14 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/vutran1710/dating-dev/internal/cli/config"
+	"github.com/vutran1710/openpool/internal/cli/config"
 )
 
 func newResetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "reset",
 		Short: "Reset all configuration and data",
-		Long:  "Archives current data to ~/.dating/archive/ and clears all config, keys, and pool data.",
+		Long:  "Archives current data to ~/.openpool/archive/ and clears all config, keys, and pool data.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			datingDir := config.Dir()
 
@@ -28,7 +28,7 @@ func newResetCmd() *cobra.Command {
 
 			// Show what will be affected
 			fmt.Println()
-			printWarning("This will reset all dating.dev data:")
+			printWarning("This will reset all openpool.dev data:")
 			fmt.Println()
 
 			settingPath := config.Path()

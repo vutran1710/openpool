@@ -3,7 +3,7 @@ package schema
 import (
 	"testing"
 
-	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
+	"github.com/vutran1710/openpool/internal/cli/tui/components"
 )
 
 func formIntPtr(v int) *int { return &v }

@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/vutran1710/dating-dev/internal/limits"
+	"github.com/vutran1710/openpool/internal/limits"
 )
 
 // MaxMessageContentSize is the maximum allowed size for issue body / comment content.

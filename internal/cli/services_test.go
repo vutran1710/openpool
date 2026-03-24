@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/vutran1710/dating-dev/internal/cli/config"
-	"github.com/vutran1710/dating-dev/internal/cli/svc"
+	"github.com/vutran1710/openpool/internal/cli/config"
+	"github.com/vutran1710/openpool/internal/cli/svc"
 )
 
 func TestMockServices_Config(t *testing.T) {

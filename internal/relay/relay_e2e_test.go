@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/vutran1710/dating-dev/internal/crypto"
-	relay "github.com/vutran1710/dating-dev/internal/relay"
+	"github.com/vutran1710/openpool/internal/crypto"
+	relay "github.com/vutran1710/openpool/internal/relay"
 )
 
 // --- Test helpers ---

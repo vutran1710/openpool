@@ -6,8 +6,8 @@ import (
 	"context"
 	"crypto/ed25519"
 
-	"github.com/vutran1710/dating-dev/internal/cli/config"
-	"github.com/vutran1710/dating-dev/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/cli/config"
+	"github.com/vutran1710/openpool/internal/gitrepo"
 )
 
 // Services bundles all service dependencies.

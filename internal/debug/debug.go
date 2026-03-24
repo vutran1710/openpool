@@ -24,9 +24,9 @@ type logger struct {
 func init() {
 	log.entries = make([]string, 0, 100)
 	if Enabled {
-		home := os.Getenv("DATING_HOME")
+		home := os.Getenv("OPENPOOL_HOME")
 		if home == "" {
-			home = os.ExpandEnv("$HOME/.dating")
+			home = os.ExpandEnv("$HOME/.openpool")
 		}
 		os.MkdirAll(home, 0700)
 		f, err := os.OpenFile(home+"/debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)

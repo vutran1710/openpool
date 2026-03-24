@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
-	"github.com/vutran1710/dating-dev/internal/cli/tui/screens"
-	"github.com/vutran1710/dating-dev/internal/schema"
+	"github.com/vutran1710/openpool/internal/cli/tui/components"
+	"github.com/vutran1710/openpool/internal/cli/tui/screens"
+	"github.com/vutran1710/openpool/internal/schema"
 )
 
 func TestPoolOnboard_ScreenConstant(t *testing.T) {
@@ -23,7 +23,7 @@ func TestPoolOnboard_ScreenConstant(t *testing.T) {
 
 func TestPoolOnboard_PoolJoinMsg_WithSchema(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("DATING_HOME", tmpDir)
+	t.Setenv("OPENPOOL_HOME", tmpDir)
 
 	// Create a pool.yaml in the expected location
 	poolRepo := "testowner/testpool"
@@ -77,7 +77,7 @@ profile:
 }
 
 func TestPoolOnboard_EscGoesToPools(t *testing.T) {
-	t.Setenv("DATING_HOME", t.TempDir())
+	t.Setenv("OPENPOOL_HOME", t.TempDir())
 
 	a := newApp("testuser", "testhash", "", "registry/repo", nil, nil, false)
 	a.screen = screenPoolOnboard
@@ -91,7 +91,7 @@ func TestPoolOnboard_EscGoesToPools(t *testing.T) {
 }
 
 func TestPoolOnboard_ViewRouting(t *testing.T) {
-	t.Setenv("DATING_HOME", t.TempDir())
+	t.Setenv("OPENPOOL_HOME", t.TempDir())
 
 	a := newApp("testuser", "testhash", "", "registry/repo", nil, nil, false)
 	a.width = 80
@@ -113,7 +113,7 @@ func TestPoolOnboard_ViewRouting(t *testing.T) {
 }
 
 func TestPoolOnboard_UpdateRouting(t *testing.T) {
-	t.Setenv("DATING_HOME", t.TempDir())
+	t.Setenv("OPENPOOL_HOME", t.TempDir())
 
 	a := newApp("testuser", "testhash", "", "registry/repo", nil, nil, false)
 	a.width = 80
@@ -135,7 +135,7 @@ func TestPoolOnboard_UpdateRouting(t *testing.T) {
 }
 
 func TestPoolOnboard_InputBlocked(t *testing.T) {
-	t.Setenv("DATING_HOME", t.TempDir())
+	t.Setenv("OPENPOOL_HOME", t.TempDir())
 
 	a := newApp("testuser", "testhash", "", "registry/repo", nil, nil, false)
 	a.width = 80
@@ -157,7 +157,7 @@ func TestPoolOnboard_InputBlocked(t *testing.T) {
 }
 
 func TestPoolOnboard_HelpBindings(t *testing.T) {
-	t.Setenv("DATING_HOME", t.TempDir())
+	t.Setenv("OPENPOOL_HOME", t.TempDir())
 
 	a := newApp("testuser", "testhash", "", "registry/repo", nil, nil, false)
 	s := &schema.PoolSchema{
@@ -176,7 +176,7 @@ func TestPoolOnboard_HelpBindings(t *testing.T) {
 
 func TestPoolOnboard_DoneMsg_SavesProfile(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("DATING_HOME", tmpDir)
+	t.Setenv("OPENPOOL_HOME", tmpDir)
 
 	a := newApp("testuser", "testhash", "", "registry/repo", nil, nil, false)
 	a.screen = screenPoolOnboard
@@ -210,7 +210,7 @@ func TestPoolOnboard_DoneMsg_SavesProfile(t *testing.T) {
 
 func TestPoolRegistrationSubmittedMsg_UpdatesConfig(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("DATING_HOME", tmpDir)
+	t.Setenv("OPENPOOL_HOME", tmpDir)
 
 	a := newApp("testuser", "testhash", "", "registry/repo", nil, nil, false)
 	a.width = 80
@@ -246,7 +246,7 @@ func TestPoolRegistrationSubmittedMsg_UpdatesConfig(t *testing.T) {
 }
 
 func TestPoolOnboard_WindowSizeMsg(t *testing.T) {
-	t.Setenv("DATING_HOME", t.TempDir())
+	t.Setenv("OPENPOOL_HOME", t.TempDir())
 
 	a := newApp("testuser", "testhash", "", "registry/repo", nil, nil, false)
 	s := &schema.PoolSchema{

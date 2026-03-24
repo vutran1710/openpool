@@ -7,9 +7,9 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/vutran1710/dating-dev/internal/cli/config"
-	"github.com/vutran1710/dating-dev/internal/crypto"
-	gh "github.com/vutran1710/dating-dev/internal/github"
+	"github.com/vutran1710/openpool/internal/cli/config"
+	"github.com/vutran1710/openpool/internal/crypto"
+	gh "github.com/vutran1710/openpool/internal/github"
 )
 
 // Match represents a discovered match from a closed interest issue.
@@ -106,7 +106,7 @@ func newMatchesCmd() *cobra.Command {
 				fmt.Printf("  %s  %s\n", bold.Render(m.BinHash), dim.Render("\""+greeting+"\""))
 			}
 			fmt.Println()
-			printDim("  Chat: dating chat <bin_hash>")
+			printDim("  Chat: op chat <bin_hash>")
 			fmt.Println()
 			return nil
 		},

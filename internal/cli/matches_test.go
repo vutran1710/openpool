@@ -8,8 +8,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/vutran1710/dating-dev/internal/crypto"
-	"github.com/vutran1710/dating-dev/internal/message"
+	"github.com/vutran1710/openpool/internal/crypto"
+	"github.com/vutran1710/openpool/internal/message"
 )
 
 // signedComment creates a comment in the format wrapped in message.Format

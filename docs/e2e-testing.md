@@ -27,7 +27,7 @@ git add -A && git commit -m "clean test users" && git push
 
 ## Creating Test Users
 
-Use `action-tool managed-register` to create additional test users without a second GitHub account. This directly commits the `.bin` file to the pool repo and outputs a complete `DATING_HOME` bundle.
+Use `action-tool managed-register` to create additional test users without a second GitHub account. This directly commits the `.bin` file to the pool repo and outputs a complete `OPENPOOL_HOME` bundle.
 
 ```bash
 # Build action-tool
@@ -53,7 +53,7 @@ bin/action-tool managed-register \
   --output-dir /tmp/dating-user-b
 
 # Use immediately
-DATING_HOME=/tmp/dating-user-b dating
+OPENPOOL_HOME=/tmp/user-b op
 ```
 
 For chat testing, also create a match file between User A and User B:
@@ -75,8 +75,8 @@ git add -A && git commit -m "add test match" && git push
 **What it tests**: GitHub auth, key generation, registry clone, config persistence.
 
 **Steps**:
-1. Delete `~/.dating/` to start fresh
-2. Run `dating` — should show Welcome screen
+1. Delete `~/.openpool/` to start fresh
+2. Run `op` — should show Welcome screen
 3. Press Enter — auto-detects `gh` CLI token
 4. Keys are generated automatically
 5. Enter registry: `vutran1710/dating-test-registry`
@@ -90,8 +90,8 @@ git add -A && git commit -m "add test match" && git push
 
 **Verify**:
 ```bash
-cat ~/.dating/setting.toml  # should have user, registry, encrypted_token
-ls ~/.dating/keys/           # should have ed25519 keypair
+cat ~/.openpool/setting.toml  # should have user, registry, encrypted_token
+ls ~/.openpool/keys/           # should have ed25519 keypair
 ```
 
 ---
@@ -126,7 +126,7 @@ gh issue list --repo $POOL_URL --label registration --state all
 ls /path/to/dating-test-pool/users/
 
 # Check config has hashes
-grep -A5 'test-pool' ~/.dating/setting.toml
+grep -A5 'test-pool' ~/.openpool/setting.toml
 ```
 
 **Action log** (check if Action succeeded):
@@ -145,7 +145,7 @@ gh run view <run-id> --repo $POOL_URL --log
 
 ```bash
 # Run programmatic test
-cd dating-dev
+cd openpool
 go run ./cmd/e2etest/
 # Test 2 creates an issue with age=150, expects rejection
 ```
@@ -196,7 +196,7 @@ gh issue list --repo $POOL_URL --label interest --state closed
 
 #### Step 1: Set up two user environments
 
-Each user gets its own `DATING_HOME` with separate keys, config, and profile.
+Each user gets its own `OPENPOOL_HOME` with separate keys, config, and profile.
 
 ```bash
 mkdir -p /tmp/dating-user-a /tmp/dating-user-b
@@ -205,7 +205,7 @@ mkdir -p /tmp/dating-user-a /tmp/dating-user-b
 #### Step 2: Register User A (GitHub Account 1)
 
 ```bash
-DATING_HOME=/tmp/dating-user-a dating
+OPENPOOL_HOME=/tmp/user-a op
 ```
 
 1. App onboarding: authenticates with GitHub Account 1
@@ -216,7 +216,7 @@ DATING_HOME=/tmp/dating-user-a dating
 #### Step 3: Register User B (GitHub Account 2)
 
 ```bash
-DATING_HOME=/tmp/dating-user-b dating
+OPENPOOL_HOME=/tmp/user-b op
 ```
 
 Same flow as Step 2 but authenticated with a different GitHub account. Note User B's `match_hash`.
@@ -234,10 +234,10 @@ Wait ~60s for the Action to detect the mutual match. Both interest issues should
 Alternatively, create interest issues via CLI:
 ```bash
 # A likes B (from User A's environment)
-DATING_HOME=/tmp/dating-user-a dating interest <B_match_hash>
+OPENPOOL_HOME=/tmp/user-a op interest <B_match_hash>
 
 # B likes A (from User B's environment)
-DATING_HOME=/tmp/dating-user-b dating interest <A_match_hash>
+OPENPOOL_HOME=/tmp/user-b op interest <A_match_hash>
 ```
 
 #### Step 5: Chat via tmux
@@ -247,16 +247,16 @@ Replace `<B_match>` and `<A_match>` with actual match_hash values.
 ```bash
 # Option 1: tmux side-by-side
 tmux new-session -d -s chat \
-  "DATING_HOME=/tmp/dating-user-a dating chat <B_match>"
+  "OPENPOOL_HOME=/tmp/user-a op chat <B_match>"
 tmux split-window -h -t chat \
-  "DATING_HOME=/tmp/dating-user-b dating chat <A_match>"
+  "OPENPOOL_HOME=/tmp/user-b op chat <A_match>"
 tmux attach -t chat
 
 # Option 2: two terminal tabs
 # Tab 1:
-DATING_HOME=/tmp/dating-user-a dating chat <B_match>
+OPENPOOL_HOME=/tmp/user-a op chat <B_match>
 # Tab 2:
-DATING_HOME=/tmp/dating-user-b dating chat <A_match>
+OPENPOOL_HOME=/tmp/user-b op chat <A_match>
 ```
 
 #### Step 6: Send messages
@@ -303,7 +303,7 @@ When only one GitHub account is available, use `action-tool managed-register` to
 #### Step 1: Verify User A is registered
 
 ```bash
-grep match_hash ~/.dating/setting.toml
+grep match_hash ~/.openpool/setting.toml
 # Should show: match_hash = '<A_match>'
 ```
 
@@ -341,7 +341,7 @@ git add -A && git commit -m "add test match" && git push
 ```bash
 tmux new-session -d -s chat "dating chat <B_match>"
 tmux split-window -h -t chat \
-  "DATING_HOME=/tmp/dating-user-b dating chat <A_match>"
+  "OPENPOOL_HOME=/tmp/user-b op chat <A_match>"
 tmux attach -t chat
 ```
 
@@ -434,7 +434,7 @@ rm -f users/*.bin
 git add -A && git commit -m "clean test users" && git push
 
 # Reset local config
-cat > ~/.dating/setting.toml << 'EOF'
+cat > ~/.openpool/setting.toml << 'EOF'
 pools = []
 active_pool = ''
 registries = ['https://github.com/vutran1710/dating-test-registry']

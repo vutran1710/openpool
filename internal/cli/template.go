@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	gh "github.com/vutran1710/dating-dev/internal/github"
+	gh "github.com/vutran1710/openpool/internal/github"
 )
 
 func fillPRTemplate(ctx context.Context, client *gh.HTTPClient, templateName string) (string, error) {

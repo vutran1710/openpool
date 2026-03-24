@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	dbg "github.com/vutran1710/dating-dev/internal/debug"
+	dbg "github.com/vutran1710/openpool/internal/debug"
 )
 
 type realPolling struct {

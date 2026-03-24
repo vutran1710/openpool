@@ -9,7 +9,7 @@ import (
 	"fmt"
 
 	_ "modernc.org/sqlite"
-	"github.com/vutran1710/dating-dev/internal/chainenc"
+	"github.com/vutran1710/openpool/internal/chainenc"
 )
 
 // BucketInfo holds metadata about a bucket.

@@ -1,6 +1,6 @@
 package components
 
-import "github.com/vutran1710/dating-dev/internal/cli/tui/theme"
+import "github.com/vutran1710/openpool/internal/cli/tui/theme"
 
 // ScreenHeader renders a consistent screen title with hint text.
 // Hints are rendered dim. Use ScreenHeaderRaw for pre-styled hints.

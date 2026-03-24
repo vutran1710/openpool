@@ -1,27 +1,21 @@
-.PHONY: build cli relay indexer regcrypt matchcrypt test coverage clean lint
+.PHONY: build op relay action-tool test coverage clean lint
 
-build: cli relay indexer regcrypt matchcrypt
+build: op relay action-tool
 
-cli:
-	go build -o bin/dating ./cmd/dating
+op:
+	go build -o bin/op ./cmd/op
 
 relay:
 	go build -o bin/relay ./cmd/relay
 
-indexer:
-	go build -o bin/indexer ./cmd/indexer
-
-regcrypt:
-	go build -o bin/regcrypt ./cmd/regcrypt
-
-matchcrypt:
-	go build -o bin/matchcrypt ./cmd/matchcrypt
+action-tool:
+	go build -o bin/action-tool ./cmd/action-tool
 
 test:
-	DATING_HOME=$(shell mktemp -d) go test ./...
+	OPENPOOL_HOME=$(shell mktemp -d) go test ./...
 
 coverage:
-	DATING_HOME=$(shell mktemp -d) go test ./... -coverprofile=coverage.out
+	OPENPOOL_HOME=$(shell mktemp -d) go test ./... -coverprofile=coverage.out
 	go tool cover -func=coverage.out | tail -1
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"

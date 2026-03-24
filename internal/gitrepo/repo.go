@@ -23,10 +23,10 @@ type Repo struct {
 // CloneDir returns the base directory for all cloned repos.
 func CloneDir() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".dating", "repos")
+	return filepath.Join(home, ".openpool", "repos")
 }
 
-// Clone clones a repo (shallow) into ~/.dating/repos/{hash}/.
+// Clone clones a repo (shallow) into ~/.openpool/repos/{hash}/.
 // If already cloned, returns immediately (use Sync() to update).
 func Clone(repoURL string) (*Repo, error) {
 	localDir := filepath.Join(CloneDir(), dirName(repoURL))

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/vutran1710/dating-dev/internal/crypto"
+	"github.com/vutran1710/openpool/internal/crypto"
 )
 
 func TestConfig_AddPool_NoDuplicates(t *testing.T) {
@@ -181,7 +181,7 @@ func TestConfig_PoolConfig_Fields(t *testing.T) {
 
 func TestPoolConfig_BinHashMatchHash_Persist(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("DATING_HOME", dir)
+	t.Setenv("OPENPOOL_HOME", dir)
 	cfg := &Config{}
 	cfg.AddPool(PoolConfig{
 		Name:      "test",

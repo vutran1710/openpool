@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/vutran1710/dating-dev/internal/cli/config"
-	"github.com/vutran1710/dating-dev/internal/crypto"
+	"github.com/vutran1710/openpool/internal/cli/config"
+	"github.com/vutran1710/openpool/internal/crypto"
 )
 
 func newAuthCmd() *cobra.Command {
@@ -28,7 +28,7 @@ func newWhoamiCmd() *cobra.Command {
 				return err
 			}
 			if !cfg.IsRegistered() {
-				printWarning("Not registered. Run: dating pool join <name>")
+				printWarning("Not registered. Run: op pool join <name>")
 				return nil
 			}
 

@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/vutran1710/dating-dev/internal/cli/chat"
-	"github.com/vutran1710/dating-dev/internal/cli/config"
-	relayclient "github.com/vutran1710/dating-dev/internal/cli/relay"
-	"github.com/vutran1710/dating-dev/internal/crypto"
+	"github.com/vutran1710/openpool/internal/cli/chat"
+	"github.com/vutran1710/openpool/internal/cli/config"
+	relayclient "github.com/vutran1710/openpool/internal/cli/relay"
+	"github.com/vutran1710/openpool/internal/crypto"
 )
 
 func newChatCmd() *cobra.Command {

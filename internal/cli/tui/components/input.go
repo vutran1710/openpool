@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
+	"github.com/vutran1710/openpool/internal/cli/tui/theme"
 )
 
 type SubmitMsg struct {
@@ -25,8 +25,8 @@ var commands = []commandEntry{
 	{Cmd: "/home", Desc: "go to home screen", Syntax: "/home"},
 	{Cmd: "/discover", Desc: "find new people nearby", Syntax: "/discover  ·  alias: /fetch"},
 	{Cmd: "/matches", Desc: "view your matches and chat", Syntax: "/matches"},
-	{Cmd: "/pools", Desc: "browse & join dating pools", Syntax: "/pools"},
-	{Cmd: "/profile", Desc: "edit your dating profile", Syntax: "/profile edit | /profile show"},
+	{Cmd: "/pools", Desc: "browse & join op pools", Syntax: "/pools"},
+	{Cmd: "/profile", Desc: "edit your op profile", Syntax: "/profile edit | /profile show"},
 	{Cmd: "/inbox", Desc: "view incoming interests", Syntax: "/inbox"},
 	{Cmd: "/settings", Desc: "app settings", Syntax: "/settings"},
 	{Cmd: "/pool", Desc: "switch active pool", Syntax: "/pool <name>"},

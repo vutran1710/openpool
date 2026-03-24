@@ -2,8 +2,8 @@ package screens
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/vutran1710/dating-dev/internal/cli/chat"
-	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
+	"github.com/vutran1710/openpool/internal/cli/chat"
+	"github.com/vutran1710/openpool/internal/cli/tui/components"
 )
 
 // ConversationOpenMsg is emitted when a conversation is selected from the panel.

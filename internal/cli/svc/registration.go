@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/vutran1710/dating-dev/internal/crypto"
-	gh "github.com/vutran1710/dating-dev/internal/github"
+	"github.com/vutran1710/openpool/internal/crypto"
+	gh "github.com/vutran1710/openpool/internal/github"
 )
 
 // SubmitProfileToPool encrypts the profile and creates a registration issue

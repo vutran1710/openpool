@@ -3,9 +3,9 @@ package screens
 import (
 	"testing"
 
-	gh "github.com/vutran1710/dating-dev/internal/github"
+	gh "github.com/vutran1710/openpool/internal/github"
 
-	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
+	"github.com/vutran1710/openpool/internal/cli/tui/components"
 )
 
 func TestPoolJoinMsg_Active(t *testing.T) {

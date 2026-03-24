@@ -4,7 +4,7 @@ import (
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
+	"github.com/vutran1710/openpool/internal/cli/tui/theme"
 )
 
 // KeyBind wraps key.Binding for convenience.

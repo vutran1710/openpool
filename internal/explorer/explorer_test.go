@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/vutran1710/dating-dev/internal/bucket"
-	"github.com/vutran1710/dating-dev/internal/crypto"
-	"github.com/vutran1710/dating-dev/internal/indexer"
+	"github.com/vutran1710/openpool/internal/bucket"
+	"github.com/vutran1710/openpool/internal/crypto"
+	"github.com/vutran1710/openpool/internal/indexer"
 )
 
 func buildTestIndex(t *testing.T, dir string) string {

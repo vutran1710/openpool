@@ -35,7 +35,7 @@ var (
 )
 
 func Logo() string {
-	return BrandStyle.Render("♥") + " " + BoldStyle.Render("dating") + DimStyle.Render(".dev")
+	return BrandStyle.Render("◈") + " " + BoldStyle.Render("openpool")
 }
 
 func Cursor() string {

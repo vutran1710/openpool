@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/vutran1710/dating-dev/internal/crypto"
+	"github.com/vutran1710/openpool/internal/crypto"
 )
 
 func cmdDecrypt() {

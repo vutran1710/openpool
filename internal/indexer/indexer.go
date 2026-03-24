@@ -16,9 +16,9 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
-	"github.com/vutran1710/dating-dev/internal/bucket"
-	"github.com/vutran1710/dating-dev/internal/chainenc"
-	"github.com/vutran1710/dating-dev/internal/crypto"
+	"github.com/vutran1710/openpool/internal/bucket"
+	"github.com/vutran1710/openpool/internal/chainenc"
+	"github.com/vutran1710/openpool/internal/crypto"
 )
 
 // Config holds all parameters for building an index.

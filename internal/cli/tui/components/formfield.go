@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
+	"github.com/vutran1710/openpool/internal/cli/tui/theme"
 )
 
 // FormFieldType defines the kind of form input.

@@ -1,6 +1,6 @@
 package components
 
-import "github.com/vutran1710/dating-dev/internal/cli/tui/theme"
+import "github.com/vutran1710/openpool/internal/cli/tui/theme"
 
 // ScreenLayout renders a consistent screen with header + content.
 // All screens should use this for uniform spacing and structure.

@@ -8,10 +8,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
-	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
-	"github.com/vutran1710/dating-dev/internal/crypto"
-	gh "github.com/vutran1710/dating-dev/internal/github"
+	"github.com/vutran1710/openpool/internal/cli/tui/components"
+	"github.com/vutran1710/openpool/internal/cli/tui/theme"
+	"github.com/vutran1710/openpool/internal/crypto"
+	gh "github.com/vutran1710/openpool/internal/github"
 )
 
 // InboxFetchMsg is sent to trigger loading inbox data.

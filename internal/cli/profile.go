@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"github.com/vutran1710/dating-dev/internal/cli/config"
-	"github.com/vutran1710/dating-dev/internal/gitrepo"
-	poolschema "github.com/vutran1710/dating-dev/internal/schema"
+	"github.com/vutran1710/openpool/internal/cli/config"
+	"github.com/vutran1710/openpool/internal/gitrepo"
+	poolschema "github.com/vutran1710/openpool/internal/schema"
 )
 
 func newProfileCmd() *cobra.Command {
@@ -28,14 +28,14 @@ func newProfileCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create <pool>",
 		Short: "Create a local profile for a pool",
-		Long: `Creates a profile.json at ~/.dating/pools/<pool>/profile.json.
+		Long: `Creates a profile.json at ~/.openpool/pools/<pool>/profile.json.
 
 Profile values sourced from (in priority order):
   1. --profile flag: copy from the given JSON file
   2. Existing pool profile: duplicate from another pool's profile.json
   3. Base template: scaffold with user info from config, dating fields empty
 
-Edit the generated file, then run: dating pool join <pool>`,
+Edit the generated file, then run: op pool join <pool>`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			poolName := args[0]
@@ -149,14 +149,14 @@ func newProfileEditCmd() *cobra.Command {
 
 			if _, err := os.Stat(path); os.IsNotExist(err) {
 				printError(fmt.Sprintf("No profile found for pool \"%s\"", poolName))
-				printDim(fmt.Sprintf("  Create one first: dating profile create %s", poolName))
+				printDim(fmt.Sprintf("  Create one first: op profile create %s", poolName))
 				return nil
 			}
 
 			fmt.Println()
 			printDim(fmt.Sprintf("  Your profile is at: %s", path))
 			printDim("  Edit it with your preferred editor, then run:")
-			fmt.Printf("    dating pool join %s\n", poolName)
+			fmt.Printf("    op pool join %s\n", poolName)
 			fmt.Println()
 			return nil
 		},
@@ -176,7 +176,7 @@ func newProfileShowCmd() *cobra.Command {
 			if err != nil {
 				if os.IsNotExist(err) {
 					printDim(fmt.Sprintf("  No profile found for pool \"%s\".", poolName))
-					printDim(fmt.Sprintf("  Create one: dating profile create %s", poolName))
+					printDim(fmt.Sprintf("  Create one: op profile create %s", poolName))
 					return nil
 				}
 				return fmt.Errorf("reading profile: %w", err)
@@ -208,7 +208,7 @@ func printProfileHint(poolName, path string) {
 	fmt.Println()
 	printDim(fmt.Sprintf("  Profile saved to: %s", path))
 	printDim("  Edit it with your preferred editor, then run:")
-	fmt.Printf("    dating pool join %s\n", poolName)
+	fmt.Printf("    op pool join %s\n", poolName)
 	fmt.Println()
 }
 

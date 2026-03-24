@@ -1,4 +1,4 @@
-module github.com/vutran1710/dating-dev
+module github.com/vutran1710/openpool
 
 go 1.25.0
 

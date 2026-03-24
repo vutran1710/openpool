@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/vutran1710/dating-dev/internal/schema"
+	"github.com/vutran1710/openpool/internal/schema"
 	"gopkg.in/yaml.v3"
 )
 

@@ -4,8 +4,8 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/vutran1710/dating-dev/internal/cli/config"
-	dbg "github.com/vutran1710/dating-dev/internal/debug"
+	"github.com/vutran1710/openpool/internal/cli/config"
+	dbg "github.com/vutran1710/openpool/internal/debug"
 )
 
 type realPersistence struct {

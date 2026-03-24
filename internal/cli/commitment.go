@@ -6,8 +6,8 @@ import (
 	"strconv"
 
 	"github.com/spf13/cobra"
-	"github.com/vutran1710/dating-dev/internal/cli/config"
-	"github.com/vutran1710/dating-dev/internal/crypto"
+	"github.com/vutran1710/openpool/internal/cli/config"
+	"github.com/vutran1710/openpool/internal/crypto"
 )
 
 func newCommitCmd() *cobra.Command {

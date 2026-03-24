@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vutran1710/dating-dev/internal/limits"
+	"github.com/vutran1710/openpool/internal/limits"
 )
 
 func newTestDB(t *testing.T) *ConversationDB {
@@ -195,10 +195,10 @@ func TestChatClient_HandleIncoming_TooLarge(t *testing.T) {
 	}
 }
 
-// Ensure test binary doesn't need a real DATING_HOME.
+// Ensure test binary doesn't need a real OPENPOOL_HOME.
 func TestMain(m *testing.M) {
 	dir, _ := os.MkdirTemp("", "dating-chat-test-*")
-	os.Setenv("DATING_HOME", dir)
+	os.Setenv("OPENPOOL_HOME", dir)
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)

@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/vutran1710/dating-dev/internal/cli/config"
-	"github.com/vutran1710/dating-dev/internal/crypto"
+	"github.com/vutran1710/openpool/internal/cli/config"
+	"github.com/vutran1710/openpool/internal/crypto"
 )
 
 func newFetchCmd() *cobra.Command {
@@ -126,7 +126,7 @@ func newFetchCmd() *cobra.Command {
 				fmt.Printf("  %s %s\n", dim.Render("Interests:"), strings.Join(strs, ", "))
 			}
 			fmt.Println()
-			printDim("  Like: dating like " + crypto.ShortHash(result.UserHash))
+			printDim("  Like: op like " + crypto.ShortHash(result.UserHash))
 			fmt.Println()
 			return nil
 		},
@@ -164,7 +164,7 @@ func newViewCmd() *cobra.Command {
 				dim.Render("encrypted blob"),
 				len(blob),
 			)
-			printDim("  Profile is encrypted to operator. Use `dating fetch` for decrypted profiles.")
+			printDim("  Profile is encrypted to operator. Use `op fetch` for decrypted profiles.")
 			fmt.Println()
 			return nil
 		},

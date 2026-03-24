@@ -1,4 +1,4 @@
-# dating.dev
+# openpool
 
 Decentralized, terminal-native matching platform. GitHub repos as the database, encrypted profiles, chain-encrypted discovery, E2E encrypted chat.
 
@@ -102,21 +102,21 @@ indexing:
 ## Install
 
 ```bash
-git clone https://github.com/vutran1710/dating-dev
-cd dating-dev
-make build    # builds bin/dating + bin/relay + bin/action-tool
+git clone https://github.com/vutran1710/openpool
+cd openpool
+make build    # builds bin/op + bin/relay + bin/action-tool
 ```
 
 ## Quick Start
 
 ```bash
 # Launch TUI — guided onboarding
-dating
+op
 
 # Or use CLI commands:
-dating pool join <pool-name>
-dating like <match_hash>
-dating chat <match_hash>
+op pool join <pool-name>
+op like <match_hash>
+op chat <match_hash>
 ```
 
 ## Operator Tools
@@ -136,14 +136,14 @@ action-tool index --schema pool.yaml --users-dir users/ --output index.db --uplo
 
 | Binary | Purpose |
 |--------|---------|
-| `dating` | CLI/TUI app for end users |
+| `op` | CLI/TUI app for end users |
 | `relay` | Per-pool stateless WebSocket relay server |
 | `action-tool` | Operator toolbox: register, match, squash, index, managed-register |
 
 ## Local Data
 
 ```
-~/.dating/
+~/.openpool/
 ├── setting.toml                     Config: user, pools, registries
 ├── keys/identity.{pub,key}          ed25519 keypair (hex)
 ├── conversations.db                 Chat messages (SQLite)
@@ -169,8 +169,8 @@ action-tool index --schema pool.yaml --users-dir users/ --output index.db --uplo
 ## Development
 
 ```bash
-make build     # bin/dating + bin/relay + bin/action-tool
-make test      # tests with isolated DATING_HOME
+make build     # bin/op + bin/relay + bin/action-tool
+make test      # tests with isolated OPENPOOL_HOME
 make coverage  # coverage report
 ```
 

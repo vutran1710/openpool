@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	gh "github.com/vutran1710/dating-dev/internal/github"
+	gh "github.com/vutran1710/openpool/internal/github"
 )
 
 func TestOnboarding_InitialState(t *testing.T) {

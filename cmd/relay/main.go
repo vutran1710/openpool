@@ -4,7 +4,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/vutran1710/dating-dev/internal/relay"
+	"github.com/vutran1710/openpool/internal/relay"
 )
 
 func main() {

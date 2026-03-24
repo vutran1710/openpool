@@ -6,12 +6,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/vutran1710/dating-dev/internal/cli/config"
+	"github.com/vutran1710/openpool/internal/cli/config"
 )
 
 func TestProfileCreate_BaseTemplate(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("DATING_HOME", dir)
+	t.Setenv("OPENPOOL_HOME", dir)
 
 	cfg := &config.Config{}
 	cfg.User.DisplayName = "Test User"
@@ -41,7 +41,7 @@ func TestProfileCreate_BaseTemplate(t *testing.T) {
 
 func TestProfileCreate_FromFlag(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("DATING_HOME", dir)
+	t.Setenv("OPENPOOL_HOME", dir)
 
 	cfg := &config.Config{}
 	cfg.Save()
@@ -76,7 +76,7 @@ func TestProfileCreate_FromFlag(t *testing.T) {
 
 func TestProfileCreate_DuplicateFromExisting(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("DATING_HOME", dir)
+	t.Setenv("OPENPOOL_HOME", dir)
 
 	cfg := &config.Config{}
 	cfg.AddPool(config.PoolConfig{Name: "existing-pool"})
@@ -109,7 +109,7 @@ func TestProfileCreate_DuplicateFromExisting(t *testing.T) {
 
 func TestProfileCreate_InvalidJSON(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("DATING_HOME", dir)
+	t.Setenv("OPENPOOL_HOME", dir)
 
 	cfg := &config.Config{}
 	cfg.Save()
@@ -127,7 +127,7 @@ func TestProfileCreate_InvalidJSON(t *testing.T) {
 
 func TestProfileShow_NotFound(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("DATING_HOME", dir)
+	t.Setenv("OPENPOOL_HOME", dir)
 
 	cmd := newProfileShowCmd()
 	cmd.SetArgs([]string{"nonexistent"})
@@ -139,7 +139,7 @@ func TestProfileShow_NotFound(t *testing.T) {
 
 func TestProfileEdit_NotFound(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("DATING_HOME", dir)
+	t.Setenv("OPENPOOL_HOME", dir)
 
 	cmd := newProfileEditCmd()
 	cmd.SetArgs([]string{"nonexistent"})
@@ -151,7 +151,7 @@ func TestProfileEdit_NotFound(t *testing.T) {
 
 func TestProfileEdit_Exists(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("DATING_HOME", dir)
+	t.Setenv("OPENPOOL_HOME", dir)
 
 	path := config.PoolProfilePath("test-pool")
 	os.MkdirAll(filepath.Dir(path), 0700)

@@ -15,12 +15,12 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vutran1710/dating-dev/internal/cli/config"
-	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
-	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
-	"github.com/vutran1710/dating-dev/internal/crypto"
-	gh "github.com/vutran1710/dating-dev/internal/github"
-	"github.com/vutran1710/dating-dev/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/cli/config"
+	"github.com/vutran1710/openpool/internal/cli/tui/components"
+	"github.com/vutran1710/openpool/internal/cli/tui/theme"
+	"github.com/vutran1710/openpool/internal/crypto"
+	gh "github.com/vutran1710/openpool/internal/github"
+	"github.com/vutran1710/openpool/internal/gitrepo"
 )
 
 var onboardingHTTPClient = &http.Client{Timeout: 30 * time.Second}
@@ -455,18 +455,18 @@ func (s OnboardingScreen) tokenInputCompact() string {
 
 func (s OnboardingScreen) registryInputCompact() string {
 	out := "  " + theme.BoldStyle.Render("Enter pool registry") + "\n"
-	out += "  " + theme.DimStyle.Render("Discover at: ") + theme.AccentStyle.Render("https://dating.dev/pools") + "\n"
+	out += "  " + theme.DimStyle.Render("Discover at: ") + theme.AccentStyle.Render("https://openpool.dev/pools") + "\n"
 	out += "  " + theme.DimStyle.Render("Example: ") + theme.TextStyle.Render("owner/registry") + theme.DimStyle.Render(" or full git URL") + "\n\n"
 	out += "  " + s.input.View() + "\n"
 	return out
 }
 
 func (s OnboardingScreen) welcomeView() string {
-	title := theme.BoldStyle.Render("Welcome to dating.dev") + "\n\n"
+	title := theme.BoldStyle.Render("Welcome to openpool") + "\n\n"
 	body := theme.TextStyle.Render("To get started, we need to set up:") + "\n\n"
 	body += theme.TextStyle.Render("  1. ") + theme.AccentStyle.Render("GitHub token") + theme.DimStyle.Render("  — for identity & registration") + "\n"
 	body += theme.TextStyle.Render("  2. ") + theme.AccentStyle.Render("Keypair") + theme.DimStyle.Render("       — for encryption & signing") + "\n"
-	body += theme.TextStyle.Render("  3. ") + theme.AccentStyle.Render("Registry") + theme.DimStyle.Render("     — to discover dating pools") + "\n\n"
+	body += theme.TextStyle.Render("  3. ") + theme.AccentStyle.Render("Registry") + theme.DimStyle.Render("     — to discover op pools") + "\n\n"
 	body += theme.DimStyle.Render("Your token will be encrypted and stored locally.") + "\n"
 	body += theme.DimStyle.Render("Your private key never leaves your machine.") + "\n\n"
 	hint := theme.DimStyle.Render("Press enter to begin")

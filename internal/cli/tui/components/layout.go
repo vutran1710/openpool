@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
+	"github.com/vutran1710/openpool/internal/cli/tui/theme"
 )
 
 // Align controls horizontal alignment within a column.

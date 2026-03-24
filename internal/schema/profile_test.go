@@ -63,8 +63,8 @@ func TestLoadProfile_InvalidJSON(t *testing.T) {
 }
 
 func TestProfilePath(t *testing.T) {
-	path := ProfilePath("/home/user/.dating", "love-pool")
-	expected := filepath.Join("/home/user/.dating", "pools", "love-pool", "profile.json")
+	path := ProfilePath("/home/user/.openpool", "love-pool")
+	expected := filepath.Join("/home/user/.openpool", "pools", "love-pool", "profile.json")
 	if path != expected {
 		t.Errorf("expected %q, got %q", expected, path)
 	}

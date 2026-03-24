@@ -6,7 +6,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
+	"github.com/vutran1710/openpool/internal/cli/tui/theme"
 )
 
 // PoolCardData holds all data needed to render a pool detail card.
@@ -147,7 +147,7 @@ func renderCardAction(p PoolCardData) string {
 	case "rejected":
 		line = theme.RedStyle.Render("Registration rejected") + theme.DimStyle.Render("  ·  Press enter to join again")
 	default:
-		return theme.DimStyle.Render("Press enter to join  ·  dating pool join " + p.Name)
+		return theme.DimStyle.Render("Press enter to join  ·  op pool join " + p.Name)
 	}
 
 	if p.PendingIssue > 0 && p.Repo != "" {

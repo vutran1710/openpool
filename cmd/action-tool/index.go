@@ -9,10 +9,10 @@ import (
 	"log"
 	"os"
 
-	gh "github.com/vutran1710/dating-dev/internal/github"
-	"github.com/vutran1710/dating-dev/internal/bucket"
-	"github.com/vutran1710/dating-dev/internal/indexer"
-	"github.com/vutran1710/dating-dev/internal/schema"
+	gh "github.com/vutran1710/openpool/internal/github"
+	"github.com/vutran1710/openpool/internal/bucket"
+	"github.com/vutran1710/openpool/internal/indexer"
+	"github.com/vutran1710/openpool/internal/schema"
 )
 
 func cmdIndex() {

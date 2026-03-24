@@ -10,10 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/vutran1710/dating-dev/internal/crypto"
-	"github.com/vutran1710/dating-dev/internal/github"
-	"github.com/vutran1710/dating-dev/internal/gitrepo"
-	"github.com/vutran1710/dating-dev/internal/schema"
+	"github.com/vutran1710/openpool/internal/crypto"
+	"github.com/vutran1710/openpool/internal/github"
+	"github.com/vutran1710/openpool/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/schema"
 )
 
 func cmdManagedRegister() {
@@ -23,7 +23,7 @@ func cmdManagedRegister() {
 	profilePath := fs.String("profile", "", "path to JSON profile file")
 	pool := fs.String("pool", "", "pool repo (owner/repo)")
 	schemaPath := fs.String("schema", "pool.yaml", "path to pool.yaml")
-	outputDir := fs.String("output-dir", "", "directory to write DATING_HOME bundle")
+	outputDir := fs.String("output-dir", "", "directory to write OPENPOOL_HOME bundle")
 	fs.Parse(os.Args[2:])
 
 	if *provider == "" || *userid == "" || *profilePath == "" || *pool == "" || *outputDir == "" {
@@ -172,5 +172,5 @@ match_hash = '%s'
 	fmt.Printf("  match_hash: %s\n", matchHash)
 	fmt.Printf("  output:     %s\n", *outputDir)
 	fmt.Println()
-	fmt.Printf("  DATING_HOME=%s dating\n", *outputDir)
+	fmt.Printf("  OPENPOOL_HOME=%s dating\n", *outputDir)
 }

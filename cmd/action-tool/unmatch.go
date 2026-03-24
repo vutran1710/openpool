@@ -10,10 +10,10 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/vutran1710/dating-dev/internal/crypto"
-	"github.com/vutran1710/dating-dev/internal/github"
-	"github.com/vutran1710/dating-dev/internal/limits"
-	"github.com/vutran1710/dating-dev/internal/message"
+	"github.com/vutran1710/openpool/internal/crypto"
+	"github.com/vutran1710/openpool/internal/github"
+	"github.com/vutran1710/openpool/internal/limits"
+	"github.com/vutran1710/openpool/internal/message"
 )
 
 func cmdUnmatch() {

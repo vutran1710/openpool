@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/pelletier/go-toml/v2"
-	"github.com/vutran1710/dating-dev/internal/crypto"
+	"github.com/vutran1710/openpool/internal/crypto"
 )
 
 type Config struct {
@@ -42,11 +42,11 @@ type PoolConfig struct {
 }
 
 func Dir() string {
-	if d := os.Getenv("DATING_HOME"); d != "" {
+	if d := os.Getenv("OPENPOOL_HOME"); d != "" {
 		return d
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".dating")
+	return filepath.Join(home, ".openpool")
 }
 
 func KeysDir() string {

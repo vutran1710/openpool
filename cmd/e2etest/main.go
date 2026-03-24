@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vutran1710/dating-dev/internal/crypto"
-	"github.com/vutran1710/dating-dev/internal/message"
+	"github.com/vutran1710/openpool/internal/crypto"
+	"github.com/vutran1710/openpool/internal/message"
 )
 
 var passed, failed int

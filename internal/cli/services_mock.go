@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/vutran1710/dating-dev/internal/cli/config"
-	"github.com/vutran1710/dating-dev/internal/cli/svc"
-	"github.com/vutran1710/dating-dev/internal/crypto"
-	"github.com/vutran1710/dating-dev/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/cli/config"
+	"github.com/vutran1710/openpool/internal/cli/svc"
+	"github.com/vutran1710/openpool/internal/crypto"
+	"github.com/vutran1710/openpool/internal/gitrepo"
 )
 
 // MockServices creates a fully mocked Services for testing.
@@ -33,9 +33,9 @@ type MockConfigService struct {
 
 func (m *MockConfigService) Load() (*config.Config, error)       { return m.Cfg, nil }
 func (m *MockConfigService) Save(cfg *config.Config) error       { m.Cfg = cfg; return m.SaveErr }
-func (m *MockConfigService) Dir() string                         { return "/mock/.dating" }
-func (m *MockConfigService) KeysDir() string                     { return "/mock/.dating/keys" }
-func (m *MockConfigService) ProfilePath() string                 { return "/mock/.dating/profile.json" }
+func (m *MockConfigService) Dir() string                         { return "/mock/.openpool" }
+func (m *MockConfigService) KeysDir() string                     { return "/mock/.openpool/keys" }
+func (m *MockConfigService) ProfilePath() string                 { return "/mock/.openpool/profile.json" }
 
 // --- Mock Crypto ---
 

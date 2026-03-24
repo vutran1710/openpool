@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
+	"github.com/vutran1710/openpool/internal/cli/tui/components"
 )
 
 // BuildFormFields generates TUI form fields from schema attributes.

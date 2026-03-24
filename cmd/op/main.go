@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/vutran1710/dating-dev/internal/cli"
+	"github.com/vutran1710/openpool/internal/cli"
 )
 
 func main() {

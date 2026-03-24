@@ -11,10 +11,10 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/vutran1710/dating-dev/internal/cli/config"
-	"github.com/vutran1710/dating-dev/internal/crypto"
-	gh "github.com/vutran1710/dating-dev/internal/github"
-	"github.com/vutran1710/dating-dev/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/cli/config"
+	"github.com/vutran1710/openpool/internal/crypto"
+	gh "github.com/vutran1710/openpool/internal/github"
+	"github.com/vutran1710/openpool/internal/gitrepo"
 )
 
 // parseRegistryInput normalizes registry input to a git-cloneable URL.
@@ -70,7 +70,7 @@ func newRegistryAddCmd() *cobra.Command {
 		Short: "Add a pool registry",
 		Long: `Add a pool registry by GitHub repo (e.g. vutran1710/official-dating-registry).
 
-Discover available registries at https://dating.dev/pools`,
+Discover available registries at https://openpool.dev/pools`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runRegistryAdd(args[0])
@@ -204,7 +204,7 @@ func runRegistryAdd(input string) error {
 					cfg.Active = p.Name
 				}
 			} else {
-				printDim(fmt.Sprintf("  %s — not registered  → dating pool join %s", p.Name, p.Name))
+				printDim(fmt.Sprintf("  %s — not registered  → op pool join %s", p.Name, p.Name))
 			}
 		}
 
@@ -273,9 +273,9 @@ func newRegistryListCmd() *cobra.Command {
 
 			if len(cfg.Registries) == 0 {
 				printDim("  No registries configured.")
-				printDim("  Add one with: dating registry add <owner/repo>")
+				printDim("  Add one with: op registry add <owner/repo>")
 				fmt.Println()
-				printDim("  Discover registries at: https://dating.dev/pools")
+				printDim("  Discover registries at: https://openpool.dev/pools")
 				return nil
 			}
 
@@ -313,7 +313,7 @@ func newRegistrySwitchCmd() *cobra.Command {
 			}
 			if !found {
 				printWarning("Registry not found: " + args[0])
-				printDim("  Add it first: dating registry add " + args[0])
+				printDim("  Add it first: op registry add " + args[0])
 				return nil
 			}
 

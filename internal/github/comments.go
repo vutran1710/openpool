@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vutran1710/dating-dev/internal/message"
+	"github.com/vutran1710/openpool/internal/message"
 )
 
 // FindOperatorReplyInIssue scans issue comments newest-first for the first one

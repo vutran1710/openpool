@@ -9,10 +9,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vutran1710/dating-dev/internal/cli/config"
-	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
-	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
-	"github.com/vutran1710/dating-dev/internal/schema"
+	"github.com/vutran1710/openpool/internal/cli/config"
+	"github.com/vutran1710/openpool/internal/cli/tui/components"
+	"github.com/vutran1710/openpool/internal/cli/tui/theme"
+	"github.com/vutran1710/openpool/internal/schema"
 )
 
 type profileLoadedMsg struct {

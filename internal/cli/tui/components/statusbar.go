@@ -2,7 +2,7 @@ package components
 
 import (
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
+	"github.com/vutran1710/openpool/internal/cli/tui/theme"
 )
 
 type StatusBar struct {
@@ -24,10 +24,11 @@ func (s StatusBar) View() string {
 	rightAlign := lipgloss.NewStyle().Align(lipgloss.Right)
 	pad := lipgloss.NewStyle().Padding(0, 2)
 
-	// Row 1: ♥ dating.dev ... ⬡ User hash
-	heart := s.Heart.Inline()
-	title := lipgloss.NewStyle().Foreground(theme.Pink).Bold(true).Render("dating.dev")
-	leftR1 := heart + " " + title
+	// Row 1: openpool: <registry-name> ... ⬡ User hash
+	leftR1 := theme.BrandStyle.Render("openpool")
+	if s.Registry != "" {
+		leftR1 += theme.DimStyle.Render(": ") + theme.BoldStyle.Render(s.Registry)
+	}
 
 	rightR1 := ""
 	if s.User != "" {

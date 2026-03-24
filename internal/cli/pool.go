@@ -13,11 +13,11 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/vutran1710/dating-dev/internal/cli/config"
-	"github.com/vutran1710/dating-dev/internal/crypto"
-	gh "github.com/vutran1710/dating-dev/internal/github"
-	"github.com/vutran1710/dating-dev/internal/gitrepo"
-	"github.com/vutran1710/dating-dev/internal/schema"
+	"github.com/vutran1710/openpool/internal/cli/config"
+	"github.com/vutran1710/openpool/internal/crypto"
+	gh "github.com/vutran1710/openpool/internal/github"
+	"github.com/vutran1710/openpool/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/schema"
 )
 
 func parseCSV(s string) []string {
@@ -38,7 +38,7 @@ func requireRegistry(cfg *config.Config) (string, error) {
 	}
 
 	fmt.Println("  No registry configured.")
-	printDim("  Discover registries at: https://dating.dev/pools")
+	printDim("  Discover registries at: https://openpool.dev/pools")
 	fmt.Println()
 
 	reader := bufio.NewReader(os.Stdin)
@@ -67,7 +67,7 @@ func requireRegistry(cfg *config.Config) (string, error) {
 func newPoolCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pool",
-		Short: "Manage dating pools",
+		Short: "Manage op pools",
 	}
 
 	cmd.AddCommand(
@@ -205,7 +205,7 @@ func newPoolBrowseCmd() *cobra.Command {
 				fmt.Printf("     %s %s\n", dim.Render("repo:"), p.Repo)
 			}
 			fmt.Println()
-			printDim("  Join with: dating pool join <name>")
+			printDim("  Join with: op pool join <name>")
 			fmt.Println()
 			return nil
 		},
@@ -227,10 +227,10 @@ func newPoolJoinCmd() *cobra.Command {
 Then polls for the Action's response to receive your relay hashes.
 
 Prerequisites:
-  - Registry configured (dating registry add <repo>)
-  - Keys generated (dating auth)
+  - Registry configured (op registry add <repo>)
+  - Keys generated (op auth)
   - GitHub authenticated (gh auth login)
-  - Profile created (dating profile create <pool>)`,
+  - Profile created (op profile create <pool>)`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -244,7 +244,7 @@ Prerequisites:
 			// Prerequisite: registry
 			if cfg.ActiveRegistry == "" {
 				printError("No registry configured.")
-				printDim("  Run: dating registry add <repo>")
+				printDim("  Run: op registry add <repo>")
 				return nil
 			}
 
@@ -280,7 +280,7 @@ Prerequisites:
 			pub, priv, err := crypto.LoadKeyPair(config.KeysDir())
 			if err != nil {
 				printError("Keys not found.")
-				printDim("  Run: dating auth")
+				printDim("  Run: op auth")
 				return nil
 			}
 
@@ -293,7 +293,7 @@ Prerequisites:
 			if err != nil {
 				if os.IsNotExist(err) {
 					printError(fmt.Sprintf("Profile not found at: %s", profilePath))
-					printDim(fmt.Sprintf("  Create one: dating profile create %s", name))
+					printDim(fmt.Sprintf("  Create one: op profile create %s", name))
 					return nil
 				}
 				return fmt.Errorf("reading profile: %w", err)
@@ -382,7 +382,7 @@ Prerequisites:
 				if err := cfg.Save(); err != nil {
 					return err
 				}
-				printDim("  Skipping poll (--no-wait). Run: dating pool list — it will auto-check for hashes.")
+				printDim("  Skipping poll (--no-wait). Run: op pool list — it will auto-check for hashes.")
 				return nil
 			}
 
@@ -437,7 +437,7 @@ Prerequisites:
 		},
 	}
 
-	cmd.Flags().StringVar(&profileFlag, "profile", "", "path to profile JSON (default: ~/.dating/pools/<pool>/profile.json)")
+	cmd.Flags().StringVar(&profileFlag, "profile", "", "path to profile JSON (default: ~/.openpool/pools/<pool>/profile.json)")
 	cmd.Flags().BoolVar(&noWait, "no-wait", false, "submit issue without polling for hashes")
 	return cmd
 }
@@ -445,7 +445,7 @@ Prerequisites:
 func newPoolLeaveCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "leave <name>",
-		Short: "Leave a dating pool",
+		Short: "Leave a op pool",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
@@ -480,7 +480,7 @@ func newPoolListCmd() *cobra.Command {
 			}
 
 			if len(cfg.Pools) == 0 {
-				printDim("  No pools joined. Try: dating pool browse")
+				printDim("  No pools joined. Try: op pool browse")
 				return nil
 			}
 

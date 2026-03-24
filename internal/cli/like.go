@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/vutran1710/dating-dev/internal/cli/config"
-	"github.com/vutran1710/dating-dev/internal/crypto"
-	"github.com/vutran1710/dating-dev/internal/gitrepo"
-	"github.com/vutran1710/dating-dev/internal/schema"
+	"github.com/vutran1710/openpool/internal/cli/config"
+	"github.com/vutran1710/openpool/internal/crypto"
+	"github.com/vutran1710/openpool/internal/gitrepo"
+	"github.com/vutran1710/openpool/internal/schema"
 )
 
 func newLikeCmd() *cobra.Command {
@@ -31,7 +31,7 @@ func newLikeCmd() *cobra.Command {
 
 			pool := cfg.ActivePool()
 			if pool == nil {
-				printError("No active pool. Run: dating pool join <name>")
+				printError("No active pool. Run: op pool join <name>")
 				return nil
 			}
 			if pool.MatchHash == "" || pool.BinHash == "" {
