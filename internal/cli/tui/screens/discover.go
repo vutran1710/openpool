@@ -3,6 +3,7 @@ package screens
 import (
 	"fmt"
 	"math/rand"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -13,7 +14,6 @@ import (
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
 	"github.com/vutran1710/dating-dev/internal/explorer"
-	gh "github.com/vutran1710/dating-dev/internal/github"
 )
 
 // DiscoverLikeMsg signals the user wants to like someone.
@@ -78,11 +78,10 @@ func LoadDiscoverCmd(poolName string) tea.Cmd {
 			return discoverLoadedMsg{err: fmt.Errorf("registration pending — wait for pool to process")}
 		}
 
-		// Download index.db from release asset
-		indexPath := filepath.Join(config.Dir(), "pools", poolName, "chain-index.db")
-		dlErr := gh.DownloadReleaseAsset(pool.Repo, "index-latest", "index.db", indexPath)
-		if dlErr != nil {
-			return discoverLoadedMsg{err: fmt.Errorf("downloading index: %w", dlErr)}
+		// Read local index.db (synced by pools screen)
+		indexPath := filepath.Join(config.Dir(), "pools", poolName, "index.db")
+		if _, statErr := os.Stat(indexPath); statErr != nil {
+			return discoverLoadedMsg{err: fmt.Errorf("no index found — sync from Pools screen first")}
 		}
 
 		// Open explorer

@@ -2,11 +2,14 @@ package screens
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/vutran1710/dating-dev/internal/cli/config"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/components"
 	"github.com/vutran1710/dating-dev/internal/cli/tui/theme"
 	dbg "github.com/vutran1710/dating-dev/internal/debug"
@@ -119,6 +122,11 @@ func (s PoolsScreen) fetchPools() tea.Msg {
 				pool := gh.NewLocalPool(poolRepo)
 				stats = pool.Stats()
 			}
+			// Download chain-encrypted index.db for discovery
+			indexDir := filepath.Join(config.Dir(), "pools", e.Name)
+			os.MkdirAll(indexDir, 0700)
+			indexPath := filepath.Join(indexDir, "index.db")
+			gh.DownloadReleaseAsset(e.Repo, "index-latest", "index.db", indexPath)
 		} else {
 			// Unjoined: use API (no token needed for public repos)
 			pool := gh.NewPoolWithClient(gh.NewCLIOrHTTP(e.Repo, ""))
