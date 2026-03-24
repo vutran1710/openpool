@@ -1,4 +1,4 @@
-// Package explorer2 reads chain-encrypted index.db and grinds to unlock profiles.
+// Package explorer reads chain-encrypted index.db and grinds to unlock profiles.
 // Tracks state (known constants, checkpoints, seen) in a local SQLite database.
 // Does NOT replace the old discover screen.
 package explorer

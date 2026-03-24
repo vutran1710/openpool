@@ -1,4 +1,4 @@
-// Package indexer2 builds chain-encrypted index.db from .bin files.
+// Package indexer builds chain-encrypted index.db from .bin files.
 // Composes chainenc + bucket packages. Does NOT replace the old indexer.
 package indexer
 
