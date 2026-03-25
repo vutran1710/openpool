@@ -108,24 +108,14 @@ indexing:
 
 ## Install
 
-**Download the latest release:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/vutran1710/homebrew-tap/main/install.sh | sh
+```
+
+**Or with Homebrew:**
 
 ```bash
-# macOS (Apple Silicon)
-curl -fsSL https://github.com/vutran1710/openpool/releases/latest/download/op-darwin-arm64 -o op
-chmod +x op && sudo mv op /usr/local/bin/
-
-# macOS (Intel)
-curl -fsSL https://github.com/vutran1710/openpool/releases/latest/download/op-darwin-amd64 -o op
-chmod +x op && sudo mv op /usr/local/bin/
-
-# Linux (x86_64)
-curl -fsSL https://github.com/vutran1710/openpool/releases/latest/download/op-linux-amd64 -o op
-chmod +x op && sudo mv op /usr/local/bin/
-
-# Linux (ARM64)
-curl -fsSL https://github.com/vutran1710/openpool/releases/latest/download/op-linux-arm64 -o op
-chmod +x op && sudo mv op /usr/local/bin/
+brew install vutran1710/tap/op
 ```
 
 **Or build from source:**
@@ -205,8 +195,8 @@ make coverage  # coverage report
 
 ## Roadmap
 
+- [x] Homebrew tap (`brew install vutran1710/tap/op`)
 - [ ] AI assistance during chat via `/ai` command
-- [ ] Homebrew tap (`brew install vutran1710/tap/op`)
 - [ ] Self-hosted media via Cloudflare Tunnel
 - [ ] Forward secrecy for chat (ratcheted key exchange)
 - [ ] Web-based pool explorer (browse pools without CLI)

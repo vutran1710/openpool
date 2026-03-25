@@ -54,8 +54,6 @@ type InboxScreen struct {
 	acting  bool // true while accept/reject in progress
 	err     error
 	spinner spinner.Model
-	Width   int
-	Height  int
 }
 
 func NewInboxScreen() InboxScreen {
@@ -131,38 +129,28 @@ func (s InboxScreen) Update(msg tea.Msg) (InboxScreen, tea.Cmd) {
 }
 
 func (s InboxScreen) View() string {
-	panelWidth := 54
-	if s.Width > 0 && s.Width < panelWidth+10 {
-		panelWidth = s.Width - 10
-	}
-	if panelWidth < 30 {
-		panelWidth = 30
-	}
-
-	var content string
-
 	if s.loading || s.acting {
 		label := "Loading inbox..."
 		if s.acting {
 			label = "Processing..."
 		}
-		content = s.spinner.View() + " " + theme.DimStyle.Render(label)
-		return components.ScreenLayout("Inbox", components.DimHints("incoming interests"), centerPanel(content, panelWidth, s.Width, s.Height))
+		return components.ScreenLayout("Inbox", components.DimHints("incoming interests"),
+			s.spinner.View()+" "+theme.DimStyle.Render(label))
 	}
 
 	if s.err != nil {
-		content = theme.RedStyle.Render("Error: " + s.err.Error())
-		return components.ScreenLayout("Inbox", components.DimHints("incoming interests"), centerPanel(content, panelWidth, s.Width, s.Height))
+		return components.ScreenLayout("Inbox", components.DimHints("incoming interests"),
+			theme.RedStyle.Render(s.err.Error()))
 	}
 
 	if !s.loaded {
-		content = theme.DimStyle.Render("Press enter to load inbox")
-		return components.ScreenLayout("Inbox", components.DimHints("incoming interests"), centerPanel(content, panelWidth, s.Width, s.Height))
+		return components.ScreenLayout("Inbox", components.DimHints("incoming interests"),
+			theme.DimStyle.Render("Press enter to load inbox"))
 	}
 
 	if len(s.likes) == 0 {
-		content = theme.DimStyle.Render("No incoming interests yet")
-		return components.ScreenLayout("Inbox", components.DimHints("incoming interests"), centerPanel(content, panelWidth, s.Width, s.Height))
+		return components.ScreenLayout("Inbox", components.DimHints("incoming interests"),
+			theme.DimStyle.Render("No incoming interests yet"))
 	}
 
 	// Current like
@@ -186,11 +174,6 @@ func (s InboxScreen) View() string {
 		msgLine = theme.TextStyle.Render(`"` + item.Message + `"`)
 	}
 
-	// Actions
-	actions := theme.DimStyle.Render("y") + " accept  " +
-		theme.DimStyle.Render("n") + " reject  " +
-		theme.DimStyle.Render("esc") + " back"
-
 	lines := []string{
 		cardHeader,
 		"",
@@ -198,27 +181,11 @@ func (s InboxScreen) View() string {
 		timeLine,
 		"",
 		msgLine,
-		"",
-		actions,
 	}
 
-	content = strings.Join(lines, "\n")
-	return components.ScreenLayout("Inbox", components.DimHints("incoming interests"), centerPanel(content, panelWidth, s.Width, s.Height))
-}
-
-func centerPanel(content string, panelWidth, screenWidth, screenHeight int) string {
-	panel := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(theme.Border).
-		Padding(1, 2).
-		Width(panelWidth).
-		Render(content)
-
-	return lipgloss.Place(
-		screenWidth, screenHeight,
-		lipgloss.Center, lipgloss.Center,
-		panel,
-	)
+	return components.ScreenLayout("Inbox",
+		components.DimHints(fmt.Sprintf("%d incoming", len(s.likes))),
+		strings.Join(lines, "\n"))
 }
 
 func timeAgo(t time.Time) string {

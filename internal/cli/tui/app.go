@@ -228,8 +228,6 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.profile.Height = msg.Height
 		a.settings.Width = msg.Width
 		a.settings.Height = msg.Height
-		a.inbox.Width = msg.Width
-		a.inbox.Height = msg.Height
 		a.poolOnboard, _ = a.poolOnboard.Update(msg)
 		a.home = a.home.SetSize(msg.Width, msg.Height)
 		return a, nil
@@ -688,10 +686,7 @@ func (a app) handleMenuSelect(key string) (tea.Model, tea.Cmd) {
 	case "inbox":
 		a.screen = screenInbox
 		a.inbox = screens.NewInboxScreen()
-		a.inbox.Width = a.width
-		a.inbox.Height = a.height
 		a.updateHelp()
-		// Trigger fetch
 		return a, fetchInbox(a.pool, a.registry)
 	case "profile":
 		dbg.Log("navigate → profile")
@@ -782,8 +777,6 @@ func (a app) handleSubmit(msg components.SubmitMsg) (tea.Model, tea.Cmd) {
 		case "/inbox":
 			a.screen = screenInbox
 			a.inbox = screens.NewInboxScreen()
-			a.inbox.Width = a.width
-			a.inbox.Height = a.height
 			a.updateHelp()
 			return a, fetchInbox(a.pool, a.registry)
 		case "/settings":
