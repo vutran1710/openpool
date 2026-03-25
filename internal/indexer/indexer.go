@@ -195,6 +195,9 @@ type indexProfile struct {
 func readProfiles(usersDir string, opKey ed25519.PrivateKey, salt string) ([]indexProfile, error) {
 	entries, err := os.ReadDir(usersDir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return []indexProfile{}, nil
+		}
 		return nil, err
 	}
 
