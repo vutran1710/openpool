@@ -69,3 +69,63 @@ jobs:
             --title "$TAG" \
             --generate-notes \
             dist/*
+
+      - name: Update Homebrew formula
+        env:
+          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          VER="${VERSION#v}"
+          SHA_DARWIN_ARM64=$(grep op-darwin-arm64 dist/checksums.txt | awk '{print $1}')
+          SHA_DARWIN_AMD64=$(grep op-darwin-amd64 dist/checksums.txt | awk '{print $1}')
+          SHA_LINUX_ARM64=$(grep op-linux-arm64 dist/checksums.txt | awk '{print $1}')
+          SHA_LINUX_AMD64=$(grep op-linux-amd64 dist/checksums.txt | awk '{print $1}')
+
+          cat > /tmp/op.rb <<FORMULA
+          class Op < Formula
+            desc "Decentralized, terminal-native matching platform"
+            homepage "https://github.com/vutran1710/openpool"
+            version "${VER}"
+            license "MIT"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/vutran1710/openpool/releases/download/v#{version}/op-darwin-arm64"
+                sha256 "${SHA_DARWIN_ARM64}"
+              else
+                url "https://github.com/vutran1710/openpool/releases/download/v#{version}/op-darwin-amd64"
+                sha256 "${SHA_DARWIN_AMD64}"
+              end
+            end
+
+            on_linux do
+              if Hardware::CPU.arm?
+                url "https://github.com/vutran1710/openpool/releases/download/v#{version}/op-linux-arm64"
+                sha256 "${SHA_LINUX_ARM64}"
+              else
+                url "https://github.com/vutran1710/openpool/releases/download/v#{version}/op-linux-amd64"
+                sha256 "${SHA_LINUX_AMD64}"
+              end
+            end
+
+            def install
+              bin.install Dir["op-*"].first => "op"
+            end
+
+            test do
+              assert_match "openpool", shell_output("#{bin}/op --help 2>&1", 0)
+            end
+          end
+          FORMULA
+
+          # Remove leading whitespace from heredoc
+          sed -i 's/^          //' /tmp/op.rb
+
+          git clone https://x-access-token:${GH_TOKEN}@github.com/vutran1710/homebrew-tap.git /tmp/tap
+          cp /tmp/op.rb /tmp/tap/Formula/op.rb
+          cd /tmp/tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/op.rb
+          git commit -m "bump op to ${VER}"
+          git push
