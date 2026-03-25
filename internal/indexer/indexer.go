@@ -48,8 +48,7 @@ func Build(cfg Config) error {
 	}
 
 	if len(profiles) == 0 {
-		// Create empty index.db with schema
-		return createEmptyDB(cfg.OutputPath)
+		return nil // no profiles, skip index build
 	}
 
 	// Assign profiles to buckets

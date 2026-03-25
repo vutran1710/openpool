@@ -88,6 +88,12 @@ func cmdIndex() {
 		log.Fatalf("building index: %v", err)
 	}
 
+	// Check if index was created (skipped if no profiles)
+	if _, statErr := os.Stat(*output); os.IsNotExist(statErr) {
+		fmt.Println("  no profiles found — skipping index build")
+		return
+	}
+
 	stats, _ := indexer.Stats(*output)
 	fmt.Printf("  buckets:      %d\n", stats.Buckets)
 	fmt.Printf("  entries:      %d\n", stats.Entries)
