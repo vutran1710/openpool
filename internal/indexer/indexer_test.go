@@ -174,8 +174,9 @@ func TestBuild_MissingUsersDir(t *testing.T) {
 		NonceSpace:   5,
 		Salt:         "test",
 	})
-	if err == nil {
-		t.Error("should fail with missing users dir")
+	// Missing users dir should succeed with empty index (graceful handling)
+	if err != nil {
+		t.Errorf("should succeed with missing users dir, got: %v", err)
 	}
 }
 
