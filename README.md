@@ -178,9 +178,11 @@ POOL_URL=owner/pool-name POOL_SALT=your-salt relay
 
 Set `relay_url` in `pool.yaml` to the deployed URL (e.g. `wss://relay.example.com`).
 
-### 4. Register with a registry
+### 4. Register with a registry (optional)
 
-Add your pool to a registry's `registry.yaml` so users can discover it. The base registry is [openpool-base-registry](https://github.com/vutran1710/openpool-base-registry).
+Registries are how users discover pools, but they're not required — users can always join a pool directly by repo URL (`op pool join owner/pool-name`). If you want your pool listed for discovery, add it to a registry's `registry.yaml`. The base registry is [openpool-base-registry](https://github.com/vutran1710/openpool-base-registry).
+
+You can also create your own registry by forking [openpool-base-registry](https://github.com/vutran1710/openpool-base-registry) and curating your own pool list.
 
 ### GitHub Actions (included in template)
 
