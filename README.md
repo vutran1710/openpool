@@ -138,18 +138,91 @@ op like <match_hash>
 op chat <match_hash>
 ```
 
-## Operator Tools
+## Running a Pool
+
+### 1. Create the pool repo
+
+Fork [openpool-base-pool](https://github.com/vutran1710/openpool-base-pool) (template repo). It includes `pool.yaml`, a `users/` directory, and all the GitHub Actions pre-configured.
+
+Edit `pool.yaml` to define your pool's name, profile schema, roles, and indexing config.
+
+### 2. Generate operator keys
 
 ```bash
-# Create managed users (for testing or non-GitHub identity providers)
-action-tool managed-register \
-  --provider managed --userid test-user \
-  --profile profile.json --pool owner/repo \
-  --output-dir /tmp/user-home
+# Generate an ed25519 keypair
+action-tool pubkey --generate
 
-# Build chain-encrypted index
-action-tool index --schema pool.yaml --users-dir users/ --output index.db --upload
+# Output:
+#   private: <128 hex chars>
+#   public:  <64 hex chars>
 ```
+
+Add to your pool repo's GitHub Actions secrets:
+- `OPERATOR_PRIVATE_KEY` — the private key (128 hex chars)
+- `POOL_SALT` — a random string (used for hash derivation)
+
+Set `operator_public_key` in `pool.yaml` to the public key.
+
+### 3. Deploy the relay
+
+The relay is a stateless WebSocket server. Deploy anywhere (Railway, Fly, VPS):
+
+```bash
+# Environment variables:
+#   POOL_URL   — GitHub repo (e.g. owner/pool-name)
+#   POOL_SALT  — same salt as in GitHub Actions secrets
+#   PORT       — listen port (default: 8081)
+
+POOL_URL=owner/pool-name POOL_SALT=your-salt relay
+```
+
+Set `relay_url` in `pool.yaml` to the deployed URL (e.g. `wss://relay.example.com`).
+
+### 4. Register with a registry
+
+Add your pool to a registry's `registry.yaml` so users can discover it. The base registry is [openpool-base-registry](https://github.com/vutran1710/openpool-base-registry).
+
+### GitHub Actions (included in template)
+
+| Action | Trigger | Purpose |
+|--------|---------|---------|
+| `pool-register.yml` | Issue with `registration` label | Validate profile, encrypt, commit `.bin` |
+| `pool-interest.yml` | Issue with `interest` label | Detect mutual interest, post match notifications |
+| `pool-indexer.yml` | Cron (every 5 min) | Build chain-encrypted `index.db`, upload as release |
+| `pool-squash.yml` | Cron (hourly) | Squash git history, clean stale interests |
+| `pool-unmatch.yml` | Issue with `unmatch` label | Remove match files |
+
+## Managed Accounts
+
+For testing or non-GitHub identity providers, operators can create users directly without the Issue-based registration flow:
+
+```bash
+action-tool managed-register \
+  --provider managed \
+  --userid test-user \
+  --profile profile.json \
+  --pool owner/repo \
+  --schema pool.yaml \
+  --output-dir /tmp/user-home
+```
+
+This generates a complete user home directory (`keys/`, `setting.toml`, pool config) that can be distributed to the user. Set `OPENPOOL_HOME=/tmp/user-home op` to run as that user.
+
+## Operator Tools
+
+All operator commands are in `action-tool`:
+
+| Command | Purpose |
+|---------|---------|
+| `register` | Process registration issues |
+| `match` | Detect mutual interest, create matches |
+| `index` | Build chain-encrypted index, optionally upload |
+| `squash` | Squash repo history, clean stale interests |
+| `unmatch` | Process unmatch issues |
+| `managed-register` | Create user accounts directly |
+| `sign` | Sign a message with operator key |
+| `decrypt` | Decrypt a blob with operator key |
+| `pubkey` | Show or generate ed25519 keypair |
 
 ## Binaries
 
